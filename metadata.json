@@ -1,0 +1,5 @@
+{
+  "name": "NVIDIA usd-brep Agentic CAD Studio",
+  "description": "Agentic B-Rep CAD Studio powered by NVIDIA usd-brep (SMLib / OpenUSD) and Gemini 3.8 Flash. Features a text-to-3D CAD copilot with self-healing manifold verification, interactive 3D Z-up viewport, OpenUSD (.usda) & NURBS Brep export, and an embedded NVIDIA usd-brep API Guide Explorer.",
+  "requestFramePermissions": []
+}

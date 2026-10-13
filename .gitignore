@@ -1,0 +1,24 @@
+# Dependencies & Virtual Environments
+node_modules/
+.venv-usd-brep/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Build & Dist
+dist/
+build/
+*.egg-info/
+
+# Environment Variables & Secrets
+.env
+.env.local
+.env.*.local
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
