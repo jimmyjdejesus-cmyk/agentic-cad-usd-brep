@@ -18,7 +18,7 @@ import {
   signInWithGoogle,
   logOut,
 } from '../services/firebase';
-import { AssemblyMassProperties } from '../types/cad';
+import { AssemblyMassProperties, CadAnnotation } from '../types/cad';
 
 interface UserAuthDrawerProps {
   isOpen: boolean;
@@ -30,6 +30,7 @@ interface UserAuthDrawerProps {
   currentAssetName: string;
   massProps: AssemblyMassProperties;
   partCount: number;
+  annotations?: CadAnnotation[];
   onLoadAssembly: (assembly: SavedAssemblyRecord) => void;
 }
 
@@ -43,6 +44,7 @@ export const UserAuthDrawer: React.FC<UserAuthDrawerProps> = ({
   currentAssetName,
   massProps,
   partCount,
+  annotations = [],
   onLoadAssembly,
 }) => {
   const [saveName, setSaveName] = useState<string>(currentAssetName);
@@ -94,6 +96,7 @@ export const UserAuthDrawer: React.FC<UserAuthDrawerProps> = ({
         centerOfMass: `${comX.toFixed(2)}, ${comY.toFixed(2)}, ${comZ.toFixed(2)} cm`,
         boundingBox: `${dimX.toFixed(1)} × ${dimY.toFixed(1)} × ${dimZ.toFixed(1)} cm`,
         partCount,
+        annotations,
       });
 
       setSaveStatus('Assembly saved to Firestore!');

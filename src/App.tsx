@@ -12,6 +12,7 @@ import {
   GitBranch,
   Grid,
   Layers,
+  MapPin,
   Play,
   RefreshCw,
   Scale,
@@ -25,8 +26,11 @@ import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { Viewport3D } from './components/Viewport3D';
 import { ExplosionTimeline } from './components/ExplosionTimeline';
 import { MassPropertiesPanel } from './components/MassPropertiesPanel';
+import { AnnotationsPanel } from './components/AnnotationsPanel';
+import { AnnotationDialog, NewAnnotationData } from './components/AnnotationDialog';
 import { UserAuthDrawer } from './components/UserAuthDrawer';
 import { DEFAULT_PRESETS } from './data/presetsData';
+import { DEFAULT_ANNOTATIONS_MAP } from './data/defaultAnnotations';
 import {
   auth,
   testConnection,
@@ -46,6 +50,7 @@ import {
 } from './services/cadRuntime';
 import { runAgenticCadTurn } from './services/geminiAgent';
 import {
+  CadAnnotation,
   CadExecutionResult,
   CadPreset,
   ChatMessage,
@@ -112,6 +117,28 @@ export const App: React.FC = () => {
   const [explodeFactor, setExplodeFactor] = useState<number>(0);
   const [partOffsets, setPartOffsets] = useState<Record<string, [number, number, number]>>({});
 
+  // 3D Annotations State (synced to CAD assembly & localStorage)
+  const [annotations, setAnnotations] = useState<CadAnnotation[]>(() => {
+    try {
+      const saved = localStorage.getItem(`cad_annotations_${DEFAULT_PRESETS[0].id}`);
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return DEFAULT_ANNOTATIONS_MAP[DEFAULT_PRESETS[0].id] || [];
+  });
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
+  const [isAnnotating, setIsAnnotating] = useState<boolean>(false);
+  const [snapToVertex, setSnapToVertex] = useState<boolean>(true);
+  const [showAnnotations, setShowAnnotations] = useState<boolean>(true);
+  const [isAnnotationDialogOpen, setIsAnnotationDialogOpen] = useState<boolean>(false);
+  const [newAnnotationTarget, setNewAnnotationTarget] = useState<NewAnnotationData | null>(null);
+  const [editingAnnotation, setEditingAnnotation] = useState<CadAnnotation | null>(null);
+  const [focusAnnotationTrigger, setFocusAnnotationTrigger] = useState<{
+    ann: CadAnnotation;
+    token: number;
+  } | null>(null);
+
   // Prompt & Chat Window
   const [isPromptOpen, setIsPromptOpen] = useState<boolean>(true);
   const [chatInput, setChatInput] = useState<string>('');
@@ -172,6 +199,19 @@ export const App: React.FC = () => {
       setSelectedPresetId(first.id);
       setCode(first.code);
       setEnvelope(first.envelope);
+
+      // Initialize annotations for initial preset
+      try {
+        const saved = localStorage.getItem(`cad_annotations_${first.id}`);
+        if (saved) {
+          setAnnotations(JSON.parse(saved));
+        } else {
+          setAnnotations(DEFAULT_ANNOTATIONS_MAP[first.id] || []);
+        }
+      } catch {
+        setAnnotations(DEFAULT_ANNOTATIONS_MAP[first.id] || []);
+      }
+
       await handleExecuteCode(first.code, first.id, first.envelope);
     };
     init();
@@ -204,6 +244,21 @@ export const App: React.FC = () => {
     setSelectedPartName(null);
     setExplodeFactor(0);
     setPartOffsets({});
+
+    // Restore annotations for this preset
+    try {
+      const saved = localStorage.getItem(`cad_annotations_${found.id}`);
+      if (saved) {
+        setAnnotations(JSON.parse(saved));
+      } else {
+        setAnnotations(DEFAULT_ANNOTATIONS_MAP[found.id] || []);
+      }
+    } catch {
+      setAnnotations(DEFAULT_ANNOTATIONS_MAP[found.id] || []);
+    }
+    setSelectedAnnotationId(null);
+    setIsAnnotating(false);
+
     await handleExecuteCode(found.code, found.id, found.envelope);
   };
 
@@ -218,7 +273,82 @@ export const App: React.FC = () => {
       setCustomDensity(null);
     }
     setSelectedPartName(null);
+    if (asm.annotations && Array.isArray(asm.annotations)) {
+      setAnnotations(asm.annotations);
+      try {
+        localStorage.setItem(`cad_annotations_${asm.name}`, JSON.stringify(asm.annotations));
+      } catch (e) {
+        console.warn('Could not cache loaded annotations:', e);
+      }
+    }
     await handleExecuteCode(asm.code, asm.name);
+  };
+
+  // 3D Annotation Actions
+  const handleSaveAnnotation = (ann: CadAnnotation) => {
+    setAnnotations((prev) => {
+      const idx = prev.findIndex((a) => a.id === ann.id);
+      let updated: CadAnnotation[];
+      if (idx >= 0) {
+        updated = [...prev];
+        updated[idx] = ann;
+      } else {
+        updated = [ann, ...prev];
+      }
+      try {
+        localStorage.setItem(`cad_annotations_${selectedPresetId}`, JSON.stringify(updated));
+      } catch (e) {
+        console.warn('LocalStorage save failed:', e);
+      }
+      return updated;
+    });
+    setSelectedAnnotationId(ann.id);
+  };
+
+  const handleDeleteAnnotation = (id: string) => {
+    setAnnotations((prev) => {
+      const updated = prev.filter((a) => a.id !== id);
+      try {
+        localStorage.setItem(`cad_annotations_${selectedPresetId}`, JSON.stringify(updated));
+      } catch (e) {
+        console.warn('LocalStorage delete failed:', e);
+      }
+      return updated;
+    });
+    if (selectedAnnotationId === id) {
+      setSelectedAnnotationId(null);
+    }
+  };
+
+  const handleToggleResolved = (id: string) => {
+    setAnnotations((prev) => {
+      const updated = prev.map((a) => (a.id === id ? { ...a, resolved: !a.resolved } : a));
+      try {
+        localStorage.setItem(`cad_annotations_${selectedPresetId}`, JSON.stringify(updated));
+      } catch (e) {
+        console.warn('LocalStorage toggle failed:', e);
+      }
+      return updated;
+    });
+  };
+
+  const handleRequestPlaceAnnotation = (target: NewAnnotationData) => {
+    setNewAnnotationTarget(target);
+    setEditingAnnotation(null);
+    setIsAnnotationDialogOpen(true);
+    setIsAnnotating(false);
+  };
+
+  const handleEditAnnotation = (ann: CadAnnotation) => {
+    setEditingAnnotation(ann);
+    setNewAnnotationTarget(null);
+    setIsAnnotationDialogOpen(true);
+  };
+
+  const handleFocusAnnotation = (ann: CadAnnotation) => {
+    setSelectedAnnotationId(ann.id);
+    setSelectedPartName(ann.partName);
+    setFocusAnnotationTrigger({ ann, token: Date.now() });
   };
 
   const handleSendAgentPrompt = async (promptText?: string) => {
@@ -535,7 +665,7 @@ export const App: React.FC = () => {
         <div className="flex-1 relative min-h-0 bg-[#06080d]">
           {/* Floating HUD Controls inside the 3D Canvas */}
           <div className="absolute top-4 right-4 z-10 flex items-center gap-2 pointer-events-none">
-            {/* Viewport Toggles (Wireframe, Bounds, Grid) */}
+            {/* Viewport Toggles (Wireframe, Bounds, CoM, Grid, Annotate) */}
             <div className="pointer-events-auto flex items-center gap-1 bg-slate-900/90 border border-slate-800/80 rounded-lg p-1 shadow-lg backdrop-blur-md">
               <button
                 onClick={() => setShowWireframe((v) => !v)}
@@ -573,6 +703,26 @@ export const App: React.FC = () => {
                 <Grid className="w-3.5 h-3.5" />
                 <span>Grid</span>
               </button>
+              {/* Annotate Button Toggle */}
+              <button
+                onClick={() => setIsAnnotating((v) => !v)}
+                className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition ${
+                  isAnnotating
+                    ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/30 animate-pulse'
+                    : showAnnotations
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30'
+                    : 'text-slate-400 hover:bg-slate-800'
+                }`}
+                title="Toggle 3D Annotation Placement Mode"
+              >
+                <MapPin className="w-3.5 h-3.5 text-sky-400" />
+                <span>Annotate</span>
+                {annotations.length > 0 && (
+                  <span className="text-[10px] bg-slate-950/80 px-1.5 py-0.2 rounded-full font-mono text-sky-300">
+                    {annotations.length}
+                  </span>
+                )}
+              </button>
             </div>
 
             {/* Explode Assembly Slider */}
@@ -594,8 +744,8 @@ export const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Floating Mass Properties & Envelope Panel */}
-          <div className="absolute top-14 right-4 z-10 pointer-events-auto">
+          {/* Floating Panels Container (Mass Properties & 3D Annotations) */}
+          <div className="absolute top-14 right-4 z-10 pointer-events-auto flex flex-col items-end gap-2.5 max-h-[calc(100vh-140px)] overflow-y-auto pr-0.5">
             <MassPropertiesPanel
               massProps={massProps}
               selectedMaterial={selectedMaterial}
@@ -604,6 +754,23 @@ export const App: React.FC = () => {
               onSetCustomDensity={setCustomDensity}
               showCenterOfMass={showCenterOfMass}
               onToggleCenterOfMass={setShowCenterOfMass}
+            />
+            <AnnotationsPanel
+              annotations={annotations}
+              selectedPartName={selectedPartName}
+              selectedAnnotationId={selectedAnnotationId}
+              onSelectAnnotation={setSelectedAnnotationId}
+              onFocusAnnotation={handleFocusAnnotation}
+              onEditAnnotation={handleEditAnnotation}
+              onDeleteAnnotation={handleDeleteAnnotation}
+              onToggleResolved={handleToggleResolved}
+              isAnnotating={isAnnotating}
+              onToggleAnnotating={() => setIsAnnotating((v) => !v)}
+              snapToVertex={snapToVertex}
+              onToggleSnapToVertex={() => setSnapToVertex((v) => !v)}
+              showAnnotations={showAnnotations}
+              onToggleShowAnnotations={() => setShowAnnotations((v) => !v)}
+              assetName={selectedPresetId || 'CadAssembly'}
             />
           </div>
 
@@ -650,6 +817,17 @@ export const App: React.FC = () => {
             }
             explodeFactor={explodeFactor}
             partOffsets={partOffsets}
+            annotations={annotations}
+            selectedAnnotationId={selectedAnnotationId}
+            onSelectAnnotation={setSelectedAnnotationId}
+            onEditAnnotation={handleEditAnnotation}
+            onDeleteAnnotation={handleDeleteAnnotation}
+            onToggleResolved={handleToggleResolved}
+            isAnnotating={isAnnotating}
+            snapToVertex={snapToVertex}
+            showAnnotations={showAnnotations}
+            onRequestPlaceAnnotation={handleRequestPlaceAnnotation}
+            focusAnnotationTrigger={focusAnnotationTrigger}
           />
 
           {/* Interactive Assembly Explosion Stages Timeline Dock */}
@@ -734,7 +912,21 @@ export const App: React.FC = () => {
         currentAssetName={selectedPresetId || 'CadAsset'}
         massProps={massProps}
         partCount={execResult?.parts?.length || 0}
+        annotations={annotations}
         onLoadAssembly={handleLoadSavedAssembly}
+      />
+
+      {/* Modal: Create / Edit 3D Annotation */}
+      <AnnotationDialog
+        isOpen={isAnnotationDialogOpen}
+        onClose={() => {
+          setIsAnnotationDialogOpen(false);
+          setNewAnnotationTarget(null);
+          setEditingAnnotation(null);
+        }}
+        targetData={newAnnotationTarget}
+        editingAnnotation={editingAnnotation}
+        onSave={handleSaveAnnotation}
       />
 
       {/* Modal: Google AI Studio Details */}

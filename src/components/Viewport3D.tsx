@@ -1,6 +1,19 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
-import { CadPartOutput } from '../types/cad';
+import {
+  Check,
+  CheckCircle2,
+  Crosshair,
+  Edit2,
+  Layers,
+  MapPin,
+  Ruler,
+  ShieldAlert,
+  Sparkles,
+  Tag,
+  Trash2,
+} from 'lucide-react';
+import { CadAnnotation, CadPartOutput } from '../types/cad';
 
 interface Viewport3DProps {
   parts: CadPartOutput[];
@@ -14,6 +27,34 @@ interface Viewport3DProps {
   overallBounds?: [[number, number, number], [number, number, number]];
   explodeFactor: number;
   partOffsets?: Record<string, [number, number, number]>;
+  // 3D Annotations
+  annotations?: CadAnnotation[];
+  selectedAnnotationId?: string | null;
+  onSelectAnnotation?: (id: string | null) => void;
+  onEditAnnotation?: (ann: CadAnnotation) => void;
+  onDeleteAnnotation?: (id: string) => void;
+  onToggleResolved?: (id: string) => void;
+  isAnnotating?: boolean;
+  snapToVertex?: boolean;
+  showAnnotations?: boolean;
+  onRequestPlaceAnnotation?: (target: {
+    partName: string;
+    targetType: 'surface' | 'vertex';
+    position: [number, number, number];
+    normal?: [number, number, number];
+    vertexIndex?: number;
+  }) => void;
+  focusAnnotationTrigger?: { ann: CadAnnotation; token: number } | null;
+}
+
+interface ProjectedAnnotation {
+  id: string;
+  ann: CadAnnotation;
+  anchorX: number;
+  anchorY: number;
+  leaderX: number;
+  leaderY: number;
+  visible: boolean;
 }
 
 export const Viewport3D: React.FC<Viewport3DProps> = ({
@@ -28,6 +69,17 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   overallBounds,
   explodeFactor,
   partOffsets,
+  annotations = [],
+  selectedAnnotationId = null,
+  onSelectAnnotation,
+  onEditAnnotation,
+  onDeleteAnnotation,
+  onToggleResolved,
+  isAnnotating = false,
+  snapToVertex = true,
+  showAnnotations = true,
+  onRequestPlaceAnnotation,
+  focusAnnotationTrigger = null,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -36,6 +88,9 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   const partGroupRef = useRef<THREE.Group | null>(null);
   const comGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.Group | null>(null);
+  const annotationGroupRef = useRef<THREE.Group | null>(null);
+  const reticleGroupRef = useRef<THREE.Group | null>(null);
+
   const partEntriesRef = useRef<
     Array<{
       partName: string;
@@ -46,6 +101,28 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       bounds: [[number, number, number], [number, number, number]];
     }>
   >([]);
+
+  // Hover placement & vertex snapping state
+  const activeSnapRef = useRef<{
+    partName: string;
+    targetType: 'surface' | 'vertex';
+    position: [number, number, number];
+    normal?: [number, number, number];
+    vertexIndex?: number;
+  } | null>(null);
+
+  const [hoverTooltip, setHoverTooltip] = useState<{
+    x: number;
+    y: number;
+    targetType: 'surface' | 'vertex';
+    partName: string;
+    coords: [number, number, number];
+  } | null>(null);
+
+  // Projected Billboards on screen
+  const [projectedAnnotations, setProjectedAnnotations] = useState<ProjectedAnnotation[]>([]);
+  const hoveredCardIdRef = useRef<string | null>(null);
+  const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
 
   // Spherical orbit camera state (Z-up)
   const orbitState = useRef({
@@ -59,7 +136,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     lastY: 0,
   });
 
-  const updateCameraPosition = () => {
+  const updateCameraPosition = useCallback(() => {
     const cam = cameraRef.current;
     if (!cam) return;
     const { theta, phi, radius, target } = orbitState.current;
@@ -70,8 +147,37 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     cam.up.set(0, 0, 1); // OpenUSD Z-up convention
     cam.position.set(x, y, z);
     cam.lookAt(target);
-  };
+  }, []);
 
+  // Smooth Focus on an annotation
+  const focusOnPosition = useCallback(
+    (pos: [number, number, number], partName: string) => {
+      let offset = new THREE.Vector3(0, 0, 0);
+      if (partOffsets && partOffsets[partName]) {
+        offset.set(...partOffsets[partName]);
+      } else {
+        const entry = partEntriesRef.current.find((e) => e.partName === partName);
+        if (entry) {
+          offset = entry.defaultOffset.clone().multiplyScalar(explodeFactor * 0.85);
+        }
+      }
+      const worldTarget = new THREE.Vector3(...pos).add(offset);
+      orbitState.current.target.copy(worldTarget);
+      orbitState.current.radius = Math.max(22, Math.min(38, orbitState.current.radius));
+      updateCameraPosition();
+    },
+    [partOffsets, explodeFactor, updateCameraPosition]
+  );
+
+  // Handle external focus triggers
+  useEffect(() => {
+    if (focusAnnotationTrigger?.ann) {
+      const ann = focusAnnotationTrigger.ann;
+      focusOnPosition(ann.position, ann.partName);
+    }
+  }, [focusAnnotationTrigger, focusOnPosition]);
+
+  // Main Scene Setup
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
@@ -117,7 +223,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     // XY Ground Grid at z = 0 + Z-up Coordinate Axes
     const gridGroup = new THREE.Group();
     const grid = new THREE.GridHelper(100, 20, 0x38bdf8, 0x1e293b);
-    grid.rotation.x = Math.PI / 2; // Rotate Three.js XZ grid to XY ground plane (z=0)
+    grid.rotation.x = Math.PI / 2;
     gridGroup.add(grid);
 
     const axes = new THREE.AxesHelper(22);
@@ -133,7 +239,53 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     scene.add(comGroup);
     comGroupRef.current = comGroup;
 
-    // Mouse / Pointer interaction for Orbit + Pan + Zoom + Part Picking
+    // 3D Annotation Markers Group
+    const annotationGroup = new THREE.Group();
+    scene.add(annotationGroup);
+    annotationGroupRef.current = annotationGroup;
+
+    // 3D Placement Reticle Group (for vertex snap & surface hit indicator)
+    const reticleGroup = new THREE.Group();
+    reticleGroup.visible = false;
+
+    // Inner glowing sphere
+    const reticleDot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.35, 16, 16),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+    );
+    reticleDot.name = 'reticleDot';
+    reticleGroup.add(reticleDot);
+
+    // Outer target ring
+    const reticleRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.7, 0.95, 32),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })
+    );
+    reticleRing.name = 'reticleRing';
+    reticleGroup.add(reticleRing);
+
+    // Diamond vertex crosshair indicator
+    const diamondGeom = new THREE.BufferGeometry();
+    const diamondPts = [
+      new THREE.Vector3(0, 1.4, 0),
+      new THREE.Vector3(1.4, 0, 0),
+      new THREE.Vector3(0, -1.4, 0),
+      new THREE.Vector3(-1.4, 0, 0),
+      new THREE.Vector3(0, 1.4, 0),
+    ];
+    diamondGeom.setFromPoints(diamondPts);
+    const diamondLines = new THREE.Line(
+      diamondGeom,
+      new THREE.LineBasicMaterial({ color: 0xfbbf24, linewidth: 2 })
+    );
+    diamondLines.name = 'reticleDiamond';
+    diamondLines.visible = false;
+    reticleGroup.add(diamondLines);
+
+    scene.add(reticleGroup);
+    reticleGroupRef.current = reticleGroup;
+
+    // Mouse / Pointer interaction for Orbit + Pan + Zoom + Raycasting
     const dom = renderer.domElement;
     let pointerDownPos = { x: 0, y: 0 };
 
@@ -149,27 +301,152 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      if (!orbitState.current.isDragging && !orbitState.current.isPanning) return;
-      const dx = e.clientX - orbitState.current.lastX;
-      const dy = e.clientY - orbitState.current.lastY;
-      orbitState.current.lastX = e.clientX;
-      orbitState.current.lastY = e.clientY;
+      const rect = dom.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
 
-      if (orbitState.current.isDragging) {
-        orbitState.current.theta -= dx * 0.0075;
-        orbitState.current.phi = Math.max(
-          0.08,
-          Math.min(Math.PI - 0.08, orbitState.current.phi - dy * 0.0075)
+      if (orbitState.current.isDragging || orbitState.current.isPanning) {
+        const dx = e.clientX - orbitState.current.lastX;
+        const dy = e.clientY - orbitState.current.lastY;
+        orbitState.current.lastX = e.clientX;
+        orbitState.current.lastY = e.clientY;
+
+        if (orbitState.current.isDragging) {
+          orbitState.current.theta -= dx * 0.0075;
+          orbitState.current.phi = Math.max(
+            0.08,
+            Math.min(Math.PI - 0.08, orbitState.current.phi - dy * 0.0075)
+          );
+          updateCameraPosition();
+        } else if (orbitState.current.isPanning && cameraRef.current) {
+          const panScale = orbitState.current.radius * 0.0015;
+          const right = new THREE.Vector3();
+          const up = new THREE.Vector3();
+          cameraRef.current.matrix.extractBasis(right, up, new THREE.Vector3());
+          orbitState.current.target.addScaledVector(right, -dx * panScale);
+          orbitState.current.target.addScaledVector(up, dy * panScale);
+          updateCameraPosition();
+        }
+      }
+
+      // RAYCASTING FOR ANNOTATION PLACEMENT & VERTEX SNAPPING
+      const isAnnotatingMode = dom.getAttribute('data-is-annotating') === 'true';
+      const snapVertexMode = dom.getAttribute('data-snap-vertex') === 'true';
+
+      if (isAnnotatingMode && partGroupRef.current && cameraRef.current) {
+        const mouseNorm = new THREE.Vector2(
+          (mouseX / rect.width) * 2 - 1,
+          -(mouseY / rect.height) * 2 + 1
         );
-        updateCameraPosition();
-      } else if (orbitState.current.isPanning && cameraRef.current) {
-        const panScale = orbitState.current.radius * 0.0015;
-        const right = new THREE.Vector3();
-        const up = new THREE.Vector3();
-        cameraRef.current.matrix.extractBasis(right, up, new THREE.Vector3());
-        orbitState.current.target.addScaledVector(right, -dx * panScale);
-        orbitState.current.target.addScaledVector(up, dy * panScale);
-        updateCameraPosition();
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(mouseNorm, cameraRef.current);
+
+        const meshes = partGroupRef.current.children.filter(
+          (c): c is THREE.Mesh => c instanceof THREE.Mesh && Boolean(c.userData.partName)
+        );
+        const hits = raycaster.intersectObjects(meshes, false);
+
+        if (hits.length > 0 && hits[0].face) {
+          const hit = hits[0];
+          const mesh = hit.object as THREE.Mesh;
+          const hitPartName = String(mesh.userData.partName);
+          const geom = mesh.geometry;
+          const posAttr = geom.attributes.position;
+
+          let targetPos = hit.point.clone();
+          let isVertexSnapped = false;
+          let closestVIdx: number | undefined;
+
+          // Check snapping to nearest vertex of the triangle
+          if (posAttr && hit.face) {
+            const vIndices = [hit.face.a, hit.face.b, hit.face.c];
+            let minD = Infinity;
+            let nearestV: THREE.Vector3 | null = null;
+            const tempV = new THREE.Vector3();
+
+            for (const vIdx of vIndices) {
+              tempV.fromBufferAttribute(posAttr, vIdx).applyMatrix4(mesh.matrixWorld);
+              const d = tempV.distanceTo(hit.point);
+              if (d < minD) {
+                minD = d;
+                nearestV = tempV.clone();
+                closestVIdx = vIdx;
+              }
+            }
+
+            if (nearestV && (snapVertexMode || minD < 1.4)) {
+              targetPos = nearestV;
+              isVertexSnapped = true;
+            }
+          }
+
+          // Compute surface normal
+          const normalWorld = hit.face.normal.clone().transformDirection(mesh.matrixWorld);
+
+          // Position Reticle 3D Object
+          if (reticleGroupRef.current) {
+            reticleGroupRef.current.visible = true;
+            reticleGroupRef.current.position.copy(targetPos);
+            reticleGroupRef.current.quaternion.setFromUnitVectors(
+              new THREE.Vector3(0, 0, 1),
+              normalWorld
+            );
+
+            const dot = reticleGroupRef.current.getObjectByName('reticleDot') as THREE.Mesh;
+            const ring = reticleGroupRef.current.getObjectByName('reticleRing') as THREE.Mesh;
+            const diamond = reticleGroupRef.current.getObjectByName('reticleDiamond') as THREE.Line;
+
+            if (isVertexSnapped) {
+              if (dot) (dot.material as THREE.MeshBasicMaterial).color.setHex(0xfbbf24);
+              if (ring) (ring.material as THREE.MeshBasicMaterial).color.setHex(0xfbbf24);
+              if (diamond) diamond.visible = true;
+            } else {
+              if (dot) (dot.material as THREE.MeshBasicMaterial).color.setHex(0x38bdf8);
+              if (ring) (ring.material as THREE.MeshBasicMaterial).color.setHex(0x38bdf8);
+              if (diamond) diamond.visible = false;
+            }
+          }
+
+          // Local assembly space position (unexploded)
+          const partOffset = mesh.position.clone();
+          const localPos = targetPos.clone().sub(partOffset);
+
+          activeSnapRef.current = {
+            partName: hitPartName,
+            targetType: isVertexSnapped ? 'vertex' : 'surface',
+            position: [
+              Number(localPos.x.toFixed(3)),
+              Number(localPos.y.toFixed(3)),
+              Number(localPos.z.toFixed(3)),
+            ],
+            normal: [
+              Number(normalWorld.x.toFixed(3)),
+              Number(normalWorld.y.toFixed(3)),
+              Number(normalWorld.z.toFixed(3)),
+            ],
+            vertexIndex: closestVIdx,
+          };
+
+          setHoverTooltip({
+            x: mouseX + 16,
+            y: mouseY - 14,
+            targetType: isVertexSnapped ? 'vertex' : 'surface',
+            partName: hitPartName,
+            coords: [
+              Number(localPos.x.toFixed(2)),
+              Number(localPos.y.toFixed(2)),
+              Number(localPos.z.toFixed(2)),
+            ],
+          });
+        } else {
+          if (reticleGroupRef.current) reticleGroupRef.current.visible = false;
+          activeSnapRef.current = null;
+          setHoverTooltip(null);
+        }
+      } else {
+        if (reticleGroupRef.current) reticleGroupRef.current.visible = false;
+        activeSnapRef.current = null;
+        setHoverTooltip(null);
       }
     };
 
@@ -178,22 +455,36 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       orbitState.current.isDragging = false;
       orbitState.current.isPanning = false;
 
-      if (moveDist < 4 && e.button === 0 && partGroupRef.current && cameraRef.current) {
-        const rect = dom.getBoundingClientRect();
-        const mouse = new THREE.Vector2(
-          ((e.clientX - rect.left) / rect.width) * 2 - 1,
-          -((e.clientY - rect.top) / rect.height) * 2 + 1
-        );
-        const raycaster = new THREE.Raycaster();
-        raycaster.setFromCamera(mouse, cameraRef.current);
-        const meshes = partGroupRef.current.children.filter(
-          (c): c is THREE.Mesh => c instanceof THREE.Mesh && Boolean(c.userData.partName)
-        );
-        const hits = raycaster.intersectObjects(meshes, false);
-        if (hits.length > 0) {
-          onSelectPart(String(hits[0].object.userData.partName));
-        } else {
-          onSelectPart(null);
+      if (moveDist < 4 && e.button === 0) {
+        const isAnnotatingMode = dom.getAttribute('data-is-annotating') === 'true';
+
+        if (isAnnotatingMode && activeSnapRef.current) {
+          // Placement click!
+          const target = { ...activeSnapRef.current };
+          if (onRequestPlaceAnnotation) {
+            onRequestPlaceAnnotation(target);
+          }
+          return;
+        }
+
+        // Standard Part Picking
+        if (partGroupRef.current && cameraRef.current) {
+          const rect = dom.getBoundingClientRect();
+          const mouse = new THREE.Vector2(
+            ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            -((e.clientY - rect.top) / rect.height) * 2 + 1
+          );
+          const raycaster = new THREE.Raycaster();
+          raycaster.setFromCamera(mouse, cameraRef.current);
+          const meshes = partGroupRef.current.children.filter(
+            (c): c is THREE.Mesh => c instanceof THREE.Mesh && Boolean(c.userData.partName)
+          );
+          const hits = raycaster.intersectObjects(meshes, false);
+          if (hits.length > 0) {
+            onSelectPart(String(hits[0].object.userData.partName));
+          } else {
+            onSelectPart(null);
+          }
         }
       }
     };
@@ -223,12 +514,66 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     });
     resizeObserver.observe(container);
 
+    // Animation & Projection Loop
     let animId = 0;
-    const animate = () => {
+    let lastProjTime = 0;
+
+    const animate = (timestamp: number) => {
       animId = requestAnimationFrame(animate);
       renderer.render(scene, camera);
+
+      // Throttle DOM billboard projections to ~30-60fps
+      if (timestamp - lastProjTime > 24) {
+        lastProjTime = timestamp;
+        const cam = cameraRef.current;
+        const cont = mountRef.current;
+        const shouldShow = dom.getAttribute('data-show-annotations') === 'true';
+
+        if (cam && cont && shouldShow) {
+          const w = cont.clientWidth;
+          const h = cont.clientHeight;
+
+          const currentAnns = (window as unknown as { __CURRENT_ANNOTATIONS__?: CadAnnotation[] })
+            .__CURRENT_ANNOTATIONS__ || [];
+
+          if (currentAnns.length > 0) {
+            const list: ProjectedAnnotation[] = currentAnns.map((ann) => {
+              const partEntry = partEntriesRef.current.find((e) => e.partName === ann.partName);
+              const offset = partEntry ? partEntry.mesh.position : new THREE.Vector3(0, 0, 0);
+
+              const worldAnchor = new THREE.Vector3(...ann.position).add(offset);
+              const pAnchor = worldAnchor.clone().project(cam);
+              const ax = (pAnchor.x * 0.5 + 0.5) * w;
+              const ay = (-pAnchor.y * 0.5 + 0.5) * h;
+              const isVisible = pAnchor.z > -1 && pAnchor.z < 1;
+
+              // Offset for leader billboard
+              const norm = ann.normal ? new THREE.Vector3(...ann.normal) : new THREE.Vector3(0, 0, 1);
+              const worldLeader = worldAnchor.clone().addScaledVector(norm, 2.8).add(new THREE.Vector3(0, 0, 1.2));
+              const pLeader = worldLeader.clone().project(cam);
+              const lx = (pLeader.x * 0.5 + 0.5) * w;
+              const ly = (-pLeader.y * 0.5 + 0.5) * h;
+
+              return {
+                id: ann.id,
+                ann,
+                anchorX: ax,
+                anchorY: ay,
+                leaderX: lx,
+                leaderY: ly,
+                visible: isVisible,
+              };
+            });
+            setProjectedAnnotations(list);
+          } else {
+            setProjectedAnnotations([]);
+          }
+        } else {
+          setProjectedAnnotations([]);
+        }
+      }
     };
-    animate();
+    animId = requestAnimationFrame(animate);
 
     return () => {
       cancelAnimationFrame(animId);
@@ -240,7 +585,31 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       dom.removeEventListener('contextmenu', onContextMenu);
       renderer.dispose();
     };
-  }, []);
+  }, [onSelectPart, onRequestPlaceAnnotation, updateCameraPosition]);
+
+  // Keep DOM attributes updated for the pointermove listener & animation loop
+  useEffect(() => {
+    if (rendererRef.current) {
+      rendererRef.current.domElement.setAttribute(
+        'data-is-annotating',
+        isAnnotating ? 'true' : 'false'
+      );
+      rendererRef.current.domElement.setAttribute(
+        'data-snap-vertex',
+        snapToVertex ? 'true' : 'false'
+      );
+      rendererRef.current.domElement.setAttribute(
+        'data-show-annotations',
+        showAnnotations ? 'true' : 'false'
+      );
+    }
+  }, [isAnnotating, snapToVertex, showAnnotations]);
+
+  // Sync annotations list to window cache for requestAnimationFrame loop
+  useEffect(() => {
+    (window as unknown as { __CURRENT_ANNOTATIONS__?: CadAnnotation[] }).__CURRENT_ANNOTATIONS__ =
+      annotations;
+  }, [annotations]);
 
   // Toggle grid visibility
   useEffect(() => {
@@ -263,7 +632,6 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     const [cx, cy, cz] = centerOfMass;
     const comPos = new THREE.Vector3(cx, cy, cz);
 
-    // 1. Center of Mass Reticle Sphere (Amber with glowing finish)
     const sphereGeom = new THREE.SphereGeometry(0.85, 24, 24);
     const sphereMat = new THREE.MeshStandardMaterial({
       color: 0xf59e0b,
@@ -276,7 +644,6 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     sphereMesh.position.copy(comPos);
     comGroup.add(sphereMesh);
 
-    // 2. Three Orthogonal Reticle Crosshair Rings (XY, XZ, YZ)
     const ringRadius = 1.8;
     const ringMat = new THREE.LineBasicMaterial({
       color: 0xfbbf24,
@@ -305,7 +672,6 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     comGroup.add(createRing('xz'));
     comGroup.add(createRing('yz'));
 
-    // 3. Vertical Plumb Drop Line to Ground Plane (z = 0)
     const dropLineGeom = new THREE.BufferGeometry().setFromPoints([
       comPos,
       new THREE.Vector3(cx, cy, 0),
@@ -321,7 +687,6 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     dropLine.computeLineDistances();
     comGroup.add(dropLine);
 
-    // 4. Ground Target Reticle at (cx, cy, 0)
     const groundRingGeom = new THREE.RingGeometry(0.8, 1.2, 32);
     groundRingGeom.rotateX(Math.PI / 2);
     const groundRingMat = new THREE.MeshBasicMaterial({
@@ -335,7 +700,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     comGroup.add(groundTarget);
   }, [showCenterOfMass, centerOfMass]);
 
-  // Rebuild Three.js geometries and materials when parts, selection, wireframe, or bounds change
+  // Rebuild Three.js geometries and materials when parts change
   useEffect(() => {
     const group = partGroupRef.current;
     if (!group) return;
@@ -348,7 +713,6 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     partEntriesRef.current = [];
     if (!parts || parts.length === 0) return;
 
-    // Compute overall assembly centroid for default radial exploded view
     const assemblyCenter = new THREE.Vector3(0, 0, 0);
     parts.forEach((p) => {
       const c = p.diagnostics.center;
@@ -397,7 +761,6 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       const mesh = new THREE.Mesh(geom, mat);
       mesh.userData = { partName: part.name };
 
-      // Calculate default radial exploded direction
       const partCenter = new THREE.Vector3(...part.diagnostics.center);
       const explodeDir = partCenter.clone().sub(assemblyCenter);
       if (explodeDir.lengthSq() < 0.01) {
@@ -450,7 +813,6 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       });
     });
 
-    // When showBounds is active, also display the overall assembly bounding box in emerald
     if (showBounds && overallBounds) {
       const [allMn, allMx] = overallBounds;
       const overallBox = new THREE.Box3(
@@ -482,11 +844,357 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
         entry.boxHelper.box.max.set(mx[0] + offset.x, mx[1] + offset.y, mx[2] + offset.z);
       }
     });
+
+    // Also update 3D annotation pins position matching parent part's offset
+    const annGroup = annotationGroupRef.current;
+    if (annGroup) {
+      annGroup.children.forEach((child) => {
+        const partName = child.userData.partName;
+        const basePos = child.userData.basePos as THREE.Vector3 | undefined;
+        if (partName && basePos) {
+          let offset = new THREE.Vector3(0, 0, 0);
+          if (partOffsets && partOffsets[partName]) {
+            offset.set(...partOffsets[partName]);
+          } else {
+            const entry = partEntriesRef.current.find((e) => e.partName === partName);
+            if (entry) {
+              offset = entry.defaultOffset.clone().multiplyScalar(explodeFactor * 0.85);
+            }
+          }
+          child.position.copy(basePos.clone().add(offset));
+        }
+      });
+    }
   }, [partOffsets, explodeFactor]);
 
+  // Rebuild 3D Annotation Pins in Three.js
+  useEffect(() => {
+    const annGroup = annotationGroupRef.current;
+    if (!annGroup) return;
+
+    while (annGroup.children.length > 0) {
+      annGroup.remove(annGroup.children[0]);
+    }
+
+    if (!showAnnotations || annotations.length === 0) return;
+
+    annotations.forEach((ann) => {
+      const pinContainer = new THREE.Group();
+      pinContainer.userData = {
+        partName: ann.partName,
+        basePos: new THREE.Vector3(...ann.position),
+        annotationId: ann.id,
+      };
+
+      const isSelected = selectedAnnotationId === ann.id;
+      const pinColor = new THREE.Color(ann.color || (ann.targetType === 'vertex' ? 0xfbbf24 : 0x38bdf8));
+
+      // 1. Surface Anchor Dot (Sphere)
+      const anchorDotGeom = new THREE.SphereGeometry(0.35, 16, 16);
+      const anchorDotMat = new THREE.MeshStandardMaterial({
+        color: pinColor,
+        emissive: pinColor,
+        emissiveIntensity: isSelected ? 0.8 : 0.4,
+        metalness: 0.5,
+        roughness: 0.2,
+      });
+      const anchorDot = new THREE.Mesh(anchorDotGeom, anchorDotMat);
+      pinContainer.add(anchorDot);
+
+      // 2. Target Ring around anchor
+      const ringGeom = new THREE.RingGeometry(0.55, 0.75, 24);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: pinColor,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: isSelected ? 0.95 : 0.65,
+      });
+      const ringMesh = new THREE.Mesh(ringGeom, ringMat);
+      if (ann.normal) {
+        ringMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...ann.normal));
+      }
+      pinContainer.add(ringMesh);
+
+      // 3. 3D Leader Line extending outward
+      const norm = ann.normal ? new THREE.Vector3(...ann.normal) : new THREE.Vector3(0, 0, 1);
+      const leaderTop = norm.clone().multiplyScalar(2.4);
+      const leaderGeom = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        leaderTop,
+      ]);
+      const leaderMat = new THREE.LineBasicMaterial({
+        color: pinColor,
+        transparent: true,
+        opacity: isSelected ? 0.9 : 0.55,
+      });
+      const leaderLine = new THREE.Line(leaderGeom, leaderMat);
+      pinContainer.add(leaderLine);
+
+      // 4. Pin Head Bead
+      const beadGeom = new THREE.SphereGeometry(0.4, 16, 16);
+      const beadMesh = new THREE.Mesh(beadGeom, anchorDotMat);
+      beadMesh.position.copy(leaderTop);
+      pinContainer.add(beadMesh);
+
+      // Initial position matching current offset
+      let offset = new THREE.Vector3(0, 0, 0);
+      if (partOffsets && partOffsets[ann.partName]) {
+        offset.set(...partOffsets[ann.partName]);
+      } else {
+        const entry = partEntriesRef.current.find((e) => e.partName === ann.partName);
+        if (entry) {
+          offset = entry.defaultOffset.clone().multiplyScalar(explodeFactor * 0.85);
+        }
+      }
+      pinContainer.position.copy(new THREE.Vector3(...ann.position).add(offset));
+
+      annGroup.add(pinContainer);
+    });
+  }, [annotations, showAnnotations, selectedAnnotationId, partOffsets, explodeFactor]);
+
+  const getCategoryIcon = (cat: CadAnnotation['category']) => {
+    switch (cat) {
+      case 'dimension':
+        return <Ruler className="w-3 h-3 text-sky-400" />;
+      case 'inspection':
+        return <CheckCircle2 className="w-3 h-3 text-emerald-400" />;
+      case 'drc':
+        return <ShieldAlert className="w-3 h-3 text-amber-400" />;
+      case 'material':
+        return <Sparkles className="w-3 h-3 text-purple-400" />;
+      case 'assembly':
+        return <Layers className="w-3 h-3 text-indigo-400" />;
+      case 'datum':
+        return <MapPin className="w-3 h-3 text-rose-400" />;
+      default:
+        return <Tag className="w-3 h-3 text-slate-400" />;
+    }
+  };
+
   return (
-    <div className="relative w-full h-full bg-[#0b0f17] select-none overflow-hidden">
-      <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+    <div
+      className={`relative w-full h-full bg-[#0b0f17] select-none overflow-hidden ${
+        isAnnotating ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+      }`}
+    >
+      <div ref={mountRef} className="w-full h-full" />
+
+      {/* 2D BILLBOARD ANNOTATION OVERLAY (Crisp High-DPI Cards + Leader Lines) */}
+      {showAnnotations && projectedAnnotations.length > 0 && (
+        <div className="absolute inset-0 pointer-events-none w-full h-full overflow-hidden">
+          {/* SVG Leader Lines from 3D Anchor to 2D Label Card */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none">
+            {projectedAnnotations.map((proj) => {
+              if (!proj.visible) return null;
+              const isSelected = selectedAnnotationId === proj.id;
+              const isHovered = hoveredCardId === proj.id;
+              const strokeColor = proj.ann.color || '#38bdf8';
+
+              return (
+                <g key={`lead_${proj.id}`}>
+                  {/* Anchor Point Halo */}
+                  <circle
+                    cx={proj.anchorX}
+                    cy={proj.anchorY}
+                    r={isSelected ? 6 : 4}
+                    fill={strokeColor}
+                    fillOpacity={isSelected ? 0.9 : 0.65}
+                    stroke="#ffffff"
+                    strokeWidth={isSelected ? 2 : 1}
+                  />
+                  {/* Connecting Leader Line */}
+                  <line
+                    x1={proj.anchorX}
+                    y1={proj.anchorY}
+                    x2={proj.leaderX}
+                    y2={proj.leaderY}
+                    stroke={strokeColor}
+                    strokeWidth={isSelected || isHovered ? 2 : 1.2}
+                    strokeDasharray={isSelected ? 'none' : '3 2'}
+                    strokeOpacity={isSelected || isHovered ? 0.95 : 0.7}
+                  />
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Floating Billboard Cards */}
+          {projectedAnnotations.map((proj) => {
+            if (!proj.visible) return null;
+            const ann = proj.ann;
+            const isSelected = selectedAnnotationId === ann.id;
+            const isHovered = hoveredCardId === ann.id;
+
+            return (
+              <div
+                key={ann.id}
+                onMouseEnter={() => {
+                  hoveredCardIdRef.current = ann.id;
+                  setHoveredCardId(ann.id);
+                }}
+                onMouseLeave={() => {
+                  hoveredCardIdRef.current = null;
+                  setHoveredCardId(null);
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onSelectAnnotation) onSelectAnnotation(ann.id);
+                  if (onSelectPart) onSelectPart(ann.partName);
+                }}
+                style={{
+                  left: `${proj.leaderX}px`,
+                  top: `${proj.leaderY}px`,
+                  transform: 'translate(-50%, -100%) translateY(-6px)',
+                }}
+                className={`pointer-events-auto absolute transition-all duration-150 rounded-xl shadow-2xl backdrop-blur-md border ${
+                  isSelected
+                    ? 'bg-slate-900/95 border-sky-400 ring-2 ring-sky-500/40 z-30 scale-105'
+                    : isHovered
+                    ? 'bg-slate-900/95 border-slate-600 z-20 scale-102'
+                    : 'bg-slate-950/85 border-slate-800/90 z-10'
+                }`}
+              >
+                <div className="p-2 min-w-[140px] max-w-[240px]">
+                  {/* Top Bar: Icon + Title + Status */}
+                  <div className="flex items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {getCategoryIcon(ann.category)}
+                      <span className="font-semibold text-white truncate text-[11px]">
+                        {ann.title}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span
+                        className={`text-[9px] font-mono px-1 py-0.2 rounded font-semibold uppercase ${
+                          ann.targetType === 'vertex'
+                            ? 'bg-amber-500/20 text-amber-300'
+                            : 'bg-sky-500/20 text-sky-300'
+                        }`}
+                        title={ann.targetType === 'vertex' ? 'Snapped to Geometry Vertex' : 'Surface Face Anchor'}
+                      >
+                        {ann.targetType === 'vertex' ? 'V' : 'S'}
+                      </span>
+                      {ann.resolved && (
+                        <span className="text-emerald-400 text-[10px]" title="Inspected / Resolved">
+                          ✓
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Part and Coordinates */}
+                  <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 font-mono">
+                    <span className="text-sky-400">/{ann.partName}</span>
+                    <span className="text-slate-600">•</span>
+                    <span>
+                      ({ann.position[0].toFixed(1)}, {ann.position[1].toFixed(1)}, {ann.position[2].toFixed(1)})
+                    </span>
+                  </div>
+
+                  {/* Expanded Content on Hover or Select */}
+                  {(isSelected || isHovered) && (
+                    <div className="mt-2 pt-1.5 border-t border-slate-800 text-[11px] space-y-2 animate-in fade-in duration-100">
+                      {ann.description && (
+                        <p className="text-slate-300 leading-snug font-sans text-[10.5px]">
+                          {ann.description}
+                        </p>
+                      )}
+
+                      <div className="flex items-center justify-between gap-1 pt-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            focusOnPosition(ann.position, ann.partName);
+                          }}
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-sky-300 text-[10px] font-medium transition"
+                          title="Center Camera on Annotation"
+                        >
+                          <Crosshair className="w-3 h-3" />
+                          <span>Focus</span>
+                        </button>
+
+                        <div className="flex items-center gap-1">
+                          {onToggleResolved && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleResolved(ann.id);
+                              }}
+                              className={`p-1 rounded transition ${
+                                ann.resolved
+                                  ? 'text-emerald-400 hover:text-emerald-300 bg-emerald-500/20'
+                                  : 'text-slate-400 hover:text-emerald-400 bg-slate-800'
+                              }`}
+                              title={ann.resolved ? 'Mark Unresolved' : 'Mark Inspected / Resolved'}
+                            >
+                              <Check className="w-3 h-3" />
+                            </button>
+                          )}
+                          {onEditAnnotation && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEditAnnotation(ann);
+                              }}
+                              className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 transition"
+                              title="Edit Annotation"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                          )}
+                          {onDeleteAnnotation && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteAnnotation(ann.id);
+                              }}
+                              className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-rose-400 transition"
+                              title="Delete Annotation"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* HOVER TOOLTIP DURING ANNOTATION PLACEMENT */}
+      {isAnnotating && hoverTooltip && (
+        <div
+          style={{
+            left: `${hoverTooltip.x}px`,
+            top: `${hoverTooltip.y}px`,
+          }}
+          className="pointer-events-none absolute z-40 bg-slate-900/95 border border-slate-700 rounded-lg px-2.5 py-1.5 shadow-xl text-[11px] backdrop-blur-md text-white font-sans space-y-0.5 transform -translate-y-full"
+        >
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                hoverTooltip.targetType === 'vertex' ? 'bg-amber-400' : 'bg-sky-400'
+              }`}
+            />
+            <span className="font-semibold">
+              {hoverTooltip.targetType === 'vertex' ? '✦ Snapped to Vertex' : '⦿ Surface Anchor'}
+            </span>
+            <span className="font-mono text-slate-400">/{hoverTooltip.partName}</span>
+          </div>
+          <div className="font-mono text-[10px] text-emerald-400">
+            ({hoverTooltip.coords[0].toFixed(2)}, {hoverTooltip.coords[1].toFixed(2)},{' '}
+            {hoverTooltip.coords[2].toFixed(2)}) cm
+          </div>
+          <div className="text-[10px] text-slate-400 font-medium">Click to place callout pin</div>
+        </div>
+      )}
+
+      {/* Viewport Info Footnote */}
       <div className="pointer-events-none absolute bottom-3 left-3 hidden xl:flex items-center gap-2.5 bg-slate-900/80 border border-slate-800/80 px-2.5 py-1 rounded-md text-[10px] text-slate-300 backdrop-blur-sm z-10">
         <span className="flex items-center gap-1.5 font-medium text-sky-400">
           <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
@@ -496,7 +1204,13 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
         <span>Left-Drag: Orbit</span>
         <span>Right/Shift-Drag: Pan</span>
         <span>Scroll: Zoom</span>
-        <span>Click Part: Inspect B-Rep</span>
+        {isAnnotating ? (
+          <span className="text-emerald-400 font-semibold animate-pulse">
+            ✦ Annotate Mode Active: Click part or vertex
+          </span>
+        ) : (
+          <span>Click Part: Inspect B-Rep</span>
+        )}
       </div>
     </div>
   );

@@ -121,6 +121,22 @@ export interface ExplosionStage {
   parts: Record<string, [number, number, number] | ExplosionPartTransform>;
 }
 
+export interface CadAnnotation {
+  id: string;
+  partName: string;
+  targetType: 'surface' | 'vertex';
+  position: [number, number, number]; // [x, y, z] in assembly space (cm)
+  normal?: [number, number, number]; // [nx, ny, nz] surface normal vector
+  vertexIndex?: number;
+  title: string;
+  description?: string;
+  category: 'dimension' | 'inspection' | 'drc' | 'material' | 'assembly' | 'note' | 'datum';
+  color?: string; // hex or tailwind identifier
+  author?: string;
+  createdAt: string;
+  resolved?: boolean;
+}
+
 export interface CadExecutionResult {
   ok: boolean;
   success: boolean;
@@ -134,6 +150,7 @@ export interface CadExecutionResult {
   summary?: CadAssemblySummary;
   parts?: CadPartOutput[];
   explosion_stages?: ExplosionStage[];
+  annotations?: CadAnnotation[];
   exports?: {
     mesh_usda: string;
     brep_usda: string;

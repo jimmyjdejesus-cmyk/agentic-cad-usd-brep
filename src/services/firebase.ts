@@ -20,6 +20,7 @@ import {
   onSnapshot,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { CadAnnotation } from '../types/cad';
 
 // Initialize Firebase
 export const app = initializeApp(firebaseConfig);
@@ -137,6 +138,7 @@ export interface SavedAssemblyRecord {
   centerOfMass: string;
   boundingBox: string;
   partCount: number;
+  annotations?: CadAnnotation[];
   createdAt: string;
   updatedAt: string;
 }
