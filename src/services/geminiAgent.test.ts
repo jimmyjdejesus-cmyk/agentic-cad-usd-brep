@@ -61,4 +61,34 @@ describe('Gemini Agentic CAD Service', () => {
     expect(turn.steps.length).toBe(1);
     expect(turn.steps[0].status).toBe('success');
   });
+
+  it('synthesizes AMD Silicon MCM 2.5D package when prompt requests silicon/eda/chip', async () => {
+    const turn = await runAgenticCadTurn({
+      prompt: 'Synthesize an AMD ROCm Silicon Multi-Chip Module package with HBM cache dies',
+      currentCode: '',
+      harness: 'amd-rocm-harness',
+      model: 'amd-llama-3.3-70b',
+    });
+
+    expect(turn.explanation).toContain('Silicon Multi-Chip Module');
+    expect(turn.finalCode).toContain('amd_silicon_die');
+    expect(turn.finalCode).toContain('silicon_interposer');
+    expect(turn.finalCode).toContain('copper_heat_spreader');
+    expect(turn.executionResult.success).toBe(true);
+    expect(turn.harnessUsed).toBe('amd-rocm-harness');
+    expect(turn.modelUsed).toBe('amd-llama-3.3-70b');
+  });
+
+  it('synthesizes helical vortex straw when prompt requests vortex straw', async () => {
+    const turn = await runAgenticCadTurn({
+      prompt: 'Build a vortex straw with flow chambers and ergonomic tip',
+      currentCode: '',
+      harness: 'langchain-react',
+    });
+
+    expect(turn.explanation).toContain('vortex straw');
+    expect(turn.finalCode).toContain('vortex_barrel');
+    expect(turn.finalCode).toContain('ergonomic_tip');
+    expect(turn.executionResult.success).toBe(true);
+  });
 });

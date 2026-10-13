@@ -190,6 +190,11 @@ export interface AgentIterationStep {
   status: 'success' | 'warning' | 'error';
   details: string;
   code: string;
+  toolCalls?: Array<{
+    toolName: string;
+    inputSummary: string;
+    outputSummary: string;
+  }>;
 }
 
 export interface ChatMessage {
@@ -199,4 +204,191 @@ export interface ChatMessage {
   timestamp: string;
   steps?: AgentIterationStep[];
   appliedCode?: string;
+  harnessUsed?: string;
+  modelUsed?: string;
+}
+
+// ============================================================================
+// Agnostic AI Harness & Model Definitions
+// ============================================================================
+
+export type HarnessTypeId =
+  | 'google-genai'
+  | 'hermes-agent'
+  | 'pi-agent'
+  | 'langchain-react'
+  | 'agnostic-toolcall'
+  | 'openhands-agent'
+  | 'ollama-local'
+  | 'huggingface-webgpu'
+  | 'amd-rocm-harness'
+  | 'autonomous-verifier'
+  | 'local-deterministic'
+  | 'custom-harness';
+
+export interface AiHarness {
+  id: HarnessTypeId;
+  name: string;
+  shortLabel: string;
+  description: string;
+  providerProtocol: string;
+  supportsStreaming: boolean;
+  supportsToolCalling: boolean;
+  latencyRating: 'Ultra Fast' | 'Fast' | 'Balanced' | 'Deep Reasoning';
+  category: 'Cloud SDK' | 'Open-Source Agent' | 'Local / On-Device' | 'Custom';
+}
+
+export type QuantizationType = 'Q4_K_M' | 'Q4_0' | 'Q5_K_M' | 'Q8_0' | 'FP16';
+
+export type CognitiveFilterMode =
+  | 'all'
+  | 'system2-reasoning'
+  | 'system1-reflex'
+  | 'abliterated-uncensored'
+  | 'jepa-world-model';
+
+export interface HuggingFaceModel {
+  id: string;
+  name: string;
+  author: string;
+  paramsBillions: number;
+  contextWindow: number;
+  architecture: string;
+  downloads: string;
+  likes?: number;
+  pipelineTag?: string;
+  recommendedHarness: HarnessTypeId;
+  tags: string[];
+  description: string;
+  isCustom?: boolean;
+}
+
+export interface SystemHardwareResources {
+  systemRamGb: number;
+  gpuVramGb: number;
+  cpuCores: number;
+  hasWebGpu: boolean;
+  gpuAdapterName: string;
+  osPlatform: string;
+  deviceType: 'Desktop / Workstation' | 'Laptop / Mobile' | 'Server';
+}
+
+export interface ResourceEstimate {
+  modelWeightsRamGb: number;
+  kvCacheRamGb: number;
+  runtimeOverheadGb: number;
+  totalRequiredRamGb: number;
+  availableTargetGb: number;
+  utilizationPercentage: number;
+  fitStatus: 'optimal' | 'moderate' | 'tight' | 'oom-risk';
+  fitLabel: string;
+  fitColor: string;
+  estimatedTokensPerSec: number;
+  recommendation: string;
+}
+
+export interface AiModelOption {
+  id: string;
+  name: string;
+  provider: 'Google' | 'Anthropic' | 'OpenAI' | 'AMD ROCm / Open-Weights' | 'Hugging Face Hub (Local)';
+  recommendedHarness: HarnessTypeId;
+  contextWindow: string;
+  isRecommended?: boolean;
+  isLocalCompatible?: boolean;
+  hfModelId?: string;
+  paramsBillions?: number;
+}
+
+// ============================================================================
+// In-App Toolsets & Skills Declarations
+// ============================================================================
+
+export interface InAppToolParameter {
+  name: string;
+  type: string;
+  description: string;
+  required: boolean;
+  default?: any;
+}
+
+export interface InAppTool {
+  id: string;
+  name: string;
+  toolsetId: string;
+  category: 'CAD Kernel' | 'Physical Analysis' | 'Kinematics & Annotations' | 'AMD Silicon & EDA';
+  skillName: string;
+  description: string;
+  parameters: InAppToolParameter[];
+  inAppExecutionOnly: true;
+}
+
+export interface InAppToolset {
+  id: string;
+  name: string;
+  badge: string;
+  description: string;
+  skillDocPath?: string;
+  tools: InAppTool[];
+}
+
+// ============================================================================
+// AMD Silicon EDA Types
+// ============================================================================
+
+export type EdaGateType =
+  | 'AND'
+  | 'OR'
+  | 'NAND'
+  | 'NOR'
+  | 'XOR'
+  | 'NOT'
+  | 'DFF'
+  | 'PAD_IN'
+  | 'PAD_OUT';
+
+export interface EdaGate {
+  id: string;
+  name: string;
+  type: EdaGateType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  inputs: string[];
+  outputs: string[];
+  powerMw?: number;
+}
+
+export interface EdaWire {
+  id: string;
+  fromGateId: string;
+  fromPin: string;
+  toGateId: string;
+  toPin: string;
+  manhattanDistanceUm?: number;
+}
+
+export interface EdaDrcViolation {
+  id: string;
+  gateA: string;
+  gateB: string;
+  distanceUm: number;
+  minAllowedUm: number;
+  ruleName: string;
+  severity: 'error' | 'warning';
+}
+
+export interface EdaNetlist {
+  id: string;
+  name: string;
+  description: string;
+  dieWidthUm: number;
+  dieHeightUm: number;
+  gates: EdaGate[];
+  wires: EdaWire[];
+  totalWireLengthUm: number;
+  totalChipAreaUm2: number;
+  drcViolations: EdaDrcViolation[];
+  convergenceIterations: number;
+  amdRocmSpeedupFactor: string;
 }

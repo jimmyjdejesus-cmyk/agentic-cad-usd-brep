@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Bookmark,
@@ -17,10 +17,13 @@ import {
   RefreshCw,
   Scale,
   Send,
+  Sliders,
   Sparkles,
   Target,
+  Workflow,
   Wrench,
   X,
+  Zap,
 } from 'lucide-react';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { Viewport3D } from './components/Viewport3D';
@@ -29,6 +32,9 @@ import { MassPropertiesPanel } from './components/MassPropertiesPanel';
 import { AnnotationsPanel } from './components/AnnotationsPanel';
 import { AnnotationDialog, NewAnnotationData } from './components/AnnotationDialog';
 import { UserAuthDrawer } from './components/UserAuthDrawer';
+import { AmdEdaSiliconStudio } from './components/AmdEdaSiliconStudio';
+import { InAppToolsetsModal } from './components/InAppToolsetsModal';
+import { AiHarnessModal } from './components/AiHarnessModal';
 import { DEFAULT_PRESETS } from './data/presetsData';
 import { DEFAULT_ANNOTATIONS_MAP } from './data/defaultAnnotations';
 import {
@@ -50,25 +56,24 @@ import {
 } from './services/cadRuntime';
 import { runAgenticCadTurn } from './services/geminiAgent';
 import {
+  AI_HARNESS_OPTIONS,
+  AI_MODEL_OPTIONS,
+} from './services/appToolsAndSkills';
+import {
   CadAnnotation,
   CadExecutionResult,
   CadPreset,
   ChatMessage,
+  HarnessTypeId,
   MaterialPreset,
 } from './types/cad';
 
-const AVAILABLE_MODELS = [
-  { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (Recommended)' },
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
-  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
-];
-
 const QUICK_PROMPTS = [
+  'Synthesize AMD ROCm 2.5D Silicon MCM Package with HBM cache',
+  'Build an aerodynamic helical vortex straw with flow chambers',
   'Design a dual-optic LiDAR turret with filleted base',
   'Create a 90° flanged pipe elbow with 6 bolt holes',
   'Build a 12-tooth spur gear with weight-reduction holes',
-  'Add a protective collar ring and bevel top edge',
 ];
 
 export const App: React.FC = () => {
@@ -77,8 +82,12 @@ export const App: React.FC = () => {
   const [code, setCode] = useState<string>(DEFAULT_PRESETS[0].code);
   const [envelope, setEnvelope] = useState<[number, number, number]>(DEFAULT_PRESETS[0].envelope);
 
-  // Model Selection
+  // Agnostic AI Harness & Model Selection
+  const [selectedHarness, setSelectedHarness] = useState<HarnessTypeId>('google-genai');
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3.8-flash');
+  const [showHarnessModal, setShowHarnessModal] = useState<boolean>(false);
+  const [showToolsetsModal, setShowToolsetsModal] = useState<boolean>(false);
+  const [showAmdEdaStudio, setShowAmdEdaStudio] = useState<boolean>(false);
   const [showAiStudioModal, setShowAiStudioModal] = useState<boolean>(false);
 
   // Material Density & Mass Properties
@@ -116,6 +125,49 @@ export const App: React.FC = () => {
   const [showGrid, setShowGrid] = useState<boolean>(true);
   const [explodeFactor, setExplodeFactor] = useState<number>(0);
   const [partOffsets, setPartOffsets] = useState<Record<string, [number, number, number]>>({});
+
+  // Memoized parts and stage data for stable child component references
+  const currentPartNames = useMemo(
+    () => (execResult?.parts || []).map((p) => p.name),
+    [execResult?.parts]
+  );
+
+  const currentExplosionStages = useMemo(
+    () => execResult?.explosion_stages || [],
+    [execResult?.explosion_stages]
+  );
+
+  const handleOffsetsChange = useCallback(
+    (newOffsets: Record<string, [number, number, number]>) => {
+      setPartOffsets((prev) => {
+        const prevKeys = Object.keys(prev);
+        const newKeys = Object.keys(newOffsets);
+        if (prevKeys.length === 0 && newKeys.length === 0) return prev;
+        if (prevKeys.length === newKeys.length) {
+          let identical = true;
+          for (const k of newKeys) {
+            const pVal = prev[k];
+            const nVal = newOffsets[k];
+            if (!pVal || !nVal) {
+              identical = false;
+              break;
+            }
+            if (
+              Math.abs(pVal[0] - nVal[0]) > 1e-4 ||
+              Math.abs(pVal[1] - nVal[1]) > 1e-4 ||
+              Math.abs(pVal[2] - nVal[2]) > 1e-4
+            ) {
+              identical = false;
+              break;
+            }
+          }
+          if (identical) return prev;
+        }
+        return newOffsets;
+      });
+    },
+    []
+  );
 
   // 3D Annotations State (synced to CAD assembly & localStorage)
   const [annotations, setAnnotations] = useState<CadAnnotation[]>(() => {
@@ -369,6 +421,7 @@ export const App: React.FC = () => {
       const turn = await runAgenticCadTurn({
         prompt: query,
         currentCode: code,
+        harness: selectedHarness,
         model: selectedModel,
         maxIterations: 3,
       });
@@ -383,6 +436,8 @@ export const App: React.FC = () => {
         timestamp: new Date().toLocaleTimeString(),
         steps: turn.steps,
         appliedCode: turn.finalCode,
+        harnessUsed: selectedHarness,
+        modelUsed: selectedModel,
       };
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
@@ -399,6 +454,15 @@ export const App: React.FC = () => {
     } finally {
       setIsAgentRunning(false);
     }
+  };
+
+  const handleApplyAmdPackageCode = async (packageCode: string) => {
+    setCode(packageCode);
+    setSelectedPresetId('amd_mcm_package');
+    setSelectedPartName(null);
+    setExplodeFactor(0);
+    setPartOffsets({});
+    await handleExecuteCode(packageCode, 'amd_mcm_package');
   };
 
   const downloadFile = (content: string, filename: string) => {
@@ -465,31 +529,111 @@ export const App: React.FC = () => {
             </select>
           </div>
 
-          {/* Model Selector */}
+          {/* Agnostic AI Harness Selector */}
           <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-xs">
-            <Cpu className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span className="text-slate-400 text-[11px]">Model:</span>
+            <Workflow className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            <span className="text-slate-400 text-[11px]">Harness:</span>
             <select
-              aria-label="Select Gemini Model"
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              className="bg-transparent font-medium text-slate-100 focus:outline-none cursor-pointer text-xs"
+              aria-label="Select AI Harness"
+              value={selectedHarness}
+              onChange={(e) => setSelectedHarness(e.target.value as HarnessTypeId)}
+              className="bg-transparent font-medium text-slate-100 focus:outline-none cursor-pointer text-xs max-w-[125px] truncate"
             >
-              {AVAILABLE_MODELS.map((m) => (
-                <option key={m.id} value={m.id} className="bg-slate-900 text-slate-100">
-                  {m.name}
+              {AI_HARNESS_OPTIONS.map((h) => (
+                <option key={h.id} value={h.id} className="bg-slate-900 text-slate-100">
+                  {h.shortLabel}
                 </option>
               ))}
             </select>
           </div>
 
+          {/* Agnostic AI Model Selector */}
+          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-xs">
+            <Cpu className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span className="text-slate-400 text-[11px]">Model:</span>
+            <select
+              aria-label="Select AI Model"
+              value={selectedModel}
+              onChange={(e) => {
+                const modelId = e.target.value;
+                setSelectedModel(modelId);
+                const opt = AI_MODEL_OPTIONS.find((m) => m.id === modelId);
+                if (opt?.recommendedHarness) {
+                  setSelectedHarness(opt.recommendedHarness);
+                }
+              }}
+              className="bg-transparent font-medium text-slate-100 focus:outline-none cursor-pointer text-xs max-w-[155px] truncate"
+            >
+              <optgroup label="Google (Gemini)" className="bg-slate-900 text-slate-300 font-semibold">
+                {AI_MODEL_OPTIONS.filter((m) => m.provider === 'Google').map((m) => (
+                  <option key={m.id} value={m.id} className="bg-slate-900 text-slate-100 font-normal">
+                    {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Hugging Face Hub (Active & Local)" className="bg-slate-900 text-amber-300 font-semibold">
+                {!AI_MODEL_OPTIONS.some((m) => m.id === selectedModel) && (
+                  <option value={selectedModel} className="bg-slate-900 text-amber-200 font-medium">
+                    {selectedModel.split('/').pop() || selectedModel} (Hub Loaded)
+                  </option>
+                )}
+                {AI_MODEL_OPTIONS.filter((m) => m.provider === 'Hugging Face Hub (Local)').map((m) => (
+                  <option key={m.id} value={m.id} className="bg-slate-900 text-slate-100 font-normal">
+                    {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Anthropic (Agnostic)" className="bg-slate-900 text-slate-300 font-semibold">
+                {AI_MODEL_OPTIONS.filter((m) => m.provider === 'Anthropic').map((m) => (
+                  <option key={m.id} value={m.id} className="bg-slate-900 text-slate-100 font-normal">
+                    {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="OpenAI (Agnostic)" className="bg-slate-900 text-slate-300 font-semibold">
+                {AI_MODEL_OPTIONS.filter((m) => m.provider === 'OpenAI').map((m) => (
+                  <option key={m.id} value={m.id} className="bg-slate-900 text-slate-100 font-normal">
+                    {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="AMD ROCm / Open-Weights" className="bg-slate-900 text-slate-300 font-semibold">
+                {AI_MODEL_OPTIONS.filter((m) => m.provider === 'AMD ROCm / Open-Weights').map((m) => (
+                  <option key={m.id} value={m.id} className="bg-slate-900 text-slate-100 font-normal">
+                    {m.name}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
+
           <button
-            onClick={() => setShowAiStudioModal(true)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 transition"
-            title="Google AI Studio Project"
+            onClick={() => setShowHarnessModal(true)}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs transition"
+            title="Configure AI Harness & Hermes Hardware Estimator"
           >
-            <GitBranch className="w-3.5 h-3.5" />
-            <span>AI Studio</span>
+            <Sliders className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden xl:inline text-[11px] font-medium text-amber-300">HF Hub & Rig</span>
+          </button>
+
+          {/* In-App Toolsets Button */}
+          <button
+            onClick={() => setShowToolsetsModal(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 transition"
+            title="In-App Toolsets & Skills Registry (100% In-App Sandbox)"
+          >
+            <Wrench className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Tools (4 Sets)</span>
+          </button>
+
+          {/* AMD Silicon EDA Button */}
+          <button
+            onClick={() => setShowAmdEdaStudio(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-950/60 hover:bg-rose-900/60 text-rose-300 border border-rose-700/50 transition shadow-sm"
+            title="OpenFlow-AI: AMD ROCm Silicon Logic Synthesis & Force-Directed Placer"
+          >
+            <Zap className="w-3.5 h-3.5 text-rose-400" />
+            <span>AMD EDA</span>
           </button>
 
           <button
@@ -550,20 +694,35 @@ export const App: React.FC = () => {
           }`}
         >
           {/* Prompt Header */}
-          <div className="px-4 py-3 border-b border-slate-800/80 flex items-center justify-between bg-slate-900/40">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-200">
-                CAD Prompt Copilot
-              </span>
+          <div className="px-4 py-3 border-b border-slate-800/80 bg-slate-900/40">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-200">
+                  CAD Prompt Copilot
+                </span>
+              </div>
+              <button
+                onClick={() => setIsPromptOpen(false)}
+                className="text-slate-400 hover:text-slate-200 p-1 rounded hover:bg-slate-800 transition"
+                title="Collapse Prompt Window"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
             </div>
-            <button
-              onClick={() => setIsPromptOpen(false)}
-              className="text-slate-400 hover:text-slate-200 p-1 rounded hover:bg-slate-800 transition"
-              title="Collapse Prompt Window"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
+
+            {/* Active Harness & Model Pill */}
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950/80 border border-slate-800/80 text-[10px]">
+              <div className="flex items-center gap-1.5 truncate">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                <span className="font-semibold text-slate-300 truncate">
+                  {AI_HARNESS_OPTIONS.find((h) => h.id === selectedHarness)?.shortLabel || selectedHarness}
+                </span>
+                <span className="text-slate-500">•</span>
+                <span className="font-mono text-sky-400 truncate">{selectedModel}</span>
+              </div>
+              <span className="text-emerald-400 font-medium shrink-0 ml-1">Tools Locked In-App</span>
+            </div>
           </div>
 
           {/* Messages Stream */}
@@ -578,9 +737,16 @@ export const App: React.FC = () => {
                 }`}
               >
                 <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1.5">
-                  <span className="font-semibold uppercase tracking-wider">
-                    {m.role === 'user' ? 'Prompt' : 'Agent Response'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold uppercase tracking-wider">
+                      {m.role === 'user' ? 'Prompt' : 'Agent Response'}
+                    </span>
+                    {m.harnessUsed && (
+                      <span className="px-1.5 py-0.2 rounded bg-slate-800 text-sky-300 font-mono text-[9px]">
+                        {m.harnessUsed}
+                      </span>
+                    )}
+                  </div>
                   <span>{m.timestamp}</span>
                 </div>
                 <p className="whitespace-pre-wrap">{m.content}</p>
@@ -589,20 +755,37 @@ export const App: React.FC = () => {
                 {m.steps && m.steps.length > 0 && (
                   <div className="mt-2.5 pt-2 border-t border-slate-800/80 space-y-1.5">
                     {m.steps.map((s) => (
-                      <div
-                        key={s.attempt}
-                        className={`p-1.5 rounded-lg border text-[11px] flex items-center gap-1.5 ${
-                          s.status === 'success'
-                            ? 'bg-emerald-950/30 border-emerald-800/40 text-emerald-200'
-                            : 'bg-amber-950/30 border-amber-800/40 text-amber-200'
-                        }`}
-                      >
-                        {s.status === 'success' ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        ) : (
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <div key={s.attempt} className="space-y-1">
+                        <div
+                          className={`p-1.5 rounded-lg border text-[11px] flex items-center gap-1.5 ${
+                            s.status === 'success'
+                              ? 'bg-emerald-950/30 border-emerald-800/40 text-emerald-200'
+                              : 'bg-amber-950/30 border-amber-800/40 text-amber-200'
+                          }`}
+                        >
+                          {s.status === 'success' ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          ) : (
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          )}
+                          <span className="truncate">{s.details}</span>
+                        </div>
+
+                        {s.toolCalls && s.toolCalls.length > 0 && (
+                          <div className="pl-4 space-y-1">
+                            {s.toolCalls.map((tc, idx) => (
+                              <div
+                                key={idx}
+                                className="text-[10px] p-1 rounded bg-slate-950 border border-slate-800 flex items-center gap-1.5 text-slate-300"
+                              >
+                                <Wrench className="w-3 h-3 text-sky-400 shrink-0" />
+                                <span className="font-mono text-sky-300">{tc.toolName}</span>
+                                <span className="text-slate-500">→</span>
+                                <span className="text-emerald-400 truncate">{tc.outputSummary}</span>
+                              </div>
+                            ))}
+                          </div>
                         )}
-                        <span className="truncate">{s.details}</span>
                       </div>
                     ))}
                   </div>
@@ -833,9 +1016,9 @@ export const App: React.FC = () => {
           {/* Interactive Assembly Explosion Stages Timeline Dock */}
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[94%] max-w-2xl pointer-events-auto">
             <ExplosionTimeline
-              stages={execResult?.explosion_stages || []}
-              partNames={(execResult?.parts || []).map((p) => p.name)}
-              onOffsetsChange={setPartOffsets}
+              stages={currentExplosionStages}
+              partNames={currentPartNames}
+              onOffsetsChange={handleOffsetsChange}
               explodeFactor={explodeFactor}
               onExplodeFactorChange={setExplodeFactor}
             />
@@ -967,6 +1150,31 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal: Agnostic AI Harness & Model Configurator */}
+      <AiHarnessModal
+        isOpen={showHarnessModal}
+        onClose={() => setShowHarnessModal(false)}
+        selectedHarness={selectedHarness}
+        onSelectHarness={setSelectedHarness}
+        selectedModel={selectedModel}
+        onSelectModel={setSelectedModel}
+      />
+
+      {/* Modal: In-App Toolsets & Skills Registry */}
+      <InAppToolsetsModal
+        isOpen={showToolsetsModal}
+        onClose={() => setShowToolsetsModal(false)}
+        execResult={execResult}
+        currentCode={code}
+      />
+
+      {/* Modal: OpenFlow-AI AMD ROCm Silicon EDA Studio */}
+      <AmdEdaSiliconStudio
+        isOpen={showAmdEdaStudio}
+        onClose={() => setShowAmdEdaStudio(false)}
+        onApply3dPackageCode={handleApplyAmdPackageCode}
+      />
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   Gauge,
@@ -24,6 +24,28 @@ export interface ExplosionTimelineProps {
   // Fallback radial explode factor callback when switching to continuous slider
   explodeFactor: number;
   onExplodeFactorChange: (factor: number) => void;
+}
+
+export function areOffsetsEqual(
+  a: Record<string, [number, number, number]>,
+  b: Record<string, [number, number, number]>
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) {
+    const valA = a[k];
+    const valB = b[k];
+    if (!valB) return false;
+    if (
+      Math.abs(valA[0] - valB[0]) > 0.0001 ||
+      Math.abs(valA[1] - valB[1]) > 0.0001 ||
+      Math.abs(valA[2] - valB[2]) > 0.0001
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function applyEasing(t: number, easing?: ExplosionEasing): number {
@@ -131,6 +153,12 @@ export const ExplosionTimeline: React.FC<ExplosionTimelineProps> = ({
   const [useContinuousSlider, setUseContinuousSlider] = useState<boolean>(false);
   const [showStageMenu, setShowStageMenu] = useState<boolean>(false);
 
+  const lastEmittedOffsetsRef = useRef<Record<string, [number, number, number]>>({});
+  const onOffsetsChangeRef = useRef(onOffsetsChange);
+  useEffect(() => {
+    onOffsetsChangeRef.current = onOffsetsChange;
+  }, [onOffsetsChange]);
+
   // Compute stage cumulative time bounds
   const stageTimeline = useMemo(() => {
     let cumulative = 0;
@@ -185,10 +213,19 @@ export const ExplosionTimeline: React.FC<ExplosionTimelineProps> = ({
 
   // Whenever currentTime changes (or stages/parts change), evaluate offsets
   useEffect(() => {
-    if (useContinuousSlider) return;
+    if (useContinuousSlider) {
+      if (Object.keys(lastEmittedOffsetsRef.current).length > 0) {
+        lastEmittedOffsetsRef.current = {};
+        onOffsetsChangeRef.current({});
+      }
+      return;
+    }
     const offsets = calculatePartOffsets(stages, partNames, currentTime);
-    onOffsetsChange(offsets);
-  }, [stages, partNames, currentTime, useContinuousSlider, onOffsetsChange]);
+    if (!areOffsetsEqual(offsets, lastEmittedOffsetsRef.current)) {
+      lastEmittedOffsetsRef.current = offsets;
+      onOffsetsChangeRef.current(offsets);
+    }
+  }, [stages, partNames, currentTime, useContinuousSlider]);
 
   // Main 60 FPS animation loop
   useEffect(() => {
@@ -200,18 +237,24 @@ export const ExplosionTimeline: React.FC<ExplosionTimelineProps> = ({
       const dt = (now - lastStamp) / 1000;
       lastStamp = now;
 
+      let hasReachedEnd = false;
       setCurrentTime((prev) => {
         const next = prev + dt * playbackSpeed;
         if (next >= totalDuration) {
           if (loop) {
             return 0;
           } else {
-            setIsPlaying(false);
+            hasReachedEnd = true;
             return totalDuration;
           }
         }
         return next;
       });
+
+      if (hasReachedEnd) {
+        setIsPlaying(false);
+        return;
+      }
 
       frameId = requestAnimationFrame(tick);
     };
