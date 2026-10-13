@@ -57,9 +57,10 @@ export async function runAgenticCadTurn(params: {
   prompt: string;
   currentCode: string;
   apiKey?: string;
+  model?: string;
   maxIterations?: number;
 }): Promise<AgentTurnResponse> {
-  const { prompt, currentCode, apiKey, maxIterations = 3 } = params;
+  const { prompt, currentCode, apiKey, model = 'gemini-3.8-flash', maxIterations = 3 } = params;
   const effectiveKey = getEffectiveApiKey(apiKey);
   const steps: AgentIterationStep[] = [];
 
@@ -97,7 +98,7 @@ export async function runAgenticCadTurn(params: {
         : `SELF-HEALING REPAIR ITERATION ${attempt}:\nThe previous script produced the following NVIDIA usd_brep kernel or sanity-check issue:\n${feedbackContext}\n\nPREVIOUS SCRIPT:\n\`\`\`python\n${workingCode}\n\`\`\`\n\nFix the geometry/API call so all parts are manifold, rest on z >= 0, and have zero unwanted penetrations.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model,
       contents: userPrompt,
       config: {
         systemInstruction: NVIDIA_USD_BREP_SYSTEM_PROMPT,
