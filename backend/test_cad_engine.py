@@ -183,3 +183,58 @@ def test_fastapi_endpoints():
     payload = r_exec.json()
     assert payload["success"] is True
     assert len(payload["parts"]) == 4
+
+
+def test_touching_and_disjoint_parts_with_aabb_overlap_pass_without_penetration_warning():
+    """Verify that touching parts and separate parts with overlapping AABBs are correctly recognized."""
+    # 1. L-bracket with corner part (completely separate in 3D B-Rep with distance 1.0, but overlapping AABB)
+    code_l = """import usd_brep as sm
+def build_parts():
+    b = sm.create_box((0, 0, 0), 10, 10, 10)
+    cut = sm.create_box((5, 0, 0), 6, 6, 11)
+    l_part = sm.boolean_difference(b, cut)
+    corner_part = sm.create_box((6, 1, 1), 3, 3, 3)
+    return [
+        ('l_part', l_part, (0.5, 0.5, 0.5), 'anchor'),
+        ('corner_part', corner_part, (0.2, 0.8, 0.2), 'component'),
+    ]
+"""
+    res_l = execute_cad_script(code_l)
+    assert res_l["success"] is True
+    assert res_l["summary"]["penetration_count"] == 0
+    assert not any("PENETRATE" in w for w in res_l["sanity_warnings"])
+
+    # 2. Pocket block with seated pin (clean touching on boundary face, distance 0.0, overlapping AABB)
+    code_pocket = """import usd_brep as sm
+def build_parts():
+    base = sm.create_box((-10.0, -10.0, 0.0), 20.0, 20.0, 10.0)
+    pocket = sm.create_cylinder((0.0, 0.0, 2.0), 5.0, 9.0)
+    base = sm.boolean_difference(base, pocket)
+    pin = sm.create_cylinder((0.0, 0.0, 2.0), 4.8, 7.0)
+    return [
+        ('block', base, (0.5, 0.5, 0.5), 'anchor'),
+        ('pin', pin, (0.2, 0.8, 0.2), 'component'),
+    ]
+"""
+    res_pocket = execute_cad_script(code_pocket)
+    assert res_pocket["success"] is True
+    assert res_pocket["summary"]["penetration_count"] == 0
+    assert not any("PENETRATE" in w for w in res_pocket["sanity_warnings"])
+
+
+def test_true_interpenetration_detected_by_kernel():
+    """Verify that intersecting B-Rep solids are flagged as penetration."""
+    code = """import usd_brep as sm
+def build_parts():
+    b1 = sm.create_box((0, 0, 0), 10, 10, 10)
+    b2 = sm.create_box((5, 5, 5), 10, 10, 10)
+    return [
+        ('box1', b1, (0.5, 0.5, 0.5), 'anchor'),
+        ('box2', b2, (0.2, 0.8, 0.2), 'component'),
+    ]
+"""
+    res = execute_cad_script(code)
+    assert res["success"] is True
+    assert res["summary"]["penetration_count"] >= 1
+    assert any("PENETRATE" in w for w in res["sanity_warnings"])
+

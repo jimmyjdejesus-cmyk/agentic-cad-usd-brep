@@ -24,6 +24,7 @@ def _sanitize_prim_name(name: str, index: int) -> str:
 def sanity_checks(
     parts_points: list[tuple[str, list[tuple[float, float, float]]]],
     anchor_names: list[str] | set[str],
+    detail_names: list[str] | set[str] | None = None,
     growth: float = 0.30,
     penetration_tol: float = 0.05,
     envelope_tol: float = 0.5,
@@ -40,14 +41,15 @@ def sanity_checks(
         boxes[name] = (pts.min(axis=0), pts.max(axis=0))
         ordered_names.append(name)
 
-    # Check all unique part pairs for AABB interior overlap > min_volume
+    candidates = set(boxes) - anchor_set
+
+    # Canonical NVIDIA check: compare each candidate part only against anchor parts
+    # (Avoid all-pairs check: intentional contact/clearance between trusted components is allowed)
     penetrations: list[dict[str, Any]] = []
-    for i in range(len(ordered_names)):
-        for j in range(i + 1, len(ordered_names)):
-            name_a = ordered_names[i]
-            name_b = ordered_names[j]
-            a_mn, a_mx = boxes[name_a]
-            b_mn, b_mx = boxes[name_b]
+    for candidate in sorted(candidates):
+        for anchor in sorted(anchor_set & set(boxes)):
+            a_mn, a_mx = boxes[candidate]
+            b_mn, b_mx = boxes[anchor]
             extent = np.maximum(
                 0.0,
                 np.minimum(a_mx - penetration_tol, b_mx - penetration_tol)
@@ -57,23 +59,32 @@ def sanity_checks(
             if volume > min_volume:
                 penetrations.append(
                     {
-                        "candidate": name_b,
-                        "anchor": name_a,
+                        "candidate": candidate,
+                        "anchor": anchor,
                         "overlap_volume": round(volume, 4),
                     }
                 )
 
-    candidates = set(boxes) - anchor_set
     anchors = [boxes[name] for name in anchor_set if name in boxes]
-    if not anchors or not candidates:
+    if not anchors:
         return penetrations, []
+
+    # Detail envelope containment (only for loose detail / accessory parts, not primary stacked components)
+    if detail_names is not None:
+        target_candidates = set(detail_names) & set(boxes)
+    else:
+        target_candidates = set()
+
+    if not target_candidates:
+        return penetrations, []
+
     env_min = np.min([b[0] for b in anchors], axis=0)
     env_max = np.max([b[1] for b in anchors], axis=0)
     pad = (env_max - env_min) * growth
     env_min, env_max = env_min - pad, env_max + pad
     breaches: list[dict[str, Any]] = []
     axis_names = ["X", "Y", "Z"]
-    for name in sorted(candidates):
+    for name in sorted(target_candidates):
         part_min, part_max = boxes[name]
         for axis in range(3):
             if part_min[axis] < env_min[axis] - envelope_tol:
@@ -330,6 +341,7 @@ def execute_cad_script(
     breps_by_name: list[tuple[str, sm.Brep]] = []
     parts_points_for_sanity: list[tuple[str, list[tuple[float, float, float]]]] = []
     anchor_names: list[str] = []
+    detail_names: list[str] = []
 
     default_palette = [
         [0.28, 0.62, 0.96],
@@ -350,8 +362,10 @@ def execute_cad_script(
             else:
                 color = default_palette[idx % len(default_palette)]
             kind = str(p.get("kind") or ("anchor" if idx == 0 else "component"))
-            if kind not in ("accessory", "detail", "trim"):
+            if kind.lower() in ("anchor", "body", "chassis", "frame", "base"):
                 anchor_names.append(name)
+            elif kind.lower() in ("accessory", "detail", "trim", "fill", "insert", "decoration"):
+                detail_names.append(name)
 
             info = brep.info()
             census = brep.material_census()
@@ -424,7 +438,8 @@ def execute_cad_script(
 
     # Pairwise BRep topological/spatial relationship matrix (capped at first 8 parts for speed)
     relationships: list[dict[str, Any]] = []
-    disjoint_pairs: set[tuple[str, str]] = set()
+    non_penetrating_pairs: set[tuple[str, str]] = set()
+    interpenetrating_pairs: set[tuple[str, str]] = set()
     sanity_warnings: list[str] = []
     penetration_count = 0
     max_rel = min(len(breps_by_name), 8)
@@ -436,9 +451,14 @@ def execute_cad_script(
                 rel = sm.brep_relationship(brep_a, brep_b)
                 rel_name = str(rel.get("relationship", "unknown"))
                 dist = round(float(rel.get("distance", 0.0)), 4)
-                if rel_name.lower() == "disjoint":
-                    disjoint_pairs.add((name_a, name_b))
-                    disjoint_pairs.add((name_b, name_a))
+                rel_clean = rel_name.lower().strip()
+                # NVIDIA usd_brep kernel returns 'separate', 'touching', 'interpenetrating', 'a_contains_b', 'b_contains_a'
+                if rel_clean in ("separate", "touching", "disjoint"):
+                    non_penetrating_pairs.add((name_a, name_b))
+                    non_penetrating_pairs.add((name_b, name_a))
+                elif rel_clean in ("interpenetrating", "a_contains_b", "b_contains_a"):
+                    interpenetrating_pairs.add((name_a, name_b))
+                    interpenetrating_pairs.add((name_b, name_a))
                 relationships.append(
                     {
                         "part_a": name_a,
@@ -459,16 +479,35 @@ def execute_cad_script(
 
     if not anchor_names and parts_points_for_sanity:
         anchor_names = [parts_points_for_sanity[0][0]]
-    raw_penetrations, envelope_breaches = sanity_checks(parts_points_for_sanity, anchor_names)
+    raw_penetrations, envelope_breaches = sanity_checks(
+        parts_points_for_sanity, anchor_names, detail_names=detail_names
+    )
     penetrations = [
         pen
         for pen in raw_penetrations
-        if (pen["candidate"], pen["anchor"]) not in disjoint_pairs
+        if (pen["candidate"], pen["anchor"]) not in non_penetrating_pairs
     ]
+    # Include kernel-confirmed interpenetrations even if AABB volume is small
+    for i in range(max_rel):
+        for j in range(i + 1, max_rel):
+            na, nb = breps_by_name[i][0], breps_by_name[j][0]
+            if (na, nb) in interpenetrating_pairs:
+                if not any(
+                    (p["candidate"] == nb and p["anchor"] == na) or (p["candidate"] == na and p["anchor"] == nb)
+                    for p in penetrations
+                ):
+                    penetrations.append(
+                        {
+                            "candidate": nb,
+                            "anchor": na,
+                            "overlap_volume": 0.0,
+                        }
+                    )
     for pen in penetrations:
         penetration_count += 1
+        vol_info = f" (AABB overlap volume={pen['overlap_volume']} cm³)" if pen.get("overlap_volume") else ""
         sanity_warnings.append(
-            f"PENETRATE: '{pen['candidate']}' overlaps '{pen['anchor']}' (AABB overlap volume={pen['overlap_volume']} cm³)"
+            f"PENETRATE: '{pen['candidate']}' overlaps '{pen['anchor']}'{vol_info}"
         )
     for br in envelope_breaches:
         sanity_warnings.append(

@@ -45,7 +45,12 @@ function getEffectiveApiKey(override?: string): string {
   if (override && override.trim()) return override.trim();
   const envKey =
     (typeof process !== 'undefined' && process.env && (process.env.GEMINI_API_KEY || process.env.API_KEY)) || '';
-  return envKey.trim();
+  if (envKey && envKey.trim()) return envKey.trim();
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const stored = window.localStorage.getItem('GEMINI_API_KEY') || window.localStorage.getItem('API_KEY');
+    if (stored && stored.trim()) return stored.trim();
+  }
+  return '';
 }
 
 export async function runAgenticCadTurn(params: {
@@ -285,17 +290,15 @@ def build_parts():
     base = sm.create_box((-14.0, -14.0, 0.0), 28.0, 28.0, 4.0)
     sm.fillet_edges(base, base.edges(), radius=0.8)
 
-    # 2. Azimuth turret housing (z = 4.2..18.2)
+    # 2. Azimuth turret housing (z = 4.2..18.2, radius = 10)
     drum = sm.create_cylinder((0.0, 0.0, 4.2), 10.0, 14.0)
-    eye_recess = sm.create_box((4.0, -6.5, 8.0), 8.0, 13.0, 7.0)
-    drum = sm.boolean_difference(drum, eye_recess)
 
-    # 3. Dual optical lens barrels extending along +X
-    lens_left = sm.create_cylinder((6.5, -3.5, 11.5), 2.2, 6.0)
-    sm.rotate(lens_left, ref_point=(6.5, -3.5, 11.5), axis=(0.0, 1.0, 0.0), angle_deg=90.0)
+    # 3. Dual optical lens barrels extending forward along +X from the turret face (x = 10.1..16.1)
+    lens_left = sm.create_cylinder((10.1, -3.5, 11.5), 2.2, 6.0)
+    sm.rotate(lens_left, ref_point=(10.1, -3.5, 11.5), axis=(0.0, 1.0, 0.0), angle_deg=90.0)
 
-    lens_right = sm.create_cylinder((6.5, 3.5, 11.5), 2.2, 6.0)
-    sm.rotate(lens_right, ref_point=(6.5, 3.5, 11.5), axis=(0.0, 1.0, 0.0), angle_deg=90.0)
+    lens_right = sm.create_cylinder((10.1, 3.5, 11.5), 2.2, 6.0)
+    sm.rotate(lens_right, ref_point=(10.1, 3.5, 11.5), axis=(0.0, 1.0, 0.0), angle_deg=90.0)
 
     # 4. Top LiDAR hemisphere dome (z = 18.4..25.4)
     lidar_collar = sm.create_cone((0.0, 0.0, 18.4), radius_base=7.5, radius_top=5.5, height=3.0)

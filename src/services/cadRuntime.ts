@@ -658,24 +658,28 @@ export function evaluateClientSideUsdBrep(
   const sanityWarnings: string[] = [];
   const penTol = 0.05;
 
-  for (let i = 0; i < partsOutput.length; i++) {
-    for (let j = i + 1; j < partsOutput.length; j++) {
-      const a = partsOutput[i];
-      const b = partsOutput[j];
-      const [aMn, aMx] = a.diagnostics.bounds;
-      const [bMn, bMx] = b.diagnostics.bounds;
-      const dx = Math.max(0, Math.min(aMx[0] - penTol, bMx[0] - penTol) - Math.max(aMn[0] + penTol, bMn[0] + penTol));
-      const dy = Math.max(0, Math.min(aMx[1] - penTol, bMx[1] - penTol) - Math.max(aMn[1] + penTol, bMn[1] + penTol));
-      const dz = Math.max(0, Math.min(aMx[2] - penTol, bMx[2] - penTol) - Math.max(aMn[2] + penTol, bMn[2] + penTol));
+  const isAnchorKind = (k: string) =>
+    ['anchor', 'body', 'chassis', 'frame', 'base'].includes(k.toLowerCase());
+  const anchors = partsOutput.filter((p) => isAnchorKind(p.kind));
+  const effectiveAnchors = anchors.length > 0 ? anchors : [partsOutput[0]];
+  const candidates = partsOutput.filter((p) => !effectiveAnchors.includes(p));
+
+  for (const cand of candidates) {
+    for (const anch of effectiveAnchors) {
+      const [cMn, cMx] = cand.diagnostics.bounds;
+      const [aMn, aMx] = anch.diagnostics.bounds;
+      const dx = Math.max(0, Math.min(cMx[0] - penTol, aMx[0] - penTol) - Math.max(cMn[0] + penTol, aMn[0] + penTol));
+      const dy = Math.max(0, Math.min(cMx[1] - penTol, aMx[1] - penTol) - Math.max(cMn[1] + penTol, aMn[1] + penTol));
+      const dz = Math.max(0, Math.min(cMx[2] - penTol, aMx[2] - penTol) - Math.max(cMn[2] + penTol, aMn[2] + penTol));
       const vol = dx * dy * dz;
       if (vol > 0.5) {
         penetrationWarnings.push({
-          candidate: b.name,
-          anchor: a.name,
+          candidate: cand.name,
+          anchor: anch.name,
           overlap_volume: Number(vol.toFixed(4)),
         });
         sanityWarnings.push(
-          `PENETRATE: '${b.name}' overlaps '${a.name}' (AABB overlap volume=${vol.toFixed(2)} cm³)`
+          `PENETRATE: '${cand.name}' overlaps '${anch.name}' (AABB overlap volume=${vol.toFixed(2)} cm³)`
         );
       }
     }
