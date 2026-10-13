@@ -1,0 +1,121 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and authentication identity",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth user UID",
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address",
+          "maxLength": 256
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name",
+          "maxLength": 128
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "User avatar photo URL",
+          "maxLength": 1024
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp ISO string when user was first created",
+          "maxLength": 64
+        },
+        "lastLoginAt": {
+          "type": "string",
+          "description": "Timestamp ISO string of latest login",
+          "maxLength": 64
+        }
+      },
+      "required": ["uid", "email"]
+    },
+    "SavedAssembly": {
+      "title": "SavedAssembly",
+      "description": "Saved CAD assembly project with mass properties, envelope, and python script",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique assembly ID",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user UID",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "description": "Assembly name / title",
+          "maxLength": 128
+        },
+        "code": {
+          "type": "string",
+          "description": "Python usd_brep script code",
+          "maxLength": 100000
+        },
+        "materialName": {
+          "type": "string",
+          "description": "Assigned material name",
+          "maxLength": 64
+        },
+        "materialDensity": {
+          "type": "number",
+          "description": "Material density in g/cm3"
+        },
+        "totalMass": {
+          "type": "number",
+          "description": "Calculated total mass in grams"
+        },
+        "totalVolume": {
+          "type": "number",
+          "description": "Calculated total volume in cm3"
+        },
+        "centerOfMass": {
+          "type": "string",
+          "description": "Center of mass formatted as X,Y,Z cm",
+          "maxLength": 64
+        },
+        "boundingBox": {
+          "type": "string",
+          "description": "Bounding box formatted as W x D x H cm",
+          "maxLength": 64
+        },
+        "partCount": {
+          "type": "number",
+          "description": "Number of B-Rep parts in assembly"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp when assembly was saved",
+          "maxLength": 64
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update",
+          "maxLength": 64
+        }
+      },
+      "required": ["id", "userId", "name", "code"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile document isolated per user"
+    },
+    "/users/{userId}/saved_assemblies/{assemblyId}": {
+      "schema": "SavedAssembly",
+      "description": "Subcollection of saved CAD assemblies owned by user"
+    }
+  }
+}

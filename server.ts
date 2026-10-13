@@ -42,7 +42,10 @@ CRITICAL NVIDIA usd_brep API RULES:
 7. Multi-Part Sanity & Non-Penetration:
    - Separate distinct components into their own \`(name, brep, (r, g, b), kind)\` tuple in the list returned by \`build_parts()\`.
    - Leave clearance (0.1 to 0.2 cm) between stacked parts so bounding boxes do not penetrate, OR union overlapping parts into a single manifold body via \`sm.boolean_union\`.
-   - Use \`"anchor"\` for primary structural parts and \`"component"\` for sub-parts.`;
+   - Use \`"anchor"\` for primary structural parts and \`"component"\` for sub-parts.
+8. Explosion & Disassembly Stages:
+   - You may return either \`parts\` or \`parts, explosion_stages\`.
+   - Each stage in \`explosion_stages\` specifies \`{"name": "...", "duration": 1.2, "easing": "ease-out", "translations": {"part_name": [dx, dy, dz]}}\`.`;
 
 function synthesizeParametricFallback(prompt: string, currentCode: string): { explanation: string; code: string } {
   const lower = prompt.toLowerCase();

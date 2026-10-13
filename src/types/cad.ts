@@ -68,6 +68,57 @@ export interface CadAssemblySummary {
   penetration_warnings: CadPenetrationWarning[];
   envelope_breaches: CadEnvelopeBreach[];
   relationships: CadPartRelationship[];
+  mass_properties?: AssemblyMassProperties;
+}
+
+export interface MaterialPreset {
+  id: string;
+  name: string;
+  density: number; // in g/cm³
+  category: string;
+  family?: string;
+  description: string;
+  typicalUse?: string;
+  tags?: string[];
+}
+
+export interface AssemblyMassProperties {
+  material: MaterialPreset;
+  density: number; // g/cm³
+  totalVolumeCm3: number;
+  totalMassGrams: number;
+  totalMassKg: number;
+  totalMassLbs: number;
+  centerOfMass: [number, number, number]; // [x, y, z] in cm
+  boundingBox: {
+    min: [number, number, number];
+    max: [number, number, number];
+    dimensions: [number, number, number]; // [width X, depth Y, height Z] in cm
+    volumeCm3: number;
+  };
+}
+
+export type ExplosionEasing =
+  | 'linear'
+  | 'ease-in'
+  | 'ease-out'
+  | 'ease-in-out'
+  | 'ease-in-cubic'
+  | 'ease-out-cubic';
+
+export interface ExplosionPartTransform {
+  translation: [number, number, number]; // [dx, dy, dz] offset in cm
+  rotation?: [number, number, number]; // optional Euler rotation in degrees
+  easing?: ExplosionEasing;
+}
+
+export interface ExplosionStage {
+  id: string;
+  name: string;
+  description?: string;
+  duration?: number; // in seconds, default 1.0
+  easing?: ExplosionEasing;
+  parts: Record<string, [number, number, number] | ExplosionPartTransform>;
 }
 
 export interface CadExecutionResult {
@@ -82,6 +133,7 @@ export interface CadExecutionResult {
   sanity_warnings?: string[];
   summary?: CadAssemblySummary;
   parts?: CadPartOutput[];
+  explosion_stages?: ExplosionStage[];
   exports?: {
     mesh_usda: string;
     brep_usda: string;

@@ -58,4 +58,64 @@ def build_parts():
     expect(warnings).toContain('GROUND_PLANE');
     expect(warnings).toContain('TARGET_ENVELOPE');
   });
+
+  it('correctly parses named explosion stages and translation vectors from CAD scripts', () => {
+    const code = `import usd_brep as sm
+def build_parts():
+    b1 = sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, 4.0)
+    b2 = sm.create_box((-3.0, -3.0, 4.2), 6.0, 6.0, 8.0)
+    parts = [
+        ("base", b1, (0.3, 0.3, 0.3), "anchor"),
+        ("tower", b2, (0.8, 0.4, 0.2), "component"),
+    ]
+    explosion_stages = [
+        {
+            "name": "Stage 1: Tower Lift",
+            "duration": 1.5,
+            "easing": "ease-out",
+            "translations": {
+                "tower": [0.0, 0.0, 15.0],
+                "base": [0.0, 0.0, 0.0],
+            },
+        },
+        {
+            "name": "Stage 2: Lateral Offset",
+            "duration": 1.2,
+            "easing": "ease-in-out",
+            "translations": {
+                "tower": [10.0, 5.0, 15.0],
+                "base": [0.0, 0.0, 0.0],
+            },
+        },
+    ]
+    return parts, explosion_stages
+`;
+    const res = evaluateClientSideUsdBrep(code);
+    expect(res.success).toBe(true);
+    expect(res.explosion_stages).toBeDefined();
+    expect(res.explosion_stages?.length).toBe(2);
+    expect(res.explosion_stages?.[0].name).toBe('Stage 1: Tower Lift');
+    expect(res.explosion_stages?.[0].duration).toBe(1.5);
+    expect(res.explosion_stages?.[0].easing).toBe('ease-out');
+    expect(res.explosion_stages?.[0].parts['tower']).toEqual([0.0, 0.0, 15.0]);
+    expect(res.explosion_stages?.[1].parts['tower']).toEqual([10.0, 5.0, 15.0]);
+  });
+
+  it('generates procedural fallback stages when a script returns parts without explicit stages', () => {
+    const code = `import usd_brep as sm
+def build_parts():
+    b1 = sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, 4.0)
+    b2 = sm.create_box((-3.0, -3.0, 4.2), 6.0, 6.0, 8.0)
+    return [
+        ("base", b1, (0.3, 0.3, 0.3), "anchor"),
+        ("cover", b2, (0.8, 0.4, 0.2), "component"),
+    ]
+`;
+    const res = evaluateClientSideUsdBrep(code);
+    expect(res.success).toBe(true);
+    expect(res.explosion_stages).toBeDefined();
+    expect((res.explosion_stages || []).length).toBeGreaterThanOrEqual(2);
+    expect(res.explosion_stages?.[0].name).toContain('Step 1');
+  });
 });
+

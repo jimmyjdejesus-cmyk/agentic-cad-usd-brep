@@ -9,7 +9,11 @@ interface Viewport3DProps {
   showWireframe: boolean;
   showBounds: boolean;
   showGrid: boolean;
+  showCenterOfMass?: boolean;
+  centerOfMass?: [number, number, number];
+  overallBounds?: [[number, number, number], [number, number, number]];
   explodeFactor: number;
+  partOffsets?: Record<string, [number, number, number]>;
 }
 
 export const Viewport3D: React.FC<Viewport3DProps> = ({
@@ -19,14 +23,29 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   showWireframe,
   showBounds,
   showGrid,
+  showCenterOfMass = true,
+  centerOfMass,
+  overallBounds,
   explodeFactor,
+  partOffsets,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const partGroupRef = useRef<THREE.Group | null>(null);
+  const comGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.Group | null>(null);
+  const partEntriesRef = useRef<
+    Array<{
+      partName: string;
+      mesh: THREE.Mesh;
+      wire?: THREE.LineSegments;
+      boxHelper?: THREE.Box3Helper;
+      defaultOffset: THREE.Vector3;
+      bounds: [[number, number, number], [number, number, number]];
+    }>
+  >([]);
 
   // Spherical orbit camera state (Z-up)
   const orbitState = useRef({
@@ -109,6 +128,10 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     const partGroup = new THREE.Group();
     scene.add(partGroup);
     partGroupRef.current = partGroup;
+
+    const comGroup = new THREE.Group();
+    scene.add(comGroup);
+    comGroupRef.current = comGroup;
 
     // Mouse / Pointer interaction for Orbit + Pan + Zoom + Part Picking
     const dom = renderer.domElement;
@@ -226,7 +249,93 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     }
   }, [showGrid]);
 
-  // Rebuild Three.js meshes when parts, selection, wireframe, bounds, or explodeFactor change
+  // Rebuild 3D Center of Mass (CoM) Marker
+  useEffect(() => {
+    const comGroup = comGroupRef.current;
+    if (!comGroup) return;
+
+    while (comGroup.children.length > 0) {
+      comGroup.remove(comGroup.children[0]);
+    }
+
+    if (!showCenterOfMass || !centerOfMass) return;
+
+    const [cx, cy, cz] = centerOfMass;
+    const comPos = new THREE.Vector3(cx, cy, cz);
+
+    // 1. Center of Mass Reticle Sphere (Amber with glowing finish)
+    const sphereGeom = new THREE.SphereGeometry(0.85, 24, 24);
+    const sphereMat = new THREE.MeshStandardMaterial({
+      color: 0xf59e0b,
+      emissive: 0xd97706,
+      emissiveIntensity: 0.65,
+      metalness: 0.8,
+      roughness: 0.2,
+    });
+    const sphereMesh = new THREE.Mesh(sphereGeom, sphereMat);
+    sphereMesh.position.copy(comPos);
+    comGroup.add(sphereMesh);
+
+    // 2. Three Orthogonal Reticle Crosshair Rings (XY, XZ, YZ)
+    const ringRadius = 1.8;
+    const ringMat = new THREE.LineBasicMaterial({
+      color: 0xfbbf24,
+      linewidth: 2,
+    });
+
+    const createRing = (axis: 'xy' | 'xz' | 'yz') => {
+      const ringGeom = new THREE.BufferGeometry();
+      const points: THREE.Vector3[] = [];
+      const segments = 48;
+      for (let i = 0; i <= segments; i++) {
+        const theta = (i / segments) * Math.PI * 2;
+        const cos = Math.cos(theta) * ringRadius;
+        const sin = Math.sin(theta) * ringRadius;
+        if (axis === 'xy') points.push(new THREE.Vector3(cos, sin, 0));
+        else if (axis === 'xz') points.push(new THREE.Vector3(cos, 0, sin));
+        else points.push(new THREE.Vector3(0, cos, sin));
+      }
+      ringGeom.setFromPoints(points);
+      const line = new THREE.Line(ringGeom, ringMat);
+      line.position.copy(comPos);
+      return line;
+    };
+
+    comGroup.add(createRing('xy'));
+    comGroup.add(createRing('xz'));
+    comGroup.add(createRing('yz'));
+
+    // 3. Vertical Plumb Drop Line to Ground Plane (z = 0)
+    const dropLineGeom = new THREE.BufferGeometry().setFromPoints([
+      comPos,
+      new THREE.Vector3(cx, cy, 0),
+    ]);
+    const dropLineMat = new THREE.LineDashedMaterial({
+      color: 0xf59e0b,
+      dashSize: 0.8,
+      gapSize: 0.4,
+      opacity: 0.85,
+      transparent: true,
+    });
+    const dropLine = new THREE.Line(dropLineGeom, dropLineMat);
+    dropLine.computeLineDistances();
+    comGroup.add(dropLine);
+
+    // 4. Ground Target Reticle at (cx, cy, 0)
+    const groundRingGeom = new THREE.RingGeometry(0.8, 1.2, 32);
+    groundRingGeom.rotateX(Math.PI / 2);
+    const groundRingMat = new THREE.MeshBasicMaterial({
+      color: 0xd97706,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.65,
+    });
+    const groundTarget = new THREE.Mesh(groundRingGeom, groundRingMat);
+    groundTarget.position.set(cx, cy, 0.05);
+    comGroup.add(groundTarget);
+  }, [showCenterOfMass, centerOfMass]);
+
+  // Rebuild Three.js geometries and materials when parts, selection, wireframe, or bounds change
   useEffect(() => {
     const group = partGroupRef.current;
     if (!group) return;
@@ -236,9 +345,10 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       group.remove(child);
     }
 
+    partEntriesRef.current = [];
     if (!parts || parts.length === 0) return;
 
-    // Compute overall assembly centroid for exploded view vector calculation
+    // Compute overall assembly centroid for default radial exploded view
     const assemblyCenter = new THREE.Vector3(0, 0, 0);
     parts.forEach((p) => {
       const c = p.diagnostics.center;
@@ -287,16 +397,23 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       const mesh = new THREE.Mesh(geom, mat);
       mesh.userData = { partName: part.name };
 
-      // Calculate exploded view offset
+      // Calculate default radial exploded direction
       const partCenter = new THREE.Vector3(...part.diagnostics.center);
       const explodeDir = partCenter.clone().sub(assemblyCenter);
       if (explodeDir.lengthSq() < 0.01) {
         explodeDir.set(0, 0, idx * 4);
       }
-      const offset = explodeDir.multiplyScalar(explodeFactor * 0.85);
-      mesh.position.copy(offset);
+
+      let initialOffset: THREE.Vector3;
+      if (partOffsets && partOffsets[part.name]) {
+        initialOffset = new THREE.Vector3(...partOffsets[part.name]);
+      } else {
+        initialOffset = explodeDir.clone().multiplyScalar(explodeFactor * 0.85);
+      }
+      mesh.position.copy(initialOffset);
       group.add(mesh);
 
+      let wireMesh: THREE.LineSegments | undefined;
       if (showWireframe || isSelected) {
         const wireGeom = new THREE.WireframeGeometry(geom);
         const wireMat = new THREE.LineBasicMaterial({
@@ -304,32 +421,75 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
           transparent: true,
           opacity: isSelected ? 0.85 : 0.35,
         });
-        const wire = new THREE.LineSegments(wireGeom, wireMat);
-        wire.position.copy(offset);
-        group.add(wire);
+        wireMesh = new THREE.LineSegments(wireGeom, wireMat);
+        wireMesh.position.copy(initialOffset);
+        group.add(wireMesh);
       }
 
+      let boxHelper: THREE.Box3Helper | undefined;
       if (showBounds || isSelected) {
         const [mn, mx] = part.diagnostics.bounds;
         const box3 = new THREE.Box3(
-          new THREE.Vector3(mn[0], mn[1], mn[2]).add(offset),
-          new THREE.Vector3(mx[0], mx[1], mx[2]).add(offset)
+          new THREE.Vector3(mn[0], mn[1], mn[2]).add(initialOffset),
+          new THREE.Vector3(mx[0], mx[1], mx[2]).add(initialOffset)
         );
-        const boxHelper = new THREE.Box3Helper(
+        boxHelper = new THREE.Box3Helper(
           box3,
           new THREE.Color(isSelected ? 0x38bdf8 : 0xf59e0b)
         );
         group.add(boxHelper);
       }
+
+      partEntriesRef.current.push({
+        partName: part.name,
+        mesh,
+        wire: wireMesh,
+        boxHelper,
+        defaultOffset: explodeDir,
+        bounds: part.diagnostics.bounds,
+      });
     });
-  }, [parts, selectedPartName, showWireframe, showBounds, explodeFactor]);
+
+    // When showBounds is active, also display the overall assembly bounding box in emerald
+    if (showBounds && overallBounds) {
+      const [allMn, allMx] = overallBounds;
+      const overallBox = new THREE.Box3(
+        new THREE.Vector3(allMn[0], allMn[1], allMn[2]),
+        new THREE.Vector3(allMx[0], allMx[1], allMx[2])
+      );
+      const overallHelper = new THREE.Box3Helper(overallBox, new THREE.Color(0x10b981));
+      group.add(overallHelper);
+    }
+  }, [parts, selectedPartName, showWireframe, showBounds, overallBounds]);
+
+  // High-performance dynamic explosion transform updates (60fps animation & timeline scrubbing)
+  useEffect(() => {
+    partEntriesRef.current.forEach((entry) => {
+      let offset: THREE.Vector3;
+      if (partOffsets && partOffsets[entry.partName]) {
+        offset = new THREE.Vector3(...partOffsets[entry.partName]);
+      } else {
+        offset = entry.defaultOffset.clone().multiplyScalar(explodeFactor * 0.85);
+      }
+
+      entry.mesh.position.copy(offset);
+      if (entry.wire) {
+        entry.wire.position.copy(offset);
+      }
+      if (entry.boxHelper) {
+        const [mn, mx] = entry.bounds;
+        entry.boxHelper.box.min.set(mn[0] + offset.x, mn[1] + offset.y, mn[2] + offset.z);
+        entry.boxHelper.box.max.set(mx[0] + offset.x, mx[1] + offset.y, mx[2] + offset.z);
+      }
+    });
+  }, [partOffsets, explodeFactor]);
 
   return (
     <div className="relative w-full h-full bg-[#0b0f17] select-none overflow-hidden">
       <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
-      <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-3 bg-slate-900/85 border border-slate-800 px-3 py-1.5 rounded-md text-[11px] text-slate-300 backdrop-blur-sm">
+      <div className="pointer-events-none absolute bottom-3 left-3 hidden xl:flex items-center gap-2.5 bg-slate-900/80 border border-slate-800/80 px-2.5 py-1 rounded-md text-[10px] text-slate-300 backdrop-blur-sm z-10">
         <span className="flex items-center gap-1.5 font-medium text-sky-400">
-          <span className="w-2 h-2 rounded-full bg-sky-400" />
+          <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
           OpenUSD Z-Up Stage (1 unit = 1 cm)
         </span>
         <span className="text-slate-600">|</span>

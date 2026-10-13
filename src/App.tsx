@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle,
+  Bookmark,
   Box,
   CheckCircle2,
   ChevronLeft,
@@ -13,13 +14,30 @@ import {
   Layers,
   Play,
   RefreshCw,
+  Scale,
   Send,
   Sparkles,
+  Target,
   Wrench,
   X,
 } from 'lucide-react';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { Viewport3D } from './components/Viewport3D';
+import { ExplosionTimeline } from './components/ExplosionTimeline';
+import { MassPropertiesPanel } from './components/MassPropertiesPanel';
+import { UserAuthDrawer } from './components/UserAuthDrawer';
 import { DEFAULT_PRESETS } from './data/presetsData';
+import {
+  auth,
+  testConnection,
+  fetchUserAssemblies,
+  SavedAssemblyRecord,
+} from './services/firebase';
+import {
+  calculateAssemblyMassProperties,
+  DEFAULT_MATERIAL,
+  MATERIAL_PRESETS,
+} from './services/massCalculator';
 import {
   BackendHealthStatus,
   checkBackendHealth,
@@ -31,6 +49,7 @@ import {
   CadExecutionResult,
   CadPreset,
   ChatMessage,
+  MaterialPreset,
 } from './types/cad';
 
 const AVAILABLE_MODELS = [
@@ -57,6 +76,16 @@ export const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3.8-flash');
   const [showAiStudioModal, setShowAiStudioModal] = useState<boolean>(false);
 
+  // Material Density & Mass Properties
+  const [selectedMaterial, setSelectedMaterial] = useState<MaterialPreset>(DEFAULT_MATERIAL);
+  const [customDensity, setCustomDensity] = useState<number | null>(null);
+  const [showCenterOfMass, setShowCenterOfMass] = useState<boolean>(true);
+
+  // Firebase User & Cloud Vault
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [savedAssemblies, setSavedAssemblies] = useState<SavedAssemblyRecord[]>([]);
+  const [showAuthDrawer, setShowAuthDrawer] = useState<boolean>(false);
+
   // Backend Health
   const [health, setHealth] = useState<BackendHealthStatus>({
     connected: false,
@@ -69,11 +98,19 @@ export const App: React.FC = () => {
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
   const [selectedPartName, setSelectedPartName] = useState<string | null>(null);
 
+  // Compute Assembly Mass Properties & Center of Mass dynamically
+  const massProps = calculateAssemblyMassProperties(
+    execResult?.parts || [],
+    selectedMaterial,
+    customDensity || undefined
+  );
+
   // Viewport Controls
   const [showWireframe, setShowWireframe] = useState<boolean>(false);
   const [showBounds, setShowBounds] = useState<boolean>(false);
   const [showGrid, setShowGrid] = useState<boolean>(true);
   const [explodeFactor, setExplodeFactor] = useState<number>(0);
+  const [partOffsets, setPartOffsets] = useState<Record<string, [number, number, number]>>({});
 
   // Prompt & Chat Window
   const [isPromptOpen, setIsPromptOpen] = useState<boolean>(true);
@@ -93,7 +130,36 @@ export const App: React.FC = () => {
   const [showDevDrawer, setShowDevDrawer] = useState<boolean>(false);
   const [devTab, setDevTab] = useState<'code' | 'usd'>('code');
 
+  const refreshSavedAssemblies = async () => {
+    if (auth.currentUser) {
+      try {
+        const list = await fetchUserAssemblies();
+        setSavedAssemblies(list);
+      } catch (err) {
+        console.warn('Could not fetch saved assemblies:', err);
+      }
+    } else {
+      setSavedAssemblies([]);
+    }
+  };
+
   useEffect(() => {
+    testConnection();
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        try {
+          const list = await fetchUserAssemblies();
+          setSavedAssemblies(list);
+        } catch (err) {
+          console.warn('Initial assemblies fetch error:', err);
+        }
+      } else {
+        setSavedAssemblies([]);
+      }
+    });
+
     const init = async () => {
       const [h, loadedPresets] = await Promise.all([
         checkBackendHealth(),
@@ -109,6 +175,8 @@ export const App: React.FC = () => {
       await handleExecuteCode(first.code, first.id, first.envelope);
     };
     init();
+
+    return () => unsubscribe();
   }, []);
 
   const handleExecuteCode = async (
@@ -134,7 +202,23 @@ export const App: React.FC = () => {
     setCode(found.code);
     setEnvelope(found.envelope);
     setSelectedPartName(null);
+    setExplodeFactor(0);
+    setPartOffsets({});
     await handleExecuteCode(found.code, found.id, found.envelope);
+  };
+
+  const handleLoadSavedAssembly = async (asm: SavedAssemblyRecord) => {
+    setCode(asm.code);
+    setSelectedPresetId(asm.name);
+    const foundMat = MATERIAL_PRESETS.find((m) => m.name === asm.materialName) || DEFAULT_MATERIAL;
+    setSelectedMaterial(foundMat);
+    if (asm.materialDensity && asm.materialDensity !== foundMat.density) {
+      setCustomDensity(asm.materialDensity);
+    } else {
+      setCustomDensity(null);
+    }
+    setSelectedPartName(null);
+    await handleExecuteCode(asm.code, asm.name);
   };
 
   const handleSendAgentPrompt = async (promptText?: string) => {
@@ -276,6 +360,15 @@ export const App: React.FC = () => {
           >
             <GitBranch className="w-3.5 h-3.5" />
             <span>AI Studio</span>
+          </button>
+
+          <button
+            onClick={() => setShowAuthDrawer(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-700/50 transition"
+            title="Firebase Cloud CAD Vault"
+          >
+            <Bookmark className="w-3.5 h-3.5 text-emerald-400" />
+            <span>{user ? `Vault (${savedAssemblies.length})` : 'Cloud Vault'}</span>
           </button>
 
           <div className="h-4 w-px bg-slate-800 mx-0.5" />
@@ -457,8 +550,19 @@ export const App: React.FC = () => {
                 className={`px-2.5 py-1 rounded text-xs font-medium transition ${
                   showBounds ? 'bg-amber-600 text-white' : 'text-slate-300 hover:bg-slate-800'
                 }`}
+                title="Toggle Bounding Boxes"
               >
                 Bounds
+              </button>
+              <button
+                onClick={() => setShowCenterOfMass((v) => !v)}
+                className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1 transition ${
+                  showCenterOfMass ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'text-slate-400 hover:bg-slate-800'
+                }`}
+                title="Toggle 3D Center of Mass Reticle"
+              >
+                <Target className="w-3.5 h-3.5 text-amber-400" />
+                <span>CoM</span>
               </button>
               <button
                 onClick={() => setShowGrid((v) => !v)}
@@ -490,9 +594,22 @@ export const App: React.FC = () => {
             </div>
           </div>
 
+          {/* Floating Mass Properties & Envelope Panel */}
+          <div className="absolute top-14 right-4 z-10 pointer-events-auto">
+            <MassPropertiesPanel
+              massProps={massProps}
+              selectedMaterial={selectedMaterial}
+              customDensity={customDensity}
+              onSelectMaterial={setSelectedMaterial}
+              onSetCustomDensity={setCustomDensity}
+              showCenterOfMass={showCenterOfMass}
+              onToggleCenterOfMass={setShowCenterOfMass}
+            />
+          </div>
+
           {/* Selected Part Pill (when clicked in 3D viewport) */}
           {selectedPart && (
-            <div className="absolute bottom-4 left-4 z-10 bg-slate-900/90 border border-slate-800/90 rounded-lg px-3.5 py-2 shadow-xl backdrop-blur-md flex items-center gap-3 text-xs">
+            <div className="absolute bottom-24 left-4 z-20 bg-slate-900/95 border border-slate-700/80 rounded-xl px-3.5 py-2 shadow-2xl backdrop-blur-md flex items-center gap-3 text-xs">
               <div
                 className="w-3 h-3 rounded-full"
                 style={{
@@ -524,8 +641,27 @@ export const App: React.FC = () => {
             showWireframe={showWireframe}
             showBounds={showBounds}
             showGrid={showGrid}
+            showCenterOfMass={showCenterOfMass}
+            centerOfMass={massProps.centerOfMass}
+            overallBounds={
+              massProps.boundingBox
+                ? [massProps.boundingBox.min, massProps.boundingBox.max]
+                : undefined
+            }
             explodeFactor={explodeFactor}
+            partOffsets={partOffsets}
           />
+
+          {/* Interactive Assembly Explosion Stages Timeline Dock */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[94%] max-w-2xl pointer-events-auto">
+            <ExplosionTimeline
+              stages={execResult?.explosion_stages || []}
+              partNames={(execResult?.parts || []).map((p) => p.name)}
+              onOffsetsChange={setPartOffsets}
+              explodeFactor={explodeFactor}
+              onExplodeFactorChange={setExplodeFactor}
+            />
+          </div>
         </div>
 
         {/* OPTIONAL DEVELOPER DRAWER (Code & OpenUSD Stage, closed by default) */}
@@ -586,6 +722,20 @@ export const App: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Drawer / Modal: Firebase User Auth & Saved Assemblies */}
+      <UserAuthDrawer
+        isOpen={showAuthDrawer}
+        onClose={() => setShowAuthDrawer(false)}
+        user={user}
+        savedAssemblies={savedAssemblies}
+        onRefreshAssemblies={refreshSavedAssemblies}
+        currentCode={code}
+        currentAssetName={selectedPresetId || 'CadAsset'}
+        massProps={massProps}
+        partCount={execResult?.parts?.length || 0}
+        onLoadAssembly={handleLoadSavedAssembly}
+      />
 
       {/* Modal: Google AI Studio Details */}
       {showAiStudioModal && (

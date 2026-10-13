@@ -5,6 +5,9 @@ import {
   CadPartOutput,
   CadPenetrationWarning,
   CadPreset,
+  ExplosionEasing,
+  ExplosionPartTransform,
+  ExplosionStage,
   GuideDocDetail,
   GuideDocSummary,
 } from '../types/cad';
@@ -711,6 +714,7 @@ export function evaluateClientSideUsdBrep(
   const meshUsda = generateMeshUsdaClient(partsOutput, assetName);
   const stlText = generateAsciiStlClient(partsOutput, assetName);
   const elapsedMs = Number((performance.now() - t0).toFixed(2));
+  const explosionStages = parseExplosionStages(code, partsOutput);
 
   return {
     ok: true,
@@ -737,6 +741,7 @@ export function evaluateClientSideUsdBrep(
       relationships: [],
     },
     parts: partsOutput,
+    explosion_stages: explosionStages,
     exports: {
       mesh_usda: meshUsda,
       brep_usda: meshUsda,
@@ -746,4 +751,159 @@ export function evaluateClientSideUsdBrep(
     usda_brep_text: meshUsda,
     stl_text: stlText,
   };
+}
+
+export function parseExplosionStages(code: string, parts: CadPartOutput[]): ExplosionStage[] {
+  const stages: ExplosionStage[] = [];
+
+  // Match explosion_stages assignment or return block in the script
+  const stagesRegex = /explosion_stages\s*=\s*\[([\s\S]*?)\]\s*(?=\n\s*(?:return|[A-Za-z_]|$))/;
+  const match = stagesRegex.exec(code);
+  let blockText = match ? match[1] : '';
+
+  if (!blockText) {
+    const returnTupleRegex = /return\s+(?:parts|\[[\s\S]*?\])\s*,\s*\[([\s\S]*?)\]\s*(?:\n|$)/;
+    const retMatch = returnTupleRegex.exec(code);
+    if (retMatch) {
+      blockText = retMatch[1];
+    }
+  }
+
+  if (blockText) {
+    const dictRegex = /\{([^{}]+(?:\{[^{}]*\}[^{}]*)*)\}/g;
+    let dMatch: RegExpExecArray | null;
+    let stageIdx = 0;
+    while ((dMatch = dictRegex.exec(blockText)) !== null) {
+      const chunk = dMatch[0];
+      const nameMatch = /["'](?:name|title|stage)["']\s*:\s*["']([^"']+)["']/.exec(chunk);
+      const durMatch = /["']duration["']\s*:\s*([0-9.]+)/.exec(chunk);
+      const easingMatch = /["']easing["']\s*:\s*["']([a-zA-Z-]+)["']/.exec(chunk);
+
+      const partsObj: Record<string, [number, number, number] | ExplosionPartTransform> = {};
+      const partTransRegex =
+        /["']([a-zA-Z0-9_-]+)["']\s*:\s*(?:\{[^}]*?["']translation["']\s*:\s*)?[\[\(]\s*([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)\s*[\]\)]/g;
+      let pMatch: RegExpExecArray | null;
+      while ((pMatch = partTransRegex.exec(chunk)) !== null) {
+        const pName = pMatch[1];
+        if (['translations', 'parts', 'options'].includes(pName)) continue;
+        const x = parseFloat(pMatch[2]) || 0;
+        const y = parseFloat(pMatch[3]) || 0;
+        const z = parseFloat(pMatch[4]) || 0;
+        partsObj[pName] = [x, y, z];
+      }
+
+      const stageName = nameMatch ? nameMatch[1] : `Stage ${stageIdx + 1}`;
+      const duration = durMatch ? parseFloat(durMatch[1]) : 1.2;
+      const easing = (easingMatch ? easingMatch[1] : 'ease-out') as ExplosionEasing;
+
+      if (Object.keys(partsObj).length > 0 || nameMatch) {
+        stages.push({
+          id: `stage-${stageIdx + 1}`,
+          name: stageName,
+          duration: Math.max(0.3, duration),
+          easing,
+          parts: partsObj,
+        });
+        stageIdx++;
+      }
+    }
+  }
+
+  if (stages.length > 0) {
+    return stages;
+  }
+
+  // Automatic procedural stages fallback when not explicitly returned in the script
+  if (parts.length <= 1) {
+    const single = parts[0];
+    return [
+      {
+        id: 'stage-1',
+        name: 'Step 1: Axial Lift & Inspection',
+        duration: 1.2,
+        easing: 'ease-out',
+        parts: single ? { [single.name]: [0, 0, 8] } : {},
+      },
+    ];
+  }
+
+  const sortedParts = [...parts].sort((a, b) => b.diagnostics.center[2] - a.diagnostics.center[2]);
+  const anchorPart =
+    parts.find((p) => ['anchor', 'base', 'chassis', 'frame', 'body'].includes(p.kind.toLowerCase())) ||
+    parts[0];
+
+  const topPart = sortedParts.find((p) => p.name !== anchorPart?.name) || sortedParts[0];
+  const stage1Parts: Record<string, [number, number, number]> = {};
+  if (topPart) {
+    stage1Parts[topPart.name] = [0, 0, 14];
+  }
+
+  const stage2Parts: Record<string, [number, number, number]> = { ...stage1Parts };
+  const midParts = sortedParts.filter((p) => p.name !== anchorPart?.name && p.name !== topPart?.name);
+  if (midParts.length > 0) {
+    midParts.forEach((p, idx) => {
+      stage2Parts[p.name] = [
+        Math.cos((idx * Math.PI) / 2) * 8,
+        Math.sin((idx * Math.PI) / 2) * 8,
+        6 + idx * 4,
+      ];
+    });
+  } else if (topPart) {
+    stage2Parts[topPart.name] = [0, 0, 20];
+  }
+
+  const stage3Parts: Record<string, [number, number, number]> = {};
+  const assemblyCenter = new THREE.Vector3(
+    (Math.min(...parts.map((p) => p.diagnostics.bounds[0][0])) +
+      Math.max(...parts.map((p) => p.diagnostics.bounds[1][0]))) /
+      2,
+    (Math.min(...parts.map((p) => p.diagnostics.bounds[0][1])) +
+      Math.max(...parts.map((p) => p.diagnostics.bounds[1][1]))) /
+      2,
+    (Math.min(...parts.map((p) => p.diagnostics.bounds[0][2])) +
+      Math.max(...parts.map((p) => p.diagnostics.bounds[1][2]))) /
+      2
+  );
+
+  parts.forEach((p, idx) => {
+    if (p.name === anchorPart?.name) {
+      stage3Parts[p.name] = [0, 0, 0];
+      return;
+    }
+    const pc = new THREE.Vector3(...p.diagnostics.center);
+    const dir = pc.clone().sub(assemblyCenter);
+    if (dir.lengthSq() < 0.1) {
+      dir.set(0, 0, 1);
+    }
+    dir.normalize();
+    stage3Parts[p.name] = [
+      Number((dir.x * 12).toFixed(2)),
+      Number((dir.y * 12).toFixed(2)),
+      Number((dir.z * 10 + idx * 3).toFixed(2)),
+    ];
+  });
+
+  return [
+    {
+      id: 'stage-1',
+      name: `Step 1: Eject ${topPart?.name || 'Component'}`,
+      duration: 1.2,
+      easing: 'ease-out',
+      parts: stage1Parts,
+    },
+    {
+      id: 'stage-2',
+      name: 'Step 2: Subassembly Separation',
+      duration: 1.5,
+      easing: 'ease-in-out',
+      parts: stage2Parts,
+    },
+    {
+      id: 'stage-3',
+      name: 'Step 3: Full Exploded Inspection',
+      duration: 1.8,
+      easing: 'ease-out',
+      parts: stage3Parts,
+    },
+  ];
 }

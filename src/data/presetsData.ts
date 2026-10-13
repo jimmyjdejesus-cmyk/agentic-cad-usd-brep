@@ -75,11 +75,46 @@ def build_parts():
     # 3. Top pressure sensor boss & cap sitting above hub at z = 37.2
     sensor_cap = sm.create_cone((0.0, 0.0, 37.2), radius_base=5.5, radius_top=3.5, height=4.5)
 
-    return [
+    parts = [
         ("bottom_flange", bottom_flange, (0.28, 0.34, 0.42), "anchor"),
         ("elbow_manifold", body, (0.38, 0.52, 0.68), "anchor"),
         ("sensor_cap", sensor_cap, (0.88, 0.64, 0.18), "component"),
     ]
+
+    explosion_stages = [
+        {
+            "name": "Stage 1: Sensor Cap Unseating",
+            "duration": 1.2,
+            "easing": "ease-out",
+            "translations": {
+                "sensor_cap": [0.0, 0.0, 14.0],
+                "elbow_manifold": [0.0, 0.0, 0.0],
+                "bottom_flange": [0.0, 0.0, 0.0],
+            },
+        },
+        {
+            "name": "Stage 2: Elbow Manifold Axial Lift",
+            "duration": 1.5,
+            "easing": "ease-in-out",
+            "translations": {
+                "sensor_cap": [0.0, 0.0, 22.0],
+                "elbow_manifold": [0.0, 0.0, 10.0],
+                "bottom_flange": [0.0, 0.0, 0.0],
+            },
+        },
+        {
+            "name": "Stage 3: Flange Separation & Lateral Inspection",
+            "duration": 1.8,
+            "easing": "ease-out",
+            "translations": {
+                "sensor_cap": [0.0, 14.0, 25.0],
+                "elbow_manifold": [15.0, 0.0, 12.0],
+                "bottom_flange": [0.0, 0.0, 0.0],
+            },
+        },
+    ]
+
+    return parts, explosion_stages
 `,
   },
   {
@@ -129,11 +164,46 @@ def build_parts():
     cap_hole = sm.create_cylinder((0.0, 0.0, 10.5), 2.2, 4.5)
     cap = sm.boolean_difference(cap, cap_hole)
 
-    return [
+    parts = [
         ("base_pedestal", pedestal, (0.25, 0.28, 0.33), "anchor"),
         ("spur_gear_12t", gear, (0.85, 0.62, 0.18), "anchor"),
         ("retaining_cap", cap, (0.72, 0.75, 0.78), "component"),
     ]
+
+    explosion_stages = [
+        {
+            "name": "Stage 1: Retaining Cap Ejection",
+            "duration": 1.2,
+            "easing": "ease-out",
+            "translations": {
+                "retaining_cap": [0.0, 0.0, 14.0],
+                "spur_gear_12t": [0.0, 0.0, 0.0],
+                "base_pedestal": [0.0, 0.0, 0.0],
+            },
+        },
+        {
+            "name": "Stage 2: Spur Gear Shaft Clearance",
+            "duration": 1.5,
+            "easing": "ease-in-out",
+            "translations": {
+                "retaining_cap": [0.0, 0.0, 20.0],
+                "spur_gear_12t": [0.0, 0.0, 10.0],
+                "base_pedestal": [0.0, 0.0, 0.0],
+            },
+        },
+        {
+            "name": "Stage 3: Full Exploded Inspection",
+            "duration": 1.8,
+            "easing": "ease-out",
+            "translations": {
+                "retaining_cap": [0.0, -12.0, 22.0],
+                "spur_gear_12t": [0.0, 12.0, 12.0],
+                "base_pedestal": [0.0, 0.0, 0.0],
+            },
+        },
+    ]
+
+    return parts, explosion_stages
 `,
   },
   {
@@ -170,13 +240,48 @@ def build_parts():
     # 4. Target Calibration Sphere held between jaws at z = 39.0
     workpiece = sm.create_sphere((0.0, 0.0, 39.0), 4.8)
 
-    return [
+    parts = [
         ("iso_mount_flange", mount, (0.22, 0.24, 0.28), "anchor"),
         ("actuator_housing", housing, (0.32, 0.38, 0.46), "anchor"),
         ("left_gripper_jaw", left_jaw, (0.88, 0.42, 0.15), "component"),
         ("right_gripper_jaw", right_jaw, (0.88, 0.42, 0.15), "component"),
         ("calibration_orb", workpiece, (0.20, 0.78, 0.55), "component"),
     ]
+
+    explosion_stages = [
+        {
+            "name": "Stage 1: Calibration Orb Release",
+            "duration": 1.2,
+            "easing": "ease-out",
+            "translations": {
+                "calibration_orb": [0.0, 0.0, 18.0],
+            },
+        },
+        {
+            "name": "Stage 2: Parallel Jaws Outward Slide",
+            "duration": 1.5,
+            "easing": "ease-in-out",
+            "translations": {
+                "calibration_orb": [0.0, 0.0, 24.0],
+                "left_gripper_jaw": [-14.0, 0.0, 4.0],
+                "right_gripper_jaw": [14.0, 0.0, 4.0],
+            },
+        },
+        {
+            "name": "Stage 3: Actuator Housing Separation",
+            "duration": 1.8,
+            "easing": "ease-out",
+            "translations": {
+                "calibration_orb": [0.0, 0.0, 30.0],
+                "left_gripper_jaw": [-20.0, 0.0, 10.0],
+                "right_gripper_jaw": [20.0, 0.0, 10.0],
+                "actuator_housing": [0.0, 0.0, 12.0],
+                "iso_mount_flange": [0.0, 0.0, 0.0],
+            },
+        },
+    ]
+
+    return parts, explosion_stages
 `,
   },
   {
@@ -240,10 +345,33 @@ def build_parts():
     plinth = sm.create_box((-8.5, -8.5, 0.0), 17.0, 17.0, 2.5)
     sm.fillet_edges(plinth, plinth.edges(), radius=0.4)
 
-    return [
+    parts = [
         ("display_plinth", plinth, (0.26, 0.29, 0.34), "anchor"),
         ("round_corner_pipe", pipe, (0.85, 0.48, 0.22), "component"),
     ]
+
+    explosion_stages = [
+        {
+            "name": "Stage 1: Plinth Clearance Lift",
+            "duration": 1.2,
+            "easing": "ease-out",
+            "translations": {
+                "round_corner_pipe": [0.0, 0.0, 10.0],
+                "display_plinth": [0.0, 0.0, 0.0],
+            },
+        },
+        {
+            "name": "Stage 2: Full Inspection Elevation",
+            "duration": 1.5,
+            "easing": "ease-in-out",
+            "translations": {
+                "round_corner_pipe": [0.0, 0.0, 20.0],
+                "display_plinth": [0.0, 0.0, 0.0],
+            },
+        },
+    ]
+
+    return parts, explosion_stages
 `,
   },
 ];
