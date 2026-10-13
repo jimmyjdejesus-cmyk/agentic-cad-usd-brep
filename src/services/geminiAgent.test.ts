@@ -20,7 +20,6 @@ describe('Gemini Agentic CAD Service', () => {
     const turn = await runAgenticCadTurn({
       prompt: 'Build a planetary spur gear assembly with lightening holes',
       currentCode: '',
-      apiKey: '',
     });
 
     expect(turn.explanation).toContain('spur gear');
@@ -36,7 +35,6 @@ describe('Gemini Agentic CAD Service', () => {
     const turn = await runAgenticCadTurn({
       prompt: 'Create a heavy flanged valve pipe manifold',
       currentCode: '',
-      apiKey: '',
     });
 
     expect(turn.explanation).toContain('flanged pipe');
@@ -52,7 +50,6 @@ describe('Gemini Agentic CAD Service', () => {
     const turn = await runAgenticCadTurn({
       prompt: 'Construct a dual optic camera turret assembly',
       currentCode: '',
-      apiKey: '',
     });
 
     expect(turn.explanation).toContain('turret');

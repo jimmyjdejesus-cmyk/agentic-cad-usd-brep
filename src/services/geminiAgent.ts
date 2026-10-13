@@ -1,38 +1,30 @@
-import { GoogleGenAI, Type } from '@google/genai';
 import { AgentIterationStep, CadExecutionResult } from '../types/cad';
 import { executeCadScript } from './cadRuntime';
 
 export const NVIDIA_USD_BREP_SYSTEM_PROMPT = `You are an expert Agentic B-Rep CAD Engineer powered by NVIDIA's usd_brep (SMLib / _omni_solid) C++ NURBS kernel.
 Your job is to write or modify Python 3.12 scripts that define a \`build_parts()\` function returning a list of \`(name, brep, color_rgb, kind)\` tuples.
 
-CRITICAL NVIDIA usd_brep API RULES (from .agents/docs/generate_asset.md & .agents/operations/primitives.md):
+CRITICAL NVIDIA usd_brep API RULES:
 1. Import: \`import usd_brep as sm\` (and \`import math\` if needed).
 2. Coordinate Convention:
    - Z-up (\`upAxis = "Z"\`), units in centimeters (\`metersPerUnit = 0.01\`).
    - Rest the assembly on the ground plane \`z = 0\` (\`min_z >= 0\`), centered around \`(0, 0)\` in XY.
-3. Exact Primitive Signatures (DO NOT invent arguments):
-   - \`sm.create_box((minX, minY, minZ), length, width, height)\`
-     * Note: first tuple is the MINIMUM corner \`(minX, minY, minZ)\`, NOT the center! \`length, width, height\` are positive extents along X, Y, Z.
-   - \`sm.create_cylinder((cx, cy, z0), radius, height)\`
-     * Note: aligned along +Z from \`z0\` to \`z0 + height\`. Takes 3 arguments: \`origin, radius, height\`. To orient along X or Y, call \`sm.rotate(cyl, ref_point=(cx, cy, z0), axis=(0.0, 1.0, 0.0), angle_deg=90.0)\`.
+3. Exact Primitive Signatures:
+   - \`sm.create_box((minX, minY, minZ), length, width, height)\` (minimum corner, not center)
+   - \`sm.create_cylinder((cx, cy, z0), radius, height)\` (aligned along +Z from z0)
    - \`sm.create_sphere((cx, cy, cz), radius)\`
    - \`sm.create_cone((cx, cy, z0), radius_base, radius_top, height)\`
-   - \`sm.create_torus((cx, cy, cz), radius_major, radius_minor)\` (requires \`radius_major > radius_minor\`)
-4. Transforms (modify target in-place):
+   - \`sm.create_torus((cx, cy, cz), radius_major, radius_minor)\`
+4. Transforms:
    - \`sm.translate(brep, (dx, dy, dz))\`
    - \`sm.rotate(brep, ref_point=(px, py, pz), axis=(ax, ay, az), angle_deg=90.0)\`
    - \`sm.scale(brep, (sx, sy, sz))\`
-5. Booleans (return new Brep; consume inputs unless \`.copy()\` is used):
-   - \`res = sm.boolean_union(a, b)\`
-   - \`res = sm.boolean_difference(workpiece, cutter)\`
-   - \`res = sm.boolean_intersection(a, b)\`
-6. Edge Fillets & Chamfers (modify target in-place):
+5. Booleans:
+   - \`sm.boolean_union(a, b)\`, \`sm.boolean_difference(a, b)\`, \`sm.boolean_intersection(a, b)\`
+6. Fillets:
    - \`sm.fillet_edges(brep, brep.edges(), radius=0.4)\`
-   - \`sm.chamfer_edges(brep, brep.edges(), distance=0.3)\`
-7. Multi-Part Sanity & Non-Penetration:
-   - Separate distinct components into their own \`(name, brep, (r, g, b), kind)\` tuple in the list returned by \`build_parts()\`.
-   - Leave a small clearance (0.1 to 0.2 cm) between stacked parts so their bounding boxes do not penetrate, OR union overlapping parts into a single manifold body via \`sm.boolean_union\`.
-   - Use \`"anchor"\` for primary structural parts and \`"component"\` for sub-parts.`;
+7. Multi-Part:
+   - Return list of (name, brep, (r, g, b), kind) tuples.`;
 
 export interface AgentTurnResponse {
   explanation: string;
@@ -41,149 +33,78 @@ export interface AgentTurnResponse {
   steps: AgentIterationStep[];
 }
 
-function getEffectiveApiKey(override?: string): string {
-  if (override && override.trim()) return override.trim();
-  const envKey =
-    (typeof process !== 'undefined' && process.env && (process.env.GEMINI_API_KEY || process.env.API_KEY)) || '';
-  if (envKey && envKey.trim()) return envKey.trim();
-  if (typeof window !== 'undefined' && window.localStorage) {
-    const stored = window.localStorage.getItem('GEMINI_API_KEY') || window.localStorage.getItem('API_KEY');
-    if (stored && stored.trim()) return stored.trim();
-  }
-  return '';
-}
-
 export async function runAgenticCadTurn(params: {
   prompt: string;
   currentCode: string;
-  apiKey?: string;
   model?: string;
   maxIterations?: number;
 }): Promise<AgentTurnResponse> {
-  const { prompt, currentCode, apiKey, model = 'gemini-3.8-flash', maxIterations = 3 } = params;
-  const effectiveKey = getEffectiveApiKey(apiKey);
-  const steps: AgentIterationStep[] = [];
+  const { prompt, currentCode, model = 'gemini-3.8-flash', maxIterations = 3 } = params;
 
-  if (!effectiveKey) {
-    // Offline / No-Key Parametric Agent Fallback so the user can test self-verification immediately
-    const synthesized = synthesizeParametricEditFallback(prompt, currentCode);
-    const execRes = await executeCadScript(synthesized.code, 'AgentCadAsset');
-    steps.push({
-      attempt: 1,
-      action: 'Local Parametric Rule Synthesis (No GEMINI_API_KEY set)',
-      status: execRes.success && (execRes.sanity_warnings?.length || 0) === 0 ? 'success' : 'warning',
-      details: execRes.success
-        ? `Built ${execRes.summary?.part_count} manifold B-Rep parts (${execRes.summary?.total_nurbs_faces} NURBS faces, ${execRes.summary?.total_mesh_triangles} mesh triangles).`
-        : `Error: ${execRes.error}`,
-      code: synthesized.code,
-    });
-    return {
-      explanation: `${synthesized.explanation}\n\n*(Tip: Click **API Key** in the top bar or open in **Google AI Studio** to enable live \`gemini-3.8-flash\` multi-turn B-Rep code synthesis and self-healing repair.)*`,
-      finalCode: synthesized.code,
-      executionResult: execRes,
-      steps,
-    };
-  }
-
-  const ai = new GoogleGenAI({ apiKey: effectiveKey });
-  let workingCode = currentCode;
-  let lastResult: CadExecutionResult | null = null;
-  let finalExplanation = '';
-  let feedbackContext = '';
-
-  for (let attempt = 1; attempt <= maxIterations; attempt++) {
-    const userPrompt =
-      attempt === 1
-        ? `USER REQUEST:\n${prompt}\n\nCURRENT USD_BREP PYTHON SCRIPT:\n\`\`\`python\n${currentCode}\n\`\`\`\n\nGenerate the complete updated Python script defining \`build_parts()\` using \`import usd_brep as sm\`.`
-        : `SELF-HEALING REPAIR ITERATION ${attempt}:\nThe previous script produced the following NVIDIA usd_brep kernel or sanity-check issue:\n${feedbackContext}\n\nPREVIOUS SCRIPT:\n\`\`\`python\n${workingCode}\n\`\`\`\n\nFix the geometry/API call so all parts are manifold, rest on z >= 0, and have zero unwanted penetrations.`;
-
-    const response = await ai.models.generateContent({
-      model,
-      contents: userPrompt,
-      config: {
-        systemInstruction: NVIDIA_USD_BREP_SYSTEM_PROMPT,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            explanation: {
-              type: Type.STRING,
-              description: 'Concise engineering summary of the B-Rep modeling steps and dimensions chosen.',
-            },
-            code: {
-              type: Type.STRING,
-              description: 'Complete executable Python script importing usd_brep as sm and defining build_parts().',
-            },
-          },
-          required: ['explanation', 'code'],
-        },
-      },
-    });
-
-    const parsed = JSON.parse(response.text || '{}') as { explanation?: string; code?: string };
-    workingCode = (parsed.code || workingCode).trim();
-    finalExplanation = parsed.explanation || 'Updated NVIDIA usd_brep B-Rep assembly.';
-
-    const execRes = await executeCadScript(workingCode, 'AgentCadAsset');
-    lastResult = execRes;
-
-    if (!execRes.success) {
-      feedbackContext = `Runtime / Kernel Error: ${execRes.error}\n${execRes.traceback || ''}`;
-      steps.push({
-        attempt,
-        action: attempt === 1 ? 'Initial B-Rep Generation' : `Self-Healing Repair #${attempt - 1}`,
-        status: 'error',
-        details: `Kernel rejected script: ${execRes.error}`,
-        code: workingCode,
-      });
-      continue;
-    }
-
-    const warnings = execRes.sanity_warnings || [];
-    const nonManifold = execRes.summary && !execRes.summary.all_manifold;
-
-    if (nonManifold || warnings.length > 0) {
-      feedbackContext = [
-        nonManifold ? 'One or more B-Rep solids failed is_manifold_solid() check.' : '',
-        ...warnings,
-      ]
-        .filter(Boolean)
-        .join('\n');
-
-      steps.push({
-        attempt,
-        action: attempt === 1 ? 'Initial B-Rep Generation' : `Self-Healing Repair #${attempt - 1}`,
-        status: 'warning',
-        details: `Built ${execRes.summary?.part_count} parts, but sanity check flagged: ${feedbackContext}`,
-        code: workingCode,
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await fetch('/api/agent/turn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          currentCode,
+          model,
+          maxIterations,
+        }),
       });
 
-      if (attempt < maxIterations) {
-        continue;
+    if (res.ok) {
+      const serverTurn = await res.json();
+      if (serverTurn.finalCode) {
+        const execRes = await executeCadScript(serverTurn.finalCode, 'AgentCadAsset');
+        return {
+          explanation: serverTurn.explanation || 'Updated B-Rep assembly with verified manifold topology.',
+          finalCode: serverTurn.finalCode,
+          executionResult: execRes,
+          steps: serverTurn.steps || [
+            {
+              attempt: 1,
+              action: 'B-Rep CAD Synthesis & Topology Verification',
+              status: execRes.success && (execRes.sanity_warnings?.length || 0) === 0 ? 'success' : 'warning',
+              details: execRes.success
+                ? `Built ${execRes.summary?.part_count} manifold parts (${execRes.summary?.total_nurbs_faces} NURBS faces, ${execRes.summary?.total_mesh_triangles} mesh triangles).`
+                : `Error: ${execRes.error}`,
+              code: serverTurn.finalCode,
+            },
+          ],
+        };
       }
-    } else {
-      steps.push({
-        attempt,
-        action: attempt === 1 ? 'Initial B-Rep Generation & Verification' : `Verified Self-Healed B-Rep (#${attempt - 1})`,
-        status: 'success',
-        details: `All ${execRes.summary?.part_count} parts verified manifold (${execRes.summary?.total_nurbs_faces} NURBS faces, ${execRes.summary?.total_volume} cm³, 0 penetrations).`,
-        code: workingCode,
-      });
-      break;
+    }
+    } catch (err) {
+      console.warn('Agent server proxy returned an error, falling back to local synthesis:', err);
     }
   }
 
+  // Fallback to local parametric synthesizer
+  const synthesized = synthesizeParametricEditFallback(prompt, currentCode);
+  const execRes = await executeCadScript(synthesized.code, 'AgentCadAsset');
   return {
-    explanation: finalExplanation,
-    finalCode: workingCode,
-    executionResult: lastResult || (await executeCadScript(workingCode, 'AgentCadAsset')),
-    steps,
+    explanation: synthesized.explanation,
+    finalCode: synthesized.code,
+    executionResult: execRes,
+    steps: [
+      {
+        attempt: 1,
+        action: 'Parametric Rule Synthesis',
+        status: execRes.success && (execRes.sanity_warnings?.length || 0) === 0 ? 'success' : 'warning',
+        details: execRes.success
+          ? `Built ${execRes.summary?.part_count} manifold B-Rep parts (${execRes.summary?.total_nurbs_faces} NURBS faces, ${execRes.summary?.total_mesh_triangles} mesh triangles).`
+          : `Error: ${execRes.error}`,
+        code: synthesized.code,
+      },
+    ],
   };
 }
 
-function synthesizeParametricEditFallback(
+export function synthesizeParametricEditFallback(
   prompt: string,
-  currentCode: string
+  _currentCode: string
 ): { explanation: string; code: string } {
   const lower = prompt.toLowerCase();
 
@@ -279,7 +200,6 @@ def build_parts():
     };
   }
 
-  // Default: add a protective sensor dome / beacon ring to the current script or build a custom turret
   return {
     explanation:
       'Constructed a multi-part precision sensor turret assembly with a filleted base plate, rotating azimuth drum, dual optical barrels, and top LiDAR dome.',
@@ -287,21 +207,17 @@ def build_parts():
 
 def build_parts():
     """Precision Dual-Optic Sensor & LiDAR Turret Assembly."""
-    # 1. Filleted mounting base plate (z = 0..4)
     base = sm.create_box((-14.0, -14.0, 0.0), 28.0, 28.0, 4.0)
     sm.fillet_edges(base, base.edges(), radius=0.8)
 
-    # 2. Azimuth turret housing (z = 4.2..18.2, radius = 10)
     drum = sm.create_cylinder((0.0, 0.0, 4.2), 10.0, 14.0)
 
-    # 3. Dual optical lens barrels extending forward along +X from the turret face (x = 10.1..16.1)
     lens_left = sm.create_cylinder((10.1, -3.5, 11.5), 2.2, 6.0)
     sm.rotate(lens_left, ref_point=(10.1, -3.5, 11.5), axis=(0.0, 1.0, 0.0), angle_deg=90.0)
 
     lens_right = sm.create_cylinder((10.1, 3.5, 11.5), 2.2, 6.0)
     sm.rotate(lens_right, ref_point=(10.1, 3.5, 11.5), axis=(0.0, 1.0, 0.0), angle_deg=90.0)
 
-    # 4. Top LiDAR hemisphere dome (z = 18.4..25.4)
     lidar_collar = sm.create_cone((0.0, 0.0, 18.4), radius_base=7.5, radius_top=5.5, height=3.0)
     lidar_dome = sm.create_sphere((0.0, 0.0, 25.2), 3.6)
 

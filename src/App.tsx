@@ -8,10 +8,8 @@ import {
   Code2,
   Cpu,
   Download,
-  ExternalLink,
   GitBranch,
   Grid,
-  Key,
   Layers,
   Play,
   RefreshCw,
@@ -55,10 +53,8 @@ export const App: React.FC = () => {
   const [code, setCode] = useState<string>(DEFAULT_PRESETS[0].code);
   const [envelope, setEnvelope] = useState<[number, number, number]>(DEFAULT_PRESETS[0].envelope);
 
-  // Model & API Selection
+  // Model Selection
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3.8-flash');
-  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('GEMINI_API_KEY') || '');
-  const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
   const [showAiStudioModal, setShowAiStudioModal] = useState<boolean>(false);
 
   // Backend Health
@@ -159,7 +155,6 @@ export const App: React.FC = () => {
       const turn = await runAgenticCadTurn({
         prompt: query,
         currentCode: code,
-        apiKey,
         model: selectedModel,
         maxIterations: 3,
       });
@@ -274,23 +269,10 @@ export const App: React.FC = () => {
             </select>
           </div>
 
-          {/* API Key Selector */}
-          <button
-            onClick={() => setShowKeyModal(true)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
-              apiKey
-                ? 'bg-emerald-950/40 text-emerald-300 border-emerald-700/50 hover:bg-emerald-900/50'
-                : 'bg-amber-950/40 text-amber-300 border-amber-700/50 hover:bg-amber-900/50'
-            }`}
-          >
-            <Key className="w-3.5 h-3.5" />
-            <span>{apiKey ? 'API Key Set' : 'Set API Key'}</span>
-          </button>
-
           <button
             onClick={() => setShowAiStudioModal(true)}
             className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 transition"
-            title="Google AI Studio Two-Way Sync"
+            title="Google AI Studio Project"
           >
             <GitBranch className="w-3.5 h-3.5" />
             <span>AI Studio</span>
@@ -605,55 +587,14 @@ export const App: React.FC = () => {
         )}
       </div>
 
-      {/* Modal: Gemini API Key */}
-      {showKeyModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 shadow-2xl">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Key className="w-4 h-4 text-emerald-400" />
-                <span>Gemini API Key</span>
-              </h3>
-              <button
-                onClick={() => setShowKeyModal(false)}
-                className="text-slate-400 hover:text-white text-xs"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="text-xs text-slate-300 leading-relaxed mb-3">
-              Enter your Gemini API key below. When imported into <strong>Google AI Studio</strong>, keys are injected automatically.
-            </p>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => {
-                setApiKey(e.target.value);
-                localStorage.setItem('GEMINI_API_KEY', e.target.value);
-              }}
-              placeholder="AIzaSy..."
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono mb-4 focus:outline-none focus:border-emerald-500"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowKeyModal(false)}
-                className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold text-xs"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Google AI Studio GitHub Sync */}
+      {/* Modal: Google AI Studio Details */}
       {showAiStudioModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-5 shadow-2xl">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <GitBranch className="w-4 h-4 text-indigo-400" />
-                <span>Google AI Studio — Vibe Editing</span>
+                <span>NVIDIA usd-brep Agentic CAD Studio</span>
               </h3>
               <button
                 onClick={() => setShowAiStudioModal(false)}
@@ -664,17 +605,14 @@ export const App: React.FC = () => {
             </div>
             <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
               <p>
-                Connect to Google AI Studio for two-way GitHub vibe editing:
+                Agentic B-Rep CAD Studio powered by NVIDIA usd-brep (SMLib / OpenUSD) and Gemini 3.8 Flash.
               </p>
               <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 space-y-1 font-mono text-[11px]">
-                <div className="text-indigo-300 font-semibold">GitHub Repository:</div>
+                <div className="text-indigo-300 font-semibold">Repository:</div>
                 <div className="text-emerald-400 select-all">
-                  https://github.com/jimmyjdejesus-cmyk/agentic-cad-usd-brep
+                  jimmyjdejesus-cmyk/agentic-cad-usd-brep
                 </div>
               </div>
-              <p>
-                Open <a href="https://aistudio.google.com/apps" target="_blank" rel="noreferrer" className="text-sky-400 underline inline-flex items-center gap-1">aistudio.google.com/apps <ExternalLink className="w-3 h-3" /></a>, click <strong>Import from GitHub</strong>, and select this repository.
-              </p>
             </div>
             <div className="flex justify-end mt-4">
               <button
