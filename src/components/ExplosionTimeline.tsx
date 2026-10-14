@@ -328,7 +328,8 @@ export const ExplosionTimeline: React.FC<ExplosionTimelineProps> = ({
 
   if (isDockCollapsed) {
     return (
-      <div className="flex items-center gap-2 select-none bg-slate-950/90 border border-slate-800/90 rounded-full px-3.5 py-1.5 shadow-2xl backdrop-blur-xl text-xs text-slate-200 pointer-events-auto">
+      // Compact centered pill for collapsed timeline state (w-fit mx-auto prevents stretching across container)
+      <div className="flex items-center gap-2 select-none w-fit mx-auto bg-slate-950/90 border border-slate-800/90 rounded-full px-3.5 py-1.5 shadow-2xl backdrop-blur-xl text-xs text-slate-200 pointer-events-auto">
         <Sparkles className="w-3.5 h-3.5 text-sky-400" />
         <span className="text-[11px] font-semibold text-slate-300">Explosion Sequence</span>
         <span className="text-slate-600">/</span>

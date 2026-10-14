@@ -237,9 +237,14 @@ export const App: React.FC = () => {
   }, [isAnnotating]);
 
   const handleTogglePartVisibility = (partName: string) => {
-    setHiddenPartNames((prev) =>
-      prev.includes(partName) ? prev.filter((p) => p !== partName) : [...prev, partName]
-    );
+    setHiddenPartNames((prev) => {
+      const isCurrentlyHidden = prev.includes(partName);
+      // If we are hiding this part and it is currently selected, clear active selection
+      if (!isCurrentlyHidden && selectedPartName === partName) {
+        setSelectedPartName(null);
+      }
+      return isCurrentlyHidden ? prev.filter((p) => p !== partName) : [...prev, partName];
+    });
   };
 
   const handleShowAllParts = () => {
@@ -1396,8 +1401,12 @@ export const App: React.FC = () => {
             focusAnnotationTrigger={focusAnnotationTrigger}
           />
 
-          {/* Interactive Assembly Explosion Stages Timeline Dock */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[94%] max-w-2xl pointer-events-auto">
+          {/* Interactive Assembly Explosion Stages Timeline Dock (pointer-events-none on outer wrapper prevents wide hit-testing blocking 3D viewport) */}
+          <div
+            className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex justify-center ${
+              isTimelineCollapsed ? 'w-auto' : 'w-[94%] max-w-2xl'
+            }`}
+          >
             <ExplosionTimeline
               stages={currentExplosionStages}
               partNames={currentPartNames}
