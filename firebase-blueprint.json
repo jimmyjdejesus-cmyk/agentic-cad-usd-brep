@@ -94,6 +94,10 @@
           "type": "number",
           "description": "Number of B-Rep parts in assembly"
         },
+        "annotations": {
+          "type": "array",
+          "description": "3D surface and vertex annotations"
+        },
         "createdAt": {
           "type": "string",
           "description": "ISO timestamp when assembly was saved",

@@ -9,6 +9,7 @@
     "build": "vite build",
     "start": "tsx server.ts",
     "preview": "vite preview",
+    "backend": "uvicorn backend.server:app --host 127.0.0.1 --port 8000 --reload",
     "lint": "tsc --noEmit",
     "test": "vitest run"
   },

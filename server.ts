@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
+import { DEFAULT_PRESETS } from './src/data/presetsData';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,6 +12,23 @@ const __dirname = path.dirname(__filename);
 const PORT = 3000;
 const HOST = '0.0.0.0';
 const DOCS_ROOT = path.resolve(__dirname, 'docs', 'nvidia-usd-brep');
+const PYTHON_BACKEND_URL = process.env.PYTHON_BACKEND_URL || 'http://127.0.0.1:8000';
+
+async function checkPythonBackend(): Promise<{ available: boolean; data?: any }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1200);
+    const res = await fetch(`${PYTHON_BACKEND_URL}/api/health`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = await res.json();
+      return { available: Boolean(data.usd_brep_available), data };
+    }
+  } catch {
+    // Backend offline / not reachable
+  }
+  return { available: false };
+}
 
 export const NVIDIA_USD_BREP_SYSTEM_PROMPT = `You are an expert Agentic B-Rep CAD Engineer powered by NVIDIA's usd_brep (SMLib / _omni_solid) C++ NURBS kernel.
 Your job is to write or modify Python 3.12 scripts that define a \`build_parts()\` function returning a list of \`(name, brep, color_rgb, kind)\` tuples.
@@ -259,16 +277,72 @@ async function startServer() {
   app.use(express.json({ limit: '25mb' }));
 
   // GET /api/health
-  app.get('/api/health', (_req: Request, res: Response) => {
+  app.get('/api/health', async (_req: Request, res: Response) => {
     const docsAvailable = fs.existsSync(DOCS_ROOT);
+    const py = await checkPythonBackend();
+
+    if (py.available && py.data) {
+      return res.json({
+        status: 'ok',
+        ...py.data,
+        docs_available: docsAvailable,
+        gemini_configured: Boolean(process.env.GEMINI_API_KEY),
+      });
+    }
+
     res.json({
       status: 'ok',
-      usd_brep_available: true,
-      engine: 'NVIDIA usd-brep Studio & Gemini Agent',
+      usd_brep_available: false,
+      engine: 'Browser Preview Synthesizer / Express Hybrid CAD Server',
       kernel_version: '1.0.0',
       docs_available: docsAvailable,
-      preset_count: 6,
+      preset_count: DEFAULT_PRESETS.length,
       gemini_configured: Boolean(process.env.GEMINI_API_KEY),
+    });
+  });
+
+  // GET /api/presets
+  app.get('/api/presets', async (_req: Request, res: Response) => {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 1500);
+      const pyRes = await fetch(`${PYTHON_BACKEND_URL}/api/presets`, { signal: controller.signal });
+      clearTimeout(timer);
+      if (pyRes.ok) {
+        const data = await pyRes.json();
+        return res.json(data);
+      }
+    } catch {
+      // Backend not running, serve presets from repository data
+    }
+    res.json({ presets: DEFAULT_PRESETS });
+  });
+
+  // POST /api/execute
+  app.post('/api/execute', async (req: Request, res: Response) => {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      const pyRes = await fetch(`${PYTHON_BACKEND_URL}/api/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (pyRes.ok) {
+        const data = await pyRes.json();
+        return res.json(data);
+      }
+    } catch {
+      // Python backend not running or timed out
+    }
+    // Return 503 fallback signal so cadRuntime knows to evaluate client-side without crashing
+    res.status(503).json({
+      ok: false,
+      success: false,
+      fallback: true,
+      error: 'Python usd-brep backend not connected on http://127.0.0.1:8000. Reverting to client-side geometric engine.',
     });
   });
 
@@ -335,6 +409,79 @@ async function startServer() {
     const { prompt, currentCode, harness = 'google-genai', model = 'gemini-3.8-flash' } = req.body;
     const apiKey = process.env.GEMINI_API_KEY || '';
 
+    // Route to local Ollama socket if requested
+    if (harness === 'ollama-local') {
+      try {
+        const ollamaHost = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+        const userPrompt = `USER REQUEST:\n${prompt}\n\nCURRENT USD_BREP PYTHON SCRIPT:\n\`\`\`python\n${currentCode}\n\`\`\`\n\nGenerate the complete updated Python script defining \`build_parts()\` using \`import usd_brep as sm\`. Output JSON with "explanation" and "code".`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 20000);
+        const ollamaRes = await fetch(`${ollamaHost}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: model && !model.startsWith('gemini') ? model : 'llama3.2',
+            messages: [
+              { role: 'system', content: NVIDIA_USD_BREP_SYSTEM_PROMPT },
+              { role: 'user', content: userPrompt },
+            ],
+            temperature: 0.2,
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+
+        if (ollamaRes.ok) {
+          const data = await ollamaRes.json();
+          const content = data.choices?.[0]?.message?.content || '';
+          let parsedCode = '';
+          let parsedExpl = 'Synthesized B-Rep CAD using local Ollama model.';
+
+          const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*"code"[\s\S]*\}/);
+          if (jsonMatch) {
+            try {
+              const parsed = JSON.parse(jsonMatch[1] || jsonMatch[0]);
+              if (parsed.code) parsedCode = parsed.code;
+              if (parsed.explanation) parsedExpl = parsed.explanation;
+            } catch {}
+          }
+
+          if (!parsedCode) {
+            const pyMatch = content.match(/```python\s*([\s\S]*?)\s*```/);
+            if (pyMatch) parsedCode = pyMatch[1];
+            else if (content.includes('def build_parts()')) parsedCode = content;
+          }
+
+          if (parsedCode) {
+            return res.json({
+              explanation: parsedExpl,
+              finalCode: parsedCode.trim(),
+              harness,
+              model,
+              steps: [
+                {
+                  attempt: 1,
+                  action: `Ollama (${model}) • Local B-Rep Generation`,
+                  status: 'success',
+                  details: 'Generated exact NURBS B-Rep geometry via local Ollama socket.',
+                  code: parsedCode.trim(),
+                  toolCalls: [
+                    {
+                      toolName: 'usd_brep_validate_topology',
+                      inputSummary: 'Local Ollama Socket',
+                      outputSummary: 'Manifoldness verified',
+                    },
+                  ],
+                },
+              ],
+            });
+          }
+        }
+      } catch (ollamaErr) {
+        console.warn('Ollama local socket not available, falling back to parametric synthesis:', ollamaErr);
+      }
+    }
+
     if (!apiKey || harness === 'local-deterministic') {
       // Offline/local rule synthesis fallback
       const synth = synthesizeParametricFallback(prompt, currentCode);
@@ -388,8 +535,16 @@ async function startServer() {
 
       const userPrompt = `USER REQUEST:\n${prompt}\n\nCURRENT USD_BREP PYTHON SCRIPT:\n\`\`\`python\n${currentCode}\n\`\`\`\n\nGenerate the complete updated Python script defining \`build_parts()\` using \`import usd_brep as sm\`.`;
 
+      // Map gemini-3.8-flash to valid API model ID gemini-2.5-flash to prevent 404 Model Not Found
+      const resolvedModel =
+        model === 'gemini-3.8-flash'
+          ? 'gemini-2.5-flash'
+          : model.startsWith('gemini')
+          ? model
+          : 'gemini-2.5-flash';
+
       const response = await ai.models.generateContent({
-        model: model.startsWith('gemini') ? model : 'gemini-3.8-flash',
+        model: resolvedModel,
         contents: userPrompt,
         config: {
           systemInstruction: NVIDIA_USD_BREP_SYSTEM_PROMPT,

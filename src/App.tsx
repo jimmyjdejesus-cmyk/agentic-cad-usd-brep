@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowLeft,
   Bookmark,
+  BookOpen,
   Box,
   CheckCircle2,
   ChevronLeft,
@@ -9,6 +11,7 @@ import {
   Code2,
   Cpu,
   Download,
+  FileText,
   GitBranch,
   Grid,
   Layers,
@@ -16,6 +19,7 @@ import {
   Play,
   RefreshCw,
   Scale,
+  Search,
   Send,
   Sliders,
   Sparkles,
@@ -53,6 +57,8 @@ import {
   checkBackendHealth,
   executeCadScript,
   fetchPresets,
+  fetchGuideSummaries,
+  fetchGuideDetail,
 } from './services/cadRuntime';
 import { runAgenticCadTurn } from './services/geminiAgent';
 import {
@@ -64,6 +70,8 @@ import {
   CadExecutionResult,
   CadPreset,
   ChatMessage,
+  GuideDocDetail,
+  GuideDocSummary,
   HarnessTypeId,
   MaterialPreset,
 } from './types/cad';
@@ -207,7 +215,48 @@ export const App: React.FC = () => {
 
   // Optional Developer Inspector Drawer (closed by default for zero clutter)
   const [showDevDrawer, setShowDevDrawer] = useState<boolean>(false);
-  const [devTab, setDevTab] = useState<'code' | 'usd'>('code');
+  const [devTab, setDevTab] = useState<'code' | 'usd' | 'guides'>('code');
+
+  // NVIDIA usd-brep Guide Explorer State
+  const [guides, setGuides] = useState<GuideDocSummary[]>([]);
+  const [selectedGuidePath, setSelectedGuidePath] = useState<string | null>(null);
+  const [selectedGuideDetail, setSelectedGuideDetail] = useState<GuideDocDetail | null>(null);
+  const [guideSearch, setGuideSearch] = useState<string>('');
+  const [isLoadingGuide, setIsLoadingGuide] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (devTab === 'guides' && guides.length === 0) {
+      fetchGuideSummaries().then((list) => {
+        if (list && list.length > 0) {
+          setGuides(list);
+        }
+      });
+    }
+  }, [devTab, guides.length]);
+
+  const handleSelectGuide = async (path: string) => {
+    setIsLoadingGuide(true);
+    setSelectedGuidePath(path);
+    try {
+      const detail = await fetchGuideDetail(path);
+      setSelectedGuideDetail(detail);
+    } catch (err) {
+      console.warn('Failed to load guide detail:', err);
+    } finally {
+      setIsLoadingGuide(false);
+    }
+  };
+
+  const filteredGuides = useMemo(() => {
+    if (!guideSearch.trim()) return guides;
+    const q = guideSearch.toLowerCase();
+    return guides.filter(
+      (g) =>
+        g.title.toLowerCase().includes(q) ||
+        g.category.toLowerCase().includes(q) ||
+        g.path.toLowerCase().includes(q)
+    );
+  }, [guides, guideSearch]);
 
   const refreshSavedAssemblies = async () => {
     if (auth.currentUser) {
@@ -673,7 +722,7 @@ export const App: React.FC = () => {
           {/* Optional Developer Drawer Toggle (kept discrete) */}
           <button
             onClick={() => setShowDevDrawer((v) => !v)}
-            title="Toggle Code & USD Inspector"
+            title="Toggle Code, USD & NVIDIA Guides Inspector"
             className={`p-1.5 rounded-lg border transition ${
               showDevDrawer
                 ? 'bg-sky-950 text-sky-300 border-sky-700/60'
@@ -681,6 +730,15 @@ export const App: React.FC = () => {
             }`}
           >
             <Code2 className="w-4 h-4" />
+          </button>
+
+          {/* Google AI Studio & Two-Way GitHub Sync Info Modal */}
+          <button
+            onClick={() => setShowAiStudioModal(true)}
+            title="Google AI Studio & Two-Way GitHub Sync Info"
+            className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-400 hover:text-indigo-300 hover:border-indigo-700/50 transition"
+          >
+            <GitBranch className="w-4 h-4" />
           </button>
         </div>
       </header>
@@ -1032,19 +1090,27 @@ export const App: React.FC = () => {
               <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800">
                 <button
                   onClick={() => setDevTab('code')}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition ${
+                  className={`px-2 py-1 rounded text-xs font-medium transition ${
                     devTab === 'code' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  Python B-Rep Script
+                  Python B-Rep
                 </button>
                 <button
                   onClick={() => setDevTab('usd')}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition ${
+                  className={`px-2 py-1 rounded text-xs font-medium transition ${
                     devTab === 'usd' ? 'bg-emerald-600 text-slate-950 font-semibold' : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  OpenUSD Code
+                  OpenUSD
+                </button>
+                <button
+                  onClick={() => setDevTab('guides')}
+                  className={`px-2 py-1 rounded text-xs font-medium transition ${
+                    devTab === 'guides' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Guides ({guides.length || 36})
                 </button>
               </div>
               <div className="flex items-center gap-2">
@@ -1075,10 +1141,109 @@ export const App: React.FC = () => {
                 spellCheck={false}
                 className="flex-1 w-full bg-[#05070c] text-emerald-300 font-mono text-xs p-3 leading-relaxed focus:outline-none resize-none"
               />
-            ) : (
+            ) : devTab === 'usd' ? (
               <pre className="flex-1 overflow-auto p-3 text-xs font-mono text-slate-300 bg-[#05070c] leading-relaxed select-all">
                 {execResult?.usda_mesh_text || '# Execute script to view OpenUSD stage'}
               </pre>
+            ) : (
+              /* NVIDIA usd-brep API Guide Explorer Tab */
+              <div className="flex-1 flex flex-col min-h-0 bg-[#05070c]">
+                {/* Search Bar */}
+                <div className="p-2 border-b border-slate-800 bg-slate-900/30 flex items-center gap-2">
+                  <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <input
+                    type="text"
+                    placeholder="Search 36 NVIDIA guides, skills, stubs..."
+                    value={guideSearch}
+                    onChange={(e) => setGuideSearch(e.target.value)}
+                    className="bg-transparent text-xs text-slate-200 placeholder-slate-500 w-full focus:outline-none"
+                  />
+                  {guideSearch && (
+                    <button
+                      onClick={() => setGuideSearch('')}
+                      className="text-slate-500 hover:text-slate-300 p-0.5"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {selectedGuideDetail ? (
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <div className="px-3 py-2 border-b border-slate-800 bg-slate-900/40 flex items-center justify-between">
+                      <button
+                        onClick={() => {
+                          setSelectedGuideDetail(null);
+                          setSelectedGuidePath(null);
+                        }}
+                        className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span>All Guides</span>
+                      </button>
+                      {selectedGuideDetail.content.includes('def build_parts()') && (
+                        <button
+                          onClick={() => {
+                            const match = selectedGuideDetail.content.match(/```python([\s\S]*?)```/);
+                            const extracted = match ? match[1].trim() : selectedGuideDetail.content;
+                            setCode(extracted);
+                            setDevTab('code');
+                          }}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold text-[11px] transition shadow"
+                        >
+                          <Play className="w-2.5 h-2.5 fill-current" />
+                          <span>Load Script</span>
+                        </button>
+                      )}
+                    </div>
+                    <div className="px-3 py-2 border-b border-slate-800/80 bg-slate-950/60">
+                      <div className="text-xs font-semibold text-indigo-300">{selectedGuideDetail.title}</div>
+                      <div className="text-[10px] text-slate-500">{selectedGuideDetail.category}</div>
+                    </div>
+                    <div className="flex-1 overflow-auto p-3 text-xs text-slate-300 font-mono leading-relaxed whitespace-pre-wrap select-text">
+                      {selectedGuideDetail.content}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-auto p-2 space-y-1.5">
+                    {isLoadingGuide ? (
+                      <div className="p-6 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                        <span>Loading guide...</span>
+                      </div>
+                    ) : filteredGuides.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-500">
+                        No guides found matching &quot;{guideSearch}&quot;
+                      </div>
+                    ) : (
+                      filteredGuides.map((guide) => (
+                        <button
+                          key={guide.path}
+                          onClick={() => handleSelectGuide(guide.path)}
+                          className={`w-full text-left p-2.5 rounded-lg border transition group flex flex-col gap-1 ${
+                            selectedGuidePath === guide.path
+                              ? 'bg-indigo-950/40 border-indigo-700/60 text-white'
+                              : 'bg-slate-900/30 hover:bg-slate-800/60 border-slate-800/60 hover:border-slate-700 text-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between text-xs font-medium group-hover:text-sky-300">
+                            <span className="truncate pr-2">{guide.title}</span>
+                            <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                              {(guide.size_bytes / 1024).toFixed(1)} KB
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] text-slate-500">
+                            <span className="truncate">{guide.category}</span>
+                            <span className="text-slate-600 font-mono text-[9px] truncate max-w-[140px]">
+                              {guide.path}
+                            </span>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}

@@ -53,48 +53,79 @@ export async function runAgenticCadTurn(params: {
 
   if (typeof window !== 'undefined') {
     try {
-      const res = await fetch('/api/agent/turn', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt,
-          currentCode,
-          harness,
-          model,
-          maxIterations,
-        }),
-      });
+      let workingCode = currentCode;
+      let latestExplanation = '';
+      let latestExec: CadExecutionResult | null = null;
+      const steps: AgentIterationStep[] = [];
+      let feedbackPrompt = prompt;
 
-      if (res.ok) {
+      for (let attempt = 1; attempt <= maxIterations; attempt++) {
+        const res = await fetch('/api/agent/turn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: feedbackPrompt,
+            currentCode: workingCode,
+            harness,
+            model,
+          }),
+        });
+
+        if (!res.ok) break;
         const serverTurn = await res.json();
-        if (serverTurn.finalCode) {
-          const execRes = await executeCadScript(serverTurn.finalCode, 'AgentCadAsset');
-          return {
-            explanation: serverTurn.explanation || 'Updated B-Rep assembly with verified manifold topology.',
-            finalCode: serverTurn.finalCode,
-            executionResult: execRes,
-            steps: serverTurn.steps || [
-              {
-                attempt: 1,
-                action: `${harness} Loop • B-Rep CAD Synthesis & Verification`,
-                status: execRes.success && (execRes.sanity_warnings?.length || 0) === 0 ? 'success' : 'warning',
-                details: execRes.success
-                  ? `Built ${execRes.summary?.part_count} manifold parts (${execRes.summary?.total_nurbs_faces} NURBS faces, ${execRes.summary?.total_mesh_triangles} mesh triangles).`
-                  : `Error: ${execRes.error}`,
-                code: serverTurn.finalCode,
-                toolCalls: [
-                  {
-                    toolName: 'usd_brep_validate_topology',
-                    inputSummary: 'Python build_parts() script',
-                    outputSummary: 'Verified 2-manifold closed shells with 0 Euler defects',
-                  },
-                ],
-              },
-            ],
-            harnessUsed: harness,
-            modelUsed: model,
-          };
-        }
+        workingCode = serverTurn.finalCode || workingCode;
+        latestExplanation = serverTurn.explanation || latestExplanation;
+
+        // Actually execute & validate the generated B-Rep code
+        latestExec = await executeCadScript(workingCode, 'AgentCadAsset');
+        const warnings = latestExec.sanity_warnings || [];
+        const hasFailed = !latestExec.success || warnings.length > 0;
+
+        steps.push({
+          attempt,
+          action:
+            attempt === 1
+              ? `${harness} (${model}) — B-Rep Synthesis`
+              : `Self-Healing Repair Pass #${attempt - 1}`,
+          status: !latestExec.success ? 'error' : warnings.length > 0 ? 'warning' : 'success',
+          details: !latestExec.success
+            ? `Kernel Error: ${latestExec.error}`
+            : warnings.length > 0
+            ? `Sanity warnings detected: ${warnings.join('; ')}`
+            : `Built ${latestExec.summary?.part_count} manifold parts (${latestExec.summary?.total_mesh_triangles} tris) with 0 penetrations.`,
+          code: workingCode,
+          toolCalls: [
+            {
+              toolName: 'usd_brep_validate_topology',
+              inputSummary: `Attempt ${attempt}: build_parts()`,
+              outputSummary: !latestExec.success
+                ? String(latestExec.error)
+                : warnings.length > 0
+                ? `${warnings.length} sanity warning(s)`
+                : 'Verified 2-manifold closed shells, 0 penetrations',
+            },
+          ],
+        });
+
+        // Break early if manifold and zero sanity warnings!
+        if (!hasFailed) break;
+
+        // Otherwise construct self-healing repair prompt for next iteration
+        const errorContext = !latestExec.success
+          ? `KERNEL EXCEPTION: ${latestExec.error}`
+          : `SANITY CHECK WARNINGS:\n${warnings.join('\n')}`;
+        feedbackPrompt = `Original request: ${prompt}\n\nYour previous script failed validation with:\n${errorContext}\n\nFix the Python usd_brep script so all parts are valid manifold solids resting on z >= 0 with zero bounding-box penetrations.`;
+      }
+
+      if (latestExec) {
+        return {
+          explanation: latestExplanation || 'Updated B-Rep assembly with verified manifold topology.',
+          finalCode: workingCode,
+          executionResult: latestExec,
+          steps,
+          harnessUsed: harness,
+          modelUsed: model,
+        };
       }
     } catch (err) {
       console.warn('Agent server proxy returned an error, falling back to local synthesis:', err);
