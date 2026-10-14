@@ -27,6 +27,7 @@ interface Viewport3DProps {
   overallBounds?: [[number, number, number], [number, number, number]];
   explodeFactor: number;
   partOffsets?: Record<string, [number, number, number]>;
+  hiddenPartNames?: string[];
   // 3D Annotations
   annotations?: CadAnnotation[];
   selectedAnnotationId?: string | null;
@@ -69,6 +70,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   overallBounds,
   explodeFactor,
   partOffsets,
+  hiddenPartNames = [],
   annotations = [],
   selectedAnnotationId = null,
   onSelectAnnotation,
@@ -342,7 +344,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
         raycaster.setFromCamera(mouseNorm, cameraRef.current);
 
         const meshes = partGroupRef.current.children.filter(
-          (c): c is THREE.Mesh => c instanceof THREE.Mesh && Boolean(c.userData.partName)
+          (c): c is THREE.Mesh => c instanceof THREE.Mesh && Boolean(c.userData.partName) && c.visible
         );
         const hits = raycaster.intersectObjects(meshes, false);
 
@@ -477,7 +479,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
           const raycaster = new THREE.Raycaster();
           raycaster.setFromCamera(mouse, cameraRef.current);
           const meshes = partGroupRef.current.children.filter(
-            (c): c is THREE.Mesh => c instanceof THREE.Mesh && Boolean(c.userData.partName)
+            (c): c is THREE.Mesh => c instanceof THREE.Mesh && Boolean(c.userData.partName) && c.visible
           );
           const hits = raycaster.intersectObjects(meshes, false);
           if (hits.length > 0) {
@@ -774,6 +776,8 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
         initialOffset = explodeDir.clone().multiplyScalar(explodeFactor * 0.85);
       }
       mesh.position.copy(initialOffset);
+      const isHidden = hiddenPartNames.includes(part.name);
+      mesh.visible = !isHidden;
       group.add(mesh);
 
       let wireMesh: THREE.LineSegments | undefined;
@@ -786,6 +790,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
         });
         wireMesh = new THREE.LineSegments(wireGeom, wireMat);
         wireMesh.position.copy(initialOffset);
+        wireMesh.visible = !isHidden;
         group.add(wireMesh);
       }
 
@@ -800,6 +805,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
           box3,
           new THREE.Color(isSelected ? 0x38bdf8 : 0xf59e0b)
         );
+        boxHelper.visible = !isHidden;
         group.add(boxHelper);
       }
 
@@ -822,7 +828,17 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       const overallHelper = new THREE.Box3Helper(overallBox, new THREE.Color(0x10b981));
       group.add(overallHelper);
     }
-  }, [parts, selectedPartName, showWireframe, showBounds, overallBounds]);
+  }, [parts, selectedPartName, showWireframe, showBounds, overallBounds, hiddenPartNames]);
+
+  // Toggle part visibility reactively when hiddenPartNames updates
+  useEffect(() => {
+    partEntriesRef.current.forEach((entry) => {
+      const isHidden = hiddenPartNames.includes(entry.partName);
+      entry.mesh.visible = !isHidden;
+      if (entry.wire) entry.wire.visible = !isHidden;
+      if (entry.boxHelper) entry.boxHelper.visible = !isHidden;
+    });
+  }, [hiddenPartNames]);
 
   // High-performance dynamic explosion transform updates (60fps animation & timeline scrubbing)
   useEffect(() => {

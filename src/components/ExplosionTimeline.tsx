@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
+  ChevronUp,
   Gauge,
   Layers,
   Pause,
@@ -24,6 +25,8 @@ export interface ExplosionTimelineProps {
   // Fallback radial explode factor callback when switching to continuous slider
   explodeFactor: number;
   onExplodeFactorChange: (factor: number) => void;
+  isCollapsed?: boolean;
+  onToggleCollapsed?: (collapsed: boolean) => void;
 }
 
 export function areOffsetsEqual(
@@ -145,7 +148,16 @@ export const ExplosionTimeline: React.FC<ExplosionTimelineProps> = ({
   onOffsetsChange,
   explodeFactor,
   onExplodeFactorChange,
+  isCollapsed,
+  onToggleCollapsed,
 }) => {
+  const [internalCollapsed, setInternalCollapsed] = useState<boolean>(false);
+  const isDockCollapsed = isCollapsed !== undefined ? isCollapsed : internalCollapsed;
+  const handleToggle = () => {
+    if (onToggleCollapsed) onToggleCollapsed(!isDockCollapsed);
+    else setInternalCollapsed(!isDockCollapsed);
+  };
+
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
@@ -314,6 +326,26 @@ export const ExplosionTimeline: React.FC<ExplosionTimelineProps> = ({
     return `${s.toString().padStart(2, '0')}.${ms}s`;
   };
 
+  if (isDockCollapsed) {
+    return (
+      <div className="flex items-center gap-2 select-none bg-slate-950/90 border border-slate-800/90 rounded-full px-3.5 py-1.5 shadow-2xl backdrop-blur-xl text-xs text-slate-200 pointer-events-auto">
+        <Sparkles className="w-3.5 h-3.5 text-sky-400" />
+        <span className="text-[11px] font-semibold text-slate-300">Explosion Sequence</span>
+        <span className="text-slate-600">/</span>
+        <span className="text-[10px] text-emerald-400 font-mono">
+          {useContinuousSlider ? `${Math.round(explodeFactor * 100)}%` : formatTime(currentTime)}
+        </span>
+        <button
+          onClick={handleToggle}
+          className="p-1 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition ml-1"
+          title="Expand Explosion Timeline"
+        >
+          <ChevronUp className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-1.5 select-none w-full max-w-2xl bg-slate-950/90 border border-slate-800/90 rounded-2xl p-2.5 shadow-2xl backdrop-blur-xl text-xs text-slate-200">
       {/* Top Header Row: Stage Name Badge, Dropdown, Mode Toggle, and Speed */}
@@ -382,7 +414,7 @@ export const ExplosionTimeline: React.FC<ExplosionTimelineProps> = ({
           </div>
         </div>
 
-        {/* Right side controls: Mode Toggle, Speed, Loop */}
+        {/* Right side controls: Mode Toggle, Speed, Loop, Minimize */}
         <div className="flex items-center gap-1.5 shrink-0">
           {/* Mode Switch: Sequential Stages vs Free Slider */}
           <button
@@ -427,6 +459,15 @@ export const ExplosionTimeline: React.FC<ExplosionTimelineProps> = ({
               <Repeat className="w-3 h-3" />
             </button>
           )}
+
+          {/* Minimize/Collapse Button */}
+          <button
+            onClick={handleToggle}
+            className="p-1 rounded border bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 transition"
+            title="Minimize Explosion Timeline"
+          >
+            <ChevronDown className="w-3 h-3" />
+          </button>
         </div>
       </div>
 
