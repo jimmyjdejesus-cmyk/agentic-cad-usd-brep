@@ -179,6 +179,9 @@ export const AnnotationsPanel: React.FC<AnnotationsPanelProps> = ({
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             aria-label={isExpanded ? 'Collapse 3D Annotations Panel' : 'Expand 3D Annotations Panel'}
+            aria-expanded={isExpanded}
+            aria-controls="annotations-panel-content"
+            title={isExpanded ? 'Collapse 3D Annotations Panel' : 'Expand 3D Annotations Panel'}
             className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition"
           >
             {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -187,7 +190,7 @@ export const AnnotationsPanel: React.FC<AnnotationsPanelProps> = ({
       </div>
 
       {isExpanded && (
-        <div className="p-3 space-y-2.5">
+        <div id="annotations-panel-content" className="p-3 space-y-2.5">
           {/* Quick Toolbar: Add Mode & Snap Toggle */}
           <div className="flex items-center gap-1.5">
             <button
