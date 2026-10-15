@@ -5,6 +5,7 @@ import {
   Bookmark,
   BookOpen,
   Box,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -22,6 +23,7 @@ import {
   Layers,
   MapPin,
   PanelRight,
+  Pencil,
   Play,
   RefreshCw,
   Scale,
@@ -67,6 +69,11 @@ import {
   fetchGuideSummaries,
   fetchGuideDetail,
 } from './services/cadRuntime';
+import {
+  validatePartName,
+  renamePartInCode,
+  applyPartRenamesToExecutionResult,
+} from './services/partRenamingService';
 import { runAgenticCadTurn } from './services/geminiAgent';
 import {
   AI_HARNESS_OPTIONS,
@@ -261,6 +268,135 @@ export const App: React.FC = () => {
     setHiddenPartNames([]);
   };
 
+  const handleIsolatePart = (partName: string) => {
+    const partsList = execResult?.parts || [];
+    const otherPartNames = partsList.filter((p) => p.name !== partName).map((p) => p.name);
+
+    if (otherPartNames.length === 0) return;
+
+    // Check if this part is currently the ONLY visible part in the assembly
+    const isCurrentlyIsolated =
+      !hiddenPartNames.includes(partName) &&
+      otherPartNames.every((name) => hiddenPartNames.includes(name));
+
+    if (isCurrentlyIsolated) {
+      // Toggle off isolation -> show all parts
+      setHiddenPartNames([]);
+    } else {
+      // Hide all other parts, show and select this part
+      setHiddenPartNames(otherPartNames);
+      setSelectedPartName(partName);
+    }
+  };
+
+  const isolatedPartName = useMemo(() => {
+    const partsList = execResult?.parts || [];
+    if (partsList.length <= 1) return null;
+    const visibleParts = partsList.filter((p) => !hiddenPartNames.includes(p.name));
+    if (visibleParts.length === 1) {
+      return visibleParts[0].name;
+    }
+    return null;
+  }, [execResult?.parts, hiddenPartNames]);
+
+  // Persistent Part Renaming State & Handlers
+  const [partRenames, setPartRenames] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem(`cad_renames_${DEFAULT_PRESETS[0].id}`);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {};
+  });
+  const [editingPartName, setEditingPartName] = useState<string | null>(null);
+  const [editPartNameDraft, setEditPartNameDraft] = useState<string>('');
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (editingPartName && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [editingPartName]);
+
+  const handleStartRename = (partName: string) => {
+    setEditingPartName(partName);
+    setEditPartNameDraft(partName);
+    setRenameError(null);
+  };
+
+  const handleCancelRename = () => {
+    setEditingPartName(null);
+    setEditPartNameDraft('');
+    setRenameError(null);
+  };
+
+  const handleConfirmRename = (oldName: string) => {
+    const partsList = execResult?.parts || [];
+    const existingNames = partsList.map((p) => p.name);
+    const validation = validatePartName(editPartNameDraft, existingNames, oldName);
+
+    if (!validation.valid) {
+      setRenameError(validation.error || 'Invalid part name');
+      return;
+    }
+
+    const newName = validation.cleanName;
+    if (newName === oldName) {
+      handleCancelRename();
+      return;
+    }
+
+    // 1. Update Python CAD Script source so re-executions retain the new identifier
+    const updatedCode = renamePartInCode(code, oldName, newName);
+    setCode(updatedCode);
+
+    // 2. Update persistent renames mapping
+    const updatedRenames = { ...partRenames, [oldName]: newName };
+    setPartRenames(updatedRenames);
+    try {
+      localStorage.setItem(`cad_renames_${selectedPresetId}`, JSON.stringify(updatedRenames));
+    } catch (e) {
+      console.warn('Could not cache part renames:', e);
+    }
+
+    // 3. Update CAD execution result immediately in state
+    setExecResult((prev) => {
+      if (!prev) return prev;
+      return applyPartRenamesToExecutionResult(prev, { [oldName]: newName });
+    });
+
+    // 4. Update selected part if active
+    setSelectedPartName((prev) => (prev === oldName ? newName : prev));
+
+    // 5. Update hidden part names
+    setHiddenPartNames((prev) =>
+      prev.map((name) => (name === oldName ? newName : name))
+    );
+
+    // 6. Update explosion part offsets
+    setPartOffsets((prev) => {
+      if (!prev[oldName]) return prev;
+      const { [oldName]: offset, ...rest } = prev;
+      return { ...rest, [newName]: offset };
+    });
+
+    // 7. Update 3D annotations attached to this part
+    setAnnotations((prev) => {
+      const updated = prev.map((ann) =>
+        ann.partName === oldName ? { ...ann, partName: newName } : ann
+      );
+      try {
+        localStorage.setItem(`cad_annotations_${selectedPresetId}`, JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Could not cache updated annotations:', e);
+      }
+      return updated;
+    });
+
+    handleCancelRename();
+  };
+
   // Prompt & Chat Window
   const [isPromptOpen, setIsPromptOpen] = useState<boolean>(true);
   const [chatInput, setChatInput] = useState<string>('');
@@ -385,13 +521,16 @@ export const App: React.FC = () => {
   const handleExecuteCode = async (
     scriptCode = code,
     assetName = selectedPresetId || 'CadAsset',
-    targetEnvelope = envelope
+    targetEnvelope = envelope,
+    renamesOverride?: Record<string, string>
   ) => {
     setIsExecuting(true);
     setDiagnosticsDismissed(false);
     try {
       const res = await executeCadScript(scriptCode, assetName, targetEnvelope, 0.06);
-      setExecResult(res);
+      const effectiveRenames = renamesOverride !== undefined ? renamesOverride : partRenames;
+      const resWithRenames = applyPartRenamesToExecutionResult(res, effectiveRenames);
+      setExecResult(resWithRenames);
       const h = await checkBackendHealth();
       setHealth(h);
     } finally {
@@ -409,6 +548,18 @@ export const App: React.FC = () => {
     setHiddenPartNames([]);
     setExplodeFactor(0);
     setPartOffsets({});
+    setEditingPartName(null);
+    setRenameError(null);
+
+    // Restore persistent renames for this preset
+    let presetRenames: Record<string, string> = {};
+    try {
+      const savedRenames = localStorage.getItem(`cad_renames_${found.id}`);
+      if (savedRenames) {
+        presetRenames = JSON.parse(savedRenames);
+      }
+    } catch {}
+    setPartRenames(presetRenames);
 
     // Restore annotations for this preset
     try {
@@ -424,7 +575,7 @@ export const App: React.FC = () => {
     setSelectedAnnotationId(null);
     setIsAnnotating(false);
 
-    await handleExecuteCode(found.code, found.id, found.envelope);
+    await handleExecuteCode(found.code, found.id, found.envelope, presetRenames);
   };
 
   const handleLoadSavedAssembly = async (asm: SavedAssemblyRecord) => {
@@ -439,6 +590,16 @@ export const App: React.FC = () => {
     }
     setSelectedPartName(null);
     setHiddenPartNames([]);
+    setEditingPartName(null);
+    setRenameError(null);
+
+    let savedRenames: Record<string, string> = {};
+    try {
+      const stored = localStorage.getItem(`cad_renames_${asm.name}`);
+      if (stored) savedRenames = JSON.parse(stored);
+    } catch {}
+    setPartRenames(savedRenames);
+
     if (asm.annotations && Array.isArray(asm.annotations)) {
       setAnnotations(asm.annotations);
       try {
@@ -447,7 +608,7 @@ export const App: React.FC = () => {
         console.warn('Could not cache loaded annotations:', e);
       }
     }
-    await handleExecuteCode(asm.code, asm.name);
+    await handleExecuteCode(asm.code, asm.name, undefined, savedRenames);
   };
 
   // 3D Annotation Actions
@@ -1270,6 +1431,26 @@ export const App: React.FC = () => {
               </div>
             )}
 
+          {/* Isolated Part Floating Banner in Viewport */}
+          {isolatedPartName && (
+            <div className="absolute top-4 left-4 z-20 bg-[#181a20]/95 border border-amber-500/60 rounded-xl px-3 py-1.5 shadow-2xl backdrop-blur-md flex items-center gap-2 text-xs">
+              <Target className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+              <span className="text-zinc-300">
+                Isolated: <span className="font-mono font-semibold text-amber-300">/{isolatedPartName}</span>
+              </span>
+              <span className="text-[10px] text-zinc-500 font-mono">
+                ({parts.length - 1} hidden)
+              </span>
+              <button
+                onClick={handleShowAllParts}
+                className="ml-1.5 px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-[10px] font-semibold border border-amber-500/40 transition"
+                title="Restore all parts in assembly"
+              >
+                Show All
+              </button>
+            </div>
+          )}
+
           {/* Selected Part Pill (when clicked in 3D viewport) */}
           {selectedPart && (
             <div className="absolute bottom-6 left-4 z-20 bg-[#181a20]/95 border border-[#272a34] rounded-xl px-3.5 py-2 shadow-2xl backdrop-blur-md flex items-center gap-3 text-xs">
@@ -1287,6 +1468,36 @@ export const App: React.FC = () => {
                   Vol: {selectedPart.diagnostics.volume.toFixed(1)} cm³ • {selectedPart.diagnostics.manifold ? 'Watertight Solid' : 'Open'}
                 </span>
               </div>
+              {parts.length > 1 && (
+                <button
+                  onClick={() => handleIsolatePart(selectedPart.name)}
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition ${
+                    isolatedPartName === selectedPart.name
+                      ? 'bg-amber-500/25 text-amber-300 border border-amber-500/50 hover:bg-amber-500/35'
+                      : 'bg-[#222632] hover:bg-[#2c3140] text-zinc-300 hover:text-white border border-[#343a4a]'
+                  }`}
+                  title={
+                    isolatedPartName === selectedPart.name
+                      ? 'Exit isolation (show all parts)'
+                      : `Isolate /${selectedPart.name}: hide all other parts`
+                  }
+                >
+                  <Target className={`w-3 h-3 ${isolatedPartName === selectedPart.name ? 'text-amber-400' : 'text-zinc-400'}`} />
+                  <span>{isolatedPartName === selectedPart.name ? 'Isolated' : 'Isolate'}</span>
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setActiveRightTab('parts');
+                  setIsRightSidebarOpen(true);
+                  handleStartRename(selectedPart.name);
+                }}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-[#222632] hover:bg-[#2c3140] text-zinc-300 hover:text-white border border-[#343a4a] transition"
+                title={`Rename part /${selectedPart.name}`}
+              >
+                <Pencil className="w-3 h-3 text-zinc-400" />
+                <span>Rename</span>
+              </button>
               <button
                 onClick={() => setSelectedPartName(null)}
                 className="text-zinc-400 hover:text-white ml-1"
@@ -1427,9 +1638,21 @@ export const App: React.FC = () => {
                     {hiddenPartNames.length > 0 && (
                       <button
                         onClick={handleShowAllParts}
-                        className="text-[10px] text-sky-400 hover:text-sky-300 underline font-medium"
+                        className={`text-[10px] font-medium transition flex items-center gap-1 ${
+                          isolatedPartName
+                            ? 'px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 shadow-sm'
+                            : 'text-sky-400 hover:text-sky-300 underline'
+                        }`}
+                        title="Restore visibility of all parts"
                       >
-                        Show All ({hiddenPartNames.length})
+                        {isolatedPartName ? (
+                          <>
+                            <Eye className="w-3 h-3" />
+                            <span>Exit Isolate</span>
+                          </>
+                        ) : (
+                          <span>Show All ({hiddenPartNames.length})</span>
+                        )}
                       </button>
                     )}
                   </div>
@@ -1443,6 +1666,7 @@ export const App: React.FC = () => {
                       parts.map((p) => {
                         const isSelected = selectedPartName === p.name;
                         const isHidden = hiddenPartNames.includes(p.name);
+                        const isIsolated = isolatedPartName === p.name;
                         const [r, g, b] = p.color || [0.35, 0.65, 0.95];
                         return (
                           <div
@@ -1456,42 +1680,150 @@ export const App: React.FC = () => {
                                 : 'bg-[#181a20] hover:bg-[#1e2028] border-[#272a34] text-zinc-200'
                             }`}
                           >
-                            <div className="flex items-center gap-2 min-w-0 pr-2">
+                            {editingPartName === p.name ? (
                               <div
-                                className="w-3 h-3 rounded-full shrink-0 border border-zinc-700 shadow-sm"
-                                style={{
-                                  backgroundColor: `rgb(${Math.round(r * 255)}, ${Math.round(
-                                    g * 255
-                                  )}, ${Math.round(b * 255)})`,
-                                }}
-                              />
-                              <div className="truncate">
-                                <div className="font-mono font-medium truncate">/{p.name}</div>
-                                <div className="text-[10px] text-zinc-400 truncate">
-                                  {p.diagnostics.volume.toFixed(1)} cm³ • {p.mesh.points.length} pts
+                                className="flex-1 flex flex-col gap-1 min-w-0 py-0.5"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="flex items-center gap-1.5 w-full">
+                                  <div
+                                    className="w-3 h-3 rounded-full shrink-0 border border-zinc-700 shadow-sm"
+                                    style={{
+                                      backgroundColor: `rgb(${Math.round(r * 255)}, ${Math.round(
+                                        g * 255
+                                      )}, ${Math.round(b * 255)})`,
+                                    }}
+                                  />
+                                  <div className="flex-1 flex items-center bg-[#101216] border border-sky-500 rounded px-1.5 py-0.5 min-w-0 focus-within:ring-1 focus-within:ring-sky-400">
+                                    <span className="text-zinc-500 font-mono text-xs select-none">/</span>
+                                    <input
+                                      ref={renameInputRef}
+                                      type="text"
+                                      value={editPartNameDraft}
+                                      onChange={(e) => {
+                                        setEditPartNameDraft(e.target.value);
+                                        setRenameError(null);
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          handleConfirmRename(p.name);
+                                        } else if (e.key === 'Escape') {
+                                          e.preventDefault();
+                                          handleCancelRename();
+                                        }
+                                      }}
+                                      className="w-full bg-transparent text-xs font-mono text-white focus:outline-none pl-0.5"
+                                      placeholder="new_part_name"
+                                    />
+                                  </div>
+                                  <button
+                                    onClick={() => handleConfirmRename(p.name)}
+                                    className="p-1 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold transition shadow shrink-0"
+                                    title="Confirm identifier rename (Enter)"
+                                  >
+                                    <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                                  </button>
+                                  <button
+                                    onClick={handleCancelRename}
+                                    className="p-1 rounded bg-[#272a34] hover:bg-[#323642] text-zinc-300 hover:text-white transition shrink-0"
+                                    title="Cancel rename (Escape)"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
                                 </div>
+                                {renameError && (
+                                  <div className="text-[10px] text-rose-400 pl-4 font-medium flex items-center gap-1">
+                                    <AlertTriangle className="w-3 h-3 shrink-0" />
+                                    <span>{renameError}</span>
+                                  </div>
+                                )}
                               </div>
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                              <span
-                                className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
-                                  p.diagnostics.manifold
-                                    ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/50'
-                                    : 'bg-amber-950/80 text-amber-400 border border-amber-800/50'
-                                }`}
-                              >
-                                {p.diagnostics.manifold ? 'Solid' : 'Open'}
-                              </span>
-                              <button
-                                onClick={() => handleTogglePartVisibility(p.name)}
-                                className={`p-1 rounded hover:bg-[#20232c] transition ${
-                                  isHidden ? 'text-zinc-600' : 'text-zinc-300'
-                                }`}
-                                title={isHidden ? 'Show Part' : 'Hide Part'}
-                              >
-                                {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                              </button>
-                            </div>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-2 min-w-0 pr-2 group/part">
+                                  <div
+                                    className="w-3 h-3 rounded-full shrink-0 border border-zinc-700 shadow-sm"
+                                    style={{
+                                      backgroundColor: `rgb(${Math.round(r * 255)}, ${Math.round(
+                                        g * 255
+                                      )}, ${Math.round(b * 255)})`,
+                                    }}
+                                  />
+                                  <div className="truncate min-w-0">
+                                    <div className="flex items-center gap-1">
+                                      <span
+                                        className="font-mono font-medium truncate hover:text-sky-300 transition"
+                                        onDoubleClick={(e) => {
+                                          e.stopPropagation();
+                                          handleStartRename(p.name);
+                                        }}
+                                        title="Double-click to rename part identifier"
+                                      >
+                                        /{p.name}
+                                      </span>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleStartRename(p.name);
+                                        }}
+                                        className="opacity-0 group-hover/part:opacity-100 p-0.5 rounded text-zinc-400 hover:text-sky-300 hover:bg-[#20232c] transition shrink-0"
+                                        title={`Rename part /${p.name}`}
+                                      >
+                                        <Pencil className="w-2.5 h-2.5" />
+                                      </button>
+                                    </div>
+                                    <div className="text-[10px] text-zinc-400 truncate">
+                                      {p.diagnostics.volume.toFixed(1)} cm³ • {p.mesh.points.length} pts
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                  <span
+                                    className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                                      p.diagnostics.manifold
+                                        ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/50'
+                                        : 'bg-amber-950/80 text-amber-400 border border-amber-800/50'
+                                    }`}
+                                  >
+                                    {p.diagnostics.manifold ? 'Solid' : 'Open'}
+                                  </span>
+
+                                  {/* Isolate Part Button */}
+                                  <button
+                                    onClick={() => handleIsolatePart(p.name)}
+                                    disabled={parts.length <= 1}
+                                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition ${
+                                      isIsolated
+                                        ? 'bg-amber-500/25 text-amber-300 border border-amber-500/50 hover:bg-amber-500/35 shadow-sm'
+                                        : parts.length <= 1
+                                        ? 'opacity-40 cursor-not-allowed text-zinc-500 border border-transparent'
+                                        : 'bg-[#1e212b] hover:bg-[#282d3b] text-zinc-300 hover:text-white border border-[#2d3242]'
+                                    }`}
+                                    title={
+                                      parts.length <= 1
+                                        ? 'Single part assembly (nothing to isolate)'
+                                        : isIsolated
+                                        ? `Part /${p.name} is isolated. Click to exit isolation and show all parts.`
+                                        : `Isolate /${p.name}: hide all other parts in assembly`
+                                    }
+                                  >
+                                    <Target className={`w-3 h-3 ${isIsolated ? 'text-amber-400' : 'text-zinc-400'}`} />
+                                    <span>{isIsolated ? 'Isolated' : 'Isolate'}</span>
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleTogglePartVisibility(p.name)}
+                                    className={`p-1 rounded hover:bg-[#20232c] transition ${
+                                      isHidden ? 'text-zinc-600' : 'text-zinc-300'
+                                    }`}
+                                    title={isHidden ? 'Show Part' : 'Hide Part'}
+                                  >
+                                    {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                  </button>
+                                </div>
+                              </>
+                            )}
                           </div>
                         );
                       })
