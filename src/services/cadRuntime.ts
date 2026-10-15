@@ -36,11 +36,11 @@ export async function checkBackendHealth(): Promise<BackendHealthStatus> {
       };
     }
   } catch {
-    // Local Python FastAPI server not reachable (e.g., running in Google AI Studio cloud preview)
+    // Local Python FastAPI server not reachable (e.g., running in cloud preview)
   }
   return {
     connected: false,
-    engine: 'Browser Preview Synthesizer (AI Studio Cloud Mode)',
+    engine: 'Browser Preview Synthesizer (Cloud Preview Mode)',
     presetCount: DEFAULT_PRESETS.length,
   };
 }
@@ -119,13 +119,13 @@ export async function executeCadScript(
       return (await res.json()) as CadExecutionResult;
     }
   } catch {
-    // Fallback to client-side usd_brep geometric evaluator for Google AI Studio cloud mode
+    // Fallback to client-side usd_brep geometric evaluator for standalone preview mode
   }
   return evaluateClientSideUsdBrep(code, assetName, envelope);
 }
 
 // ============================================================================
-// Client-Side usd_brep Fallback Synthesizer for Google AI Studio Cloud Preview
+// Client-Side usd_brep Fallback Synthesizer for Standalone Cloud Preview
 // ============================================================================
 
 interface SynthShape {

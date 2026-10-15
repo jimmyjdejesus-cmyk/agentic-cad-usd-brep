@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PRESETS } from '../data/presetsData';
 import { evaluateClientSideUsdBrep } from './cadRuntime';
 
-describe('Client-side usd_brep fallback evaluator (Google AI Studio Cloud Preview mode)', () => {
+describe('Client-side usd_brep fallback evaluator (Standalone Cloud Preview mode)', () => {
   it.each(DEFAULT_PRESETS.map((p) => [p.id, p] as const))(
     'synthesizes preset %s with manifold parts and valid OpenUSD/STL output',
     (_id, preset) => {

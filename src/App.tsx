@@ -18,8 +18,10 @@ import {
   FileText,
   GitBranch,
   Grid,
+  Info,
   Layers,
   MapPin,
+  PanelRight,
   Play,
   RefreshCw,
   Scale,
@@ -56,6 +58,7 @@ import {
   DEFAULT_MATERIAL,
   MATERIAL_PRESETS,
 } from './services/massCalculator';
+import { PbrFinishMode, resolvePbrFinish } from './services/pbrMaterialService';
 import {
   BackendHealthStatus,
   checkBackendHealth,
@@ -131,10 +134,11 @@ export const App: React.FC = () => {
     customDensity || undefined
   );
 
-  // Viewport Controls
+  // Viewport Controls & PBR Rendering
   const [showWireframe, setShowWireframe] = useState<boolean>(false);
   const [showBounds, setShowBounds] = useState<boolean>(false);
   const [showGrid, setShowGrid] = useState<boolean>(true);
+  const [pbrFinishMode, setPbrFinishMode] = useState<PbrFinishMode>('auto');
   const [explodeFactor, setExplodeFactor] = useState<number>(0);
   const [partOffsets, setPartOffsets] = useState<Record<string, [number, number, number]>>({});
 
@@ -205,36 +209,42 @@ export const App: React.FC = () => {
 
   // Engineering Inspector & Workspace UX State
   const [hiddenPartNames, setHiddenPartNames] = useState<string[]>([]);
-  const [isTimelineCollapsed, setIsTimelineCollapsed] = useState<boolean>(false);
-  const [activeInspectorTab, setActiveInspectorTab] = useState<'parts' | 'mass' | 'annotations'>('parts');
-  const [isInspectorCollapsed, setIsInspectorCollapsed] = useState<boolean>(false);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState<boolean>(true);
+  const [activeRightTab, setActiveRightTab] = useState<'parts' | 'mass' | 'annotations' | 'explosion'>('parts');
   const [isExportMenuOpen, setIsExportMenuOpen] = useState<boolean>(false);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const [isViewportMenuOpen, setIsViewportMenuOpen] = useState<boolean>(false);
+  const viewportMenuRef = useRef<HTMLDivElement | null>(null);
   const [diagnosticsDismissed, setDiagnosticsDismissed] = useState<boolean>(false);
 
-  // Close export dropdown when clicking outside
+  // Close dropdown menus when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
         setIsExportMenuOpen(false);
       }
+      if (viewportMenuRef.current && !viewportMenuRef.current.contains(e.target as Node)) {
+        setIsViewportMenuOpen(false);
+      }
     };
-    if (isExportMenuOpen) {
+    if (isExportMenuOpen || isViewportMenuOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isExportMenuOpen]);
+  }, [isExportMenuOpen, isViewportMenuOpen]);
 
-  // Press Escape to cancel annotation placement mode
+  // Keyboard navigation: Escape cancels active modes and closes flyouts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isAnnotating) {
-        setIsAnnotating(false);
+      if (e.key === 'Escape') {
+        if (isAnnotating) setIsAnnotating(false);
+        if (isViewportMenuOpen) setIsViewportMenuOpen(false);
+        if (isExportMenuOpen) setIsExportMenuOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAnnotating]);
+  }, [isAnnotating, isViewportMenuOpen, isExportMenuOpen]);
 
   const handleTogglePartVisibility = (partName: string) => {
     setHiddenPartNames((prev) => {
@@ -594,17 +604,17 @@ export const App: React.FC = () => {
   const selectedPart = parts.find((p) => p.name === selectedPartName);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#07090e] text-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col h-screen w-screen bg-[#121316] text-zinc-100 overflow-hidden font-sans">
       {/* Sleek Top Navigation Bar: Project Context, Workspace Switcher, Unified Export */}
-      <header className="h-13 border-b border-slate-800/80 bg-slate-950/95 px-4 flex items-center justify-between shrink-0 z-20 backdrop-blur-md">
-        {/* 1. Left (Project Context): Brand, Kernel Status, Preset, Cloud Vault */}
+      <header className="h-12 border-b border-[#272a34] bg-[#181a20]/95 px-4 flex items-center justify-between shrink-0 z-20 backdrop-blur-md">
+        {/* 1. Left (Project Context): Brand, Kernel Status, Preset */}
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-500 to-sky-500 flex items-center justify-center shadow-md shadow-emerald-500/20">
-            <Box className="w-4 h-4 text-slate-950 stroke-[2.5]" />
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-emerald-500 to-sky-500 flex items-center justify-center shadow-md shadow-emerald-500/20">
+            <Box className="w-3.5 h-3.5 text-slate-950 stroke-[2.5]" />
           </div>
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm tracking-tight text-white">
-              Agentic CAD
+            <span className="font-semibold text-xs tracking-tight text-white">
+              ApexCAD Studio
             </span>
             <span
               className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border ${
@@ -623,39 +633,29 @@ export const App: React.FC = () => {
             </span>
           </div>
 
-          <div className="h-4 w-px bg-slate-800 mx-1 hidden sm:block" />
+          <div className="h-4 w-px bg-[#272a34] mx-1 hidden sm:block" />
 
           {/* Preset Selector */}
-          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-xs">
+          <div className="flex items-center gap-1.5 bg-[#14161b] border border-[#272a34] rounded-lg px-2.5 py-1 text-xs">
             <Layers className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-            <span className="text-slate-400 text-[11px] hidden sm:inline">Design:</span>
+            <span className="text-zinc-400 text-[11px] hidden sm:inline">Design:</span>
             <select
               aria-label="Select CAD Preset"
               value={selectedPresetId}
               onChange={(e) => handleSelectPreset(e.target.value)}
-              className="bg-transparent font-medium text-slate-100 focus:outline-none cursor-pointer text-xs"
+              className="bg-transparent font-medium text-zinc-100 focus:outline-none cursor-pointer text-xs"
             >
               {presets.map((p) => (
-                <option key={p.id} value={p.id} className="bg-slate-900 text-slate-100">
+                <option key={p.id} value={p.id} className="bg-[#181a20] text-zinc-100">
                   {p.name}
                 </option>
               ))}
             </select>
           </div>
-
-          {/* Cloud Vault Button */}
-          <button
-            onClick={() => setShowAuthDrawer(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-700/50 transition"
-            title="Firebase Cloud CAD Vault"
-          >
-            <Bookmark className="w-3.5 h-3.5 text-emerald-400" />
-            <span>{user ? `Vault (${savedAssemblies.length})` : 'Cloud Vault'}</span>
-          </button>
         </div>
 
         {/* 2. Center: Workspace Mode Switcher */}
-        <div className="hidden md:flex items-center gap-1 bg-slate-900/90 border border-slate-800 p-0.5 rounded-xl shadow-sm">
+        <div className="hidden md:flex items-center gap-1 bg-[#14161b] border border-[#272a34] p-0.5 rounded-xl shadow-inner">
           <button
             onClick={() => {
               setShowDevDrawer(false);
@@ -663,8 +663,8 @@ export const App: React.FC = () => {
             }}
             className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
               !showDevDrawer && !showAmdEdaStudio
-                ? 'bg-sky-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                ? 'bg-sky-600 text-white shadow-sm shadow-sky-600/30 ring-1 ring-sky-400/30'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1e2028]'
             }`}
           >
             <Box className="w-3.5 h-3.5" />
@@ -675,8 +675,8 @@ export const App: React.FC = () => {
             onClick={() => setShowAmdEdaStudio(true)}
             className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
               showAmdEdaStudio
-                ? 'bg-rose-600 text-white shadow'
-                : 'text-slate-400 hover:text-rose-300 hover:bg-slate-800/60'
+                ? 'bg-rose-600 text-white shadow-sm shadow-rose-600/30 ring-1 ring-rose-400/30'
+                : 'text-zinc-400 hover:text-rose-300 hover:bg-[#1e2028]'
             }`}
           >
             <Zap className="w-3.5 h-3.5 text-rose-400" />
@@ -687,20 +687,188 @@ export const App: React.FC = () => {
             onClick={() => setShowDevDrawer((v) => !v)}
             className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
               showDevDrawer
-                ? 'bg-indigo-600 text-white shadow'
-                : 'text-slate-400 hover:text-indigo-300 hover:bg-slate-800/60'
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30 ring-1 ring-indigo-400/30'
+                : 'text-zinc-400 hover:text-indigo-300 hover:bg-[#1e2028]'
             }`}
           >
             <Code2 className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Code &amp; USD Inspector</span>
-            <span className="text-[10px] bg-slate-950/70 px-1.5 py-0.2 rounded-full font-mono text-indigo-300">
+            <span>Code &amp; USD</span>
+            <span className="text-[10px] bg-[#121316] px-1.5 py-0.2 rounded-full font-mono text-indigo-300 border border-[#272a34]">
               {guides.length || 36}
             </span>
           </button>
         </div>
 
-        {/* 3. Right: Unified Export Dropdown & Project Info */}
+        {/* 3. Right: Viewport Display, Vault, Unified Export & Inspector Toggle */}
         <div className="flex items-center gap-2">
+          {/* Viewport Display Flyout */}
+          <div className="relative" ref={viewportMenuRef}>
+            <button
+              onClick={() => setIsViewportMenuOpen((v) => !v)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
+                isViewportMenuOpen
+                  ? 'bg-zinc-800 border-zinc-700 text-white'
+                  : 'bg-[#14161b] border-[#272a34] text-zinc-300 hover:text-white hover:bg-[#1e2028]'
+              }`}
+              title="Viewport Display Preferences"
+            >
+              <Sliders className="w-3.5 h-3.5 text-zinc-400" />
+              <span>Display</span>
+              <ChevronDown className={`w-3 h-3 text-zinc-400 transition-transform ${isViewportMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isViewportMenuOpen && (
+              <div className="absolute right-0 mt-2 w-64 bg-[#181a20] border border-[#272a34] rounded-2xl shadow-2xl p-2 z-40 space-y-1 backdrop-blur-xl">
+                <div className="px-2.5 py-1 text-[10px] uppercase font-semibold text-zinc-400 tracking-wider">
+                  Viewport Shading &amp; Overlays
+                </div>
+
+                {/* Shading Mode */}
+                <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs bg-[#14161b] border border-[#272a34]">
+                  <span className="text-zinc-300">Shading Mode</span>
+                  <div className="flex items-center bg-[#181a20] p-0.5 rounded-md border border-[#272a34]">
+                    <button
+                      onClick={() => setShowWireframe(false)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition ${
+                        !showWireframe ? 'bg-sky-600 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Solid
+                    </button>
+                    <button
+                      onClick={() => setShowWireframe(true)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition ${
+                        showWireframe ? 'bg-sky-600 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Wireframe
+                    </button>
+                  </div>
+                </div>
+
+                {/* PBR Material Texture Finish */}
+                <div className="flex flex-col gap-1.5 px-2.5 py-2 rounded-lg text-xs bg-[#14161b] border border-[#272a34]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-200 font-medium">PBR Material Realism</span>
+                    <span className="text-[10px] text-sky-400 font-mono">
+                      {resolvePbrFinish(customDensity || selectedMaterial.density, selectedMaterial, pbrFinishMode).type.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1 bg-[#181a20] p-0.5 rounded-md border border-[#272a34]">
+                    {(['auto', 'metallic', 'plastic', 'matte'] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => setPbrFinishMode(mode)}
+                        className={`px-1 py-1 rounded text-[10px] capitalize font-medium transition ${
+                          pbrFinishMode === mode
+                            ? 'bg-sky-600 text-white shadow-sm'
+                            : 'text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-[10px] text-zinc-400 leading-tight">
+                    <span className="text-zinc-200 font-medium">
+                      {resolvePbrFinish(customDensity || selectedMaterial.density, selectedMaterial, pbrFinishMode).label}:
+                    </span>{' '}
+                    {resolvePbrFinish(customDensity || selectedMaterial.density, selectedMaterial, pbrFinishMode).description}
+                  </div>
+                </div>
+
+                {/* 3D Floor Grid */}
+                <button
+                  onClick={() => setShowGrid((v) => !v)}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs hover:bg-[#14161b] transition text-zinc-200"
+                >
+                  <div className="flex items-center gap-2">
+                    <Grid className="w-3.5 h-3.5 text-sky-400" />
+                    <span>3D Ground Grid</span>
+                  </div>
+                  <span className={`w-2 h-2 rounded-full ${showGrid ? 'bg-sky-400 shadow-sm shadow-sky-400' : 'bg-zinc-700'}`} />
+                </button>
+
+                {/* Part Bounding Boxes */}
+                <button
+                  onClick={() => setShowBounds((v) => !v)}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs hover:bg-[#14161b] transition text-zinc-200"
+                >
+                  <div className="flex items-center gap-2">
+                    <Box className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Bounding Boxes</span>
+                  </div>
+                  <span className={`w-2 h-2 rounded-full ${showBounds ? 'bg-amber-400 shadow-sm shadow-amber-400' : 'bg-zinc-700'}`} />
+                </button>
+
+                {/* Center of Mass Reticle */}
+                <button
+                  onClick={() => setShowCenterOfMass((v) => !v)}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs hover:bg-[#14161b] transition text-zinc-200"
+                >
+                  <div className="flex items-center gap-2">
+                    <Target className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Center of Mass Reticle</span>
+                  </div>
+                  <span className={`w-2 h-2 rounded-full ${showCenterOfMass ? 'bg-amber-400 shadow-sm shadow-amber-400' : 'bg-zinc-700'}`} />
+                </button>
+
+                {/* Show Annotations */}
+                <button
+                  onClick={() => setShowAnnotations((v) => !v)}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs hover:bg-[#14161b] transition text-zinc-200"
+                >
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>3D Annotation Pins</span>
+                  </div>
+                  <span className={`w-2 h-2 rounded-full ${showAnnotations ? 'bg-emerald-400 shadow-sm shadow-emerald-400' : 'bg-zinc-700'}`} />
+                </button>
+
+                {/* Snap to Vertex */}
+                <button
+                  onClick={() => setSnapToVertex((v) => !v)}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs hover:bg-[#14161b] transition text-zinc-200"
+                >
+                  <div className="flex items-center gap-2">
+                    <Workflow className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Snap Pins to Vertices</span>
+                  </div>
+                  <span className={`w-2 h-2 rounded-full ${snapToVertex ? 'bg-indigo-400 shadow-sm shadow-indigo-400' : 'bg-zinc-700'}`} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Quick Annotate Toggle Button */}
+          <button
+            onClick={() => setIsAnnotating((v) => !v)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
+              isAnnotating
+                ? 'bg-emerald-600 text-slate-950 font-bold border-emerald-500 shadow-sm shadow-emerald-500/20'
+                : 'bg-[#14161b] border-[#272a34] text-zinc-300 hover:text-white hover:bg-[#1e2028]'
+            }`}
+            title="Place 3D Inspection Pin on Geometry (Click surface to place, Esc to cancel)"
+          >
+            <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Annotate</span>
+            {annotations.length > 0 && (
+              <span className="text-[10px] bg-[#181a20] px-1.5 py-0.2 rounded-full font-mono text-emerald-300 border border-[#272a34]">
+                {annotations.length}
+              </span>
+            )}
+          </button>
+
+          {/* Cloud Vault Button */}
+          <button
+            onClick={() => setShowAuthDrawer(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#14161b] hover:bg-[#1e2028] text-emerald-300 border border-[#272a34] hover:border-emerald-700/50 transition shadow-sm"
+            title="Cloud CAD Vault"
+          >
+            <Bookmark className="w-3.5 h-3.5 text-emerald-400" />
+            <span>{user ? `Vault (${savedAssemblies.length})` : 'Vault'}</span>
+          </button>
+
           {/* Unified Export Split/Dropdown */}
           <div className="relative" ref={exportMenuRef}>
             <button
@@ -714,7 +882,7 @@ export const App: React.FC = () => {
             </button>
 
             {isExportMenuOpen && (
-              <div className="absolute right-0 mt-1.5 w-52 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl p-1.5 z-30 space-y-1 backdrop-blur-xl">
+              <div className="absolute right-0 mt-1.5 w-52 bg-[#181a20] border border-[#272a34] rounded-xl shadow-2xl p-1.5 z-30 space-y-1 backdrop-blur-xl">
                 <button
                   disabled={!execResult?.usda_mesh_text}
                   onClick={() => {
@@ -723,7 +891,7 @@ export const App: React.FC = () => {
                       setIsExportMenuOpen(false);
                     }
                   }}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-slate-200 hover:bg-slate-900 disabled:opacity-40 transition"
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-zinc-200 hover:bg-[#14161b] disabled:opacity-40 transition"
                 >
                   <span className="font-medium">OpenUSD Stage</span>
                   <span className="text-[10px] text-emerald-400 font-mono">.usda</span>
@@ -737,7 +905,7 @@ export const App: React.FC = () => {
                       setIsExportMenuOpen(false);
                     }
                   }}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-slate-200 hover:bg-slate-900 disabled:opacity-40 transition"
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-zinc-200 hover:bg-[#14161b] disabled:opacity-40 transition"
                 >
                   <span className="font-medium">NURBS B-Rep Stage</span>
                   <span className="text-[10px] text-indigo-400 font-mono">.brep.usda</span>
@@ -751,20 +919,20 @@ export const App: React.FC = () => {
                       setIsExportMenuOpen(false);
                     }
                   }}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-slate-200 hover:bg-slate-900 disabled:opacity-40 transition"
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-zinc-200 hover:bg-[#14161b] disabled:opacity-40 transition"
                 >
                   <span className="font-medium">3D Triangle Mesh</span>
                   <span className="text-[10px] text-amber-400 font-mono">.stl</span>
                 </button>
 
-                <div className="h-px bg-slate-800 my-1" />
+                <div className="h-px bg-[#272a34] my-1" />
 
                 <button
                   onClick={() => {
                     downloadFile(code, `${selectedPresetId}.py`);
                     setIsExportMenuOpen(false);
                   }}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-slate-200 hover:bg-slate-900 transition"
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-zinc-200 hover:bg-[#14161b] transition"
                 >
                   <span className="font-medium">Python B-Rep Script</span>
                   <span className="text-[10px] text-sky-400 font-mono">.py</span>
@@ -773,13 +941,29 @@ export const App: React.FC = () => {
             )}
           </div>
 
+          <div className="h-4 w-px bg-[#272a34] mx-0.5 hidden sm:block" />
+
+          {/* Right Sidebar Inspector Toggle */}
+          <button
+            onClick={() => setIsRightSidebarOpen((v) => !v)}
+            title={isRightSidebarOpen ? 'Collapse Inspector Dock' : 'Open Inspector Dock'}
+            className={`p-1.5 rounded-lg border text-xs font-medium transition flex items-center gap-1.5 ${
+              isRightSidebarOpen
+                ? 'bg-sky-950/60 border-sky-600/70 text-sky-300 shadow-sm'
+                : 'bg-[#14161b] border-[#272a34] text-zinc-400 hover:text-white hover:bg-[#1e2028]'
+            }`}
+          >
+            <PanelRight className="w-4 h-4" />
+            <span className="hidden xl:inline text-[11px]">Inspector</span>
+          </button>
+
           {/* Info Modal Trigger */}
           <button
             onClick={() => setShowAiStudioModal(true)}
-            title="Google AI Studio & Repository Info"
-            className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-400 hover:text-indigo-300 hover:border-indigo-700/50 transition"
+            title="ApexCAD Studio Architecture & Diagnostics"
+            className="p-1.5 rounded-lg border border-[#272a34] bg-[#14161b] text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition"
           >
-            <GitBranch className="w-4 h-4" />
+            <Info className="w-4 h-4" />
           </button>
         </div>
       </header>
@@ -788,22 +972,22 @@ export const App: React.FC = () => {
       <div className="flex-1 flex min-h-0 relative">
         {/* PROMPT WINDOW (Collapsible Sidebar) */}
         <div
-          className={`border-r border-slate-800/80 bg-slate-950/85 backdrop-blur-xl flex flex-col transition-all duration-300 ease-in-out z-10 ${
-            isPromptOpen ? 'w-96 min-w-[24rem]' : 'w-0 min-w-0 overflow-hidden border-none'
+          className={`border-r border-[#272a34] bg-[#181a20] flex flex-col transition-all duration-300 ease-in-out z-10 ${
+            isPromptOpen ? 'w-88 xl:w-96 min-w-[22rem]' : 'w-0 min-w-0 overflow-hidden border-none'
           }`}
         >
           {/* Prompt Header */}
-          <div className="px-4 py-3 border-b border-slate-800/80 bg-slate-900/40 space-y-2.5">
+          <div className="px-4 py-3 border-b border-[#272a34] bg-[#14161b] space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-200">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-200">
                   CAD Prompt Copilot
                 </span>
               </div>
               <button
                 onClick={() => setIsPromptOpen(false)}
-                className="text-slate-400 hover:text-slate-200 p-1 rounded hover:bg-slate-800 transition"
+                className="text-zinc-400 hover:text-zinc-200 p-1 rounded hover:bg-[#1e2028] transition"
                 title="Collapse Prompt Window"
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -811,7 +995,7 @@ export const App: React.FC = () => {
             </div>
 
             {/* AI Model Selector */}
-            <div className="flex items-center gap-1.5 bg-slate-950/80 border border-slate-800/80 rounded-lg px-2.5 py-1.5 text-xs">
+            <div className="flex items-center gap-1.5 bg-[#181a20] border border-[#272a34] rounded-lg px-2.5 py-1.5 text-xs">
               <Cpu className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
               <select
                 aria-label="Select AI Model"
@@ -824,44 +1008,44 @@ export const App: React.FC = () => {
                     setSelectedHarness(opt.recommendedHarness);
                   }
                 }}
-                className="bg-transparent font-medium text-slate-100 focus:outline-none cursor-pointer text-xs w-full truncate"
+                className="bg-transparent font-medium text-zinc-100 focus:outline-none cursor-pointer text-xs w-full truncate"
               >
-                <optgroup label="Google (Gemini)" className="bg-slate-900 text-slate-300 font-semibold">
+                <optgroup label="Google (Gemini)" className="bg-[#181a20] text-zinc-300 font-semibold">
                   {AI_MODEL_OPTIONS.filter((m) => m.provider === 'Google').map((m) => (
-                    <option key={m.id} value={m.id} className="bg-slate-900 text-slate-100 font-normal">
+                    <option key={m.id} value={m.id} className="bg-[#181a20] text-zinc-100 font-normal">
                       {m.name}
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="Hugging Face Hub (Active & Local)" className="bg-slate-900 text-amber-300 font-semibold">
+                <optgroup label="Hugging Face Hub (Active & Local)" className="bg-[#181a20] text-amber-300 font-semibold">
                   {!AI_MODEL_OPTIONS.some((m) => m.id === selectedModel) && (
-                    <option value={selectedModel} className="bg-slate-900 text-amber-200 font-medium">
+                    <option value={selectedModel} className="bg-[#181a20] text-amber-200 font-medium">
                       {selectedModel.split('/').pop() || selectedModel} (Hub Loaded)
                     </option>
                   )}
                   {AI_MODEL_OPTIONS.filter((m) => m.provider === 'Hugging Face Hub (Local)').map((m) => (
-                    <option key={m.id} value={m.id} className="bg-slate-900 text-slate-100 font-normal">
+                    <option key={m.id} value={m.id} className="bg-[#181a20] text-zinc-100 font-normal">
                       {m.name}
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="Anthropic (Agnostic)" className="bg-slate-900 text-slate-300 font-semibold">
+                <optgroup label="Anthropic (Agnostic)" className="bg-[#181a20] text-zinc-300 font-semibold">
                   {AI_MODEL_OPTIONS.filter((m) => m.provider === 'Anthropic').map((m) => (
-                    <option key={m.id} value={m.id} className="bg-slate-900 text-slate-100 font-normal">
+                    <option key={m.id} value={m.id} className="bg-[#181a20] text-zinc-100 font-normal">
                       {m.name}
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="OpenAI (Agnostic)" className="bg-slate-900 text-slate-300 font-semibold">
+                <optgroup label="OpenAI (Agnostic)" className="bg-[#181a20] text-zinc-300 font-semibold">
                   {AI_MODEL_OPTIONS.filter((m) => m.provider === 'OpenAI').map((m) => (
-                    <option key={m.id} value={m.id} className="bg-slate-900 text-slate-100 font-normal">
+                    <option key={m.id} value={m.id} className="bg-[#181a20] text-zinc-100 font-normal">
                       {m.name}
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="AMD ROCm / Open-Weights" className="bg-slate-900 text-slate-300 font-semibold">
+                <optgroup label="AMD ROCm / Open-Weights" className="bg-[#181a20] text-zinc-300 font-semibold">
                   {AI_MODEL_OPTIONS.filter((m) => m.provider === 'AMD ROCm / Open-Weights').map((m) => (
-                    <option key={m.id} value={m.id} className="bg-slate-900 text-slate-100 font-normal">
+                    <option key={m.id} value={m.id} className="bg-[#181a20] text-zinc-100 font-normal">
                       {m.name}
                     </option>
                   ))}
@@ -873,7 +1057,7 @@ export const App: React.FC = () => {
             <div className="flex items-center gap-1.5">
               <button
                 onClick={() => setShowHarnessModal(true)}
-                className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-slate-300 hover:text-white bg-slate-950/80 hover:bg-slate-900 border border-slate-800 text-[11px] transition"
+                className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-zinc-300 hover:text-white bg-[#181a20] hover:bg-[#1e2028] border border-[#272a34] text-[11px] transition"
                 title="Configure AI Harness & Hardware Estimator"
               >
                 <Sliders className="w-3 h-3 text-amber-400" />
@@ -899,16 +1083,16 @@ export const App: React.FC = () => {
                 className={`rounded-xl p-3 border leading-relaxed ${
                   m.role === 'user'
                     ? 'bg-sky-950/40 border-sky-800/50 text-sky-100 ml-6'
-                    : 'bg-slate-900/90 border-slate-800/90 text-slate-200 mr-2'
+                    : 'bg-[#14161b] border-[#272a34] text-zinc-200 mr-2'
                 }`}
               >
-                <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1.5">
+                <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-1.5">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold uppercase tracking-wider">
                       {m.role === 'user' ? 'Prompt' : 'Agent Response'}
                     </span>
                     {m.harnessUsed && (
-                      <span className="px-1.5 py-0.2 rounded bg-slate-800 text-sky-300 font-mono text-[9px]">
+                      <span className="px-1.5 py-0.2 rounded bg-[#181a20] text-sky-300 font-mono text-[9px] border border-[#272a34]">
                         {m.harnessUsed}
                       </span>
                     )}
@@ -919,7 +1103,7 @@ export const App: React.FC = () => {
 
                 {/* Autonomous Verification Trace Pill */}
                 {m.steps && m.steps.length > 0 && (
-                  <div className="mt-2.5 pt-2 border-t border-slate-800/80 space-y-1.5">
+                  <div className="mt-2.5 pt-2 border-t border-[#272a34] space-y-1.5">
                     {m.steps.map((s) => (
                       <div key={s.attempt} className="space-y-1">
                         <div
@@ -942,11 +1126,11 @@ export const App: React.FC = () => {
                             {s.toolCalls.map((tc, idx) => (
                               <div
                                 key={idx}
-                                className="text-[10px] p-1 rounded bg-slate-950 border border-slate-800 flex items-center gap-1.5 text-slate-300"
+                                className="text-[10px] p-1 rounded bg-[#181a20] border border-[#272a34] flex items-center gap-1.5 text-zinc-300"
                               >
                                 <Wrench className="w-3 h-3 text-sky-400 shrink-0" />
                                 <span className="font-mono text-sky-300">{tc.toolName}</span>
-                                <span className="text-slate-500">→</span>
+                                <span className="text-zinc-600">→</span>
                                 <span className="text-emerald-400 truncate">{tc.outputSummary}</span>
                               </div>
                             ))}
@@ -961,13 +1145,13 @@ export const App: React.FC = () => {
           </div>
 
           {/* Quick Prompt Suggestions */}
-          <div className="px-3 py-2 border-t border-slate-900 bg-slate-950/60 flex gap-1.5 overflow-x-auto no-scrollbar">
+          <div className="px-3 py-2 border-t border-[#272a34] bg-[#14161b] flex gap-1.5 overflow-x-auto no-scrollbar">
             {QUICK_PROMPTS.map((qp, i) => (
               <button
                 key={i}
                 onClick={() => handleSendAgentPrompt(qp)}
                 disabled={isAgentRunning}
-                className="shrink-0 text-[10px] bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800/80 rounded-full px-2.5 py-1 transition"
+                className="shrink-0 text-[10px] bg-[#181a20] hover:bg-[#1e2028] text-zinc-300 border border-[#272a34] rounded-full px-2.5 py-1 transition"
               >
                 {qp}
               </button>
@@ -975,14 +1159,14 @@ export const App: React.FC = () => {
           </div>
 
           {/* Prompt Input Box */}
-          <div className="p-3 border-t border-slate-800/80 bg-slate-950 flex items-center gap-2">
+          <div className="p-3 border-t border-[#272a34] bg-[#14161b] flex items-center gap-2">
             <input
               type="text"
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSendAgentPrompt()}
               placeholder="Describe CAD geometry or modifications..."
-              className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
+              className="flex-1 bg-[#181a20] border border-[#272a34] rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition"
             />
             <button
               onClick={() => handleSendAgentPrompt()}
@@ -999,81 +1183,34 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Toggle Button to re-open Prompt Window if collapsed */}
-        {!isPromptOpen && (
-          <button
-            onClick={() => setIsPromptOpen(true)}
-            className="absolute top-4 left-4 z-20 bg-slate-900/90 border border-slate-800 text-slate-300 hover:text-white px-2.5 py-2 rounded-lg shadow-xl backdrop-blur-md flex items-center gap-1.5 text-xs font-medium transition"
-          >
-            <ChevronRight className="w-4 h-4 text-emerald-400" />
-            <span>Open Prompt Window</span>
-          </button>
-        )}
-
         {/* THE ACTUAL DESIGN (Interactive 3D Viewport) */}
-        <div className="flex-1 relative min-h-0 bg-[#06080d]">
-          {/* Floating HUD Controls inside the 3D Canvas */}
-          <div className="absolute top-4 right-4 z-10 flex items-center gap-2 pointer-events-none">
-            {/* Viewport Toggles (Wireframe, Bounds, CoM, Grid, Annotate) */}
-            <div className="pointer-events-auto flex items-center gap-1 bg-slate-900/90 border border-slate-800/80 rounded-lg p-1 shadow-lg backdrop-blur-md">
-              <button
-                onClick={() => setShowWireframe((v) => !v)}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition ${
-                  showWireframe ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-slate-800'
-                }`}
-              >
-                Wireframe
-              </button>
-              <button
-                onClick={() => setShowBounds((v) => !v)}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition ${
-                  showBounds ? 'bg-amber-600 text-white' : 'text-slate-300 hover:bg-slate-800'
-                }`}
-                title="Toggle Bounding Boxes"
-              >
-                Bounds
-              </button>
-              <button
-                onClick={() => setShowCenterOfMass((v) => !v)}
-                className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1 transition ${
-                  showCenterOfMass ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'text-slate-400 hover:bg-slate-800'
-                }`}
-                title="Toggle 3D Center of Mass Reticle"
-              >
-                <Target className="w-3.5 h-3.5 text-amber-400" />
-                <span>CoM</span>
-              </button>
-              <button
-                onClick={() => setShowGrid((v) => !v)}
-                className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1 transition ${
-                  showGrid ? 'bg-slate-800 text-sky-400' : 'text-slate-400 hover:bg-slate-800'
-                }`}
-              >
-                <Grid className="w-3.5 h-3.5" />
-                <span>Grid</span>
-              </button>
-              {/* Annotate Button Toggle */}
-              <button
-                onClick={() => setIsAnnotating((v) => !v)}
-                className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition ${
-                  isAnnotating
-                    ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/30 animate-pulse'
-                    : showAnnotations
-                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30'
-                    : 'text-slate-400 hover:bg-slate-800'
-                }`}
-                title="Toggle 3D Annotation Placement Mode"
-              >
-                <MapPin className="w-3.5 h-3.5 text-sky-400" />
-                <span>Annotate</span>
-                {annotations.length > 0 && (
-                  <span className="text-[10px] bg-slate-950/80 px-1.5 py-0.2 rounded-full font-mono text-sky-300">
-                    {annotations.length}
-                  </span>
-                )}
-              </button>
-            </div>
-          </div>
+        <div className="flex-1 relative min-h-0 bg-[#121316]">
+          {/* Re-open Prompt Copilot Toggle (Visible when copilot is collapsed) */}
+          {!isPromptOpen && (
+            <button
+              onClick={() => setIsPromptOpen(true)}
+              className="absolute top-4 left-4 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#181a20]/90 hover:bg-[#1e2028] border border-[#272a34] text-zinc-200 text-xs font-medium shadow-xl backdrop-blur-md transition group"
+              title="Open CAD Prompt Copilot"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400 group-hover:rotate-12 transition-transform" />
+              <span>Copilot</span>
+            </button>
+          )}
+
+          {/* Re-open Inspector Dock Toggle (Visible when inspector is collapsed) */}
+          {!isRightSidebarOpen && (
+            <button
+              onClick={() => setIsRightSidebarOpen(true)}
+              className="absolute top-4 right-4 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#181a20]/90 hover:bg-[#1e2028] border border-[#272a34] text-zinc-200 text-xs font-medium shadow-xl backdrop-blur-md transition group"
+              title="Open Inspector Dock"
+            >
+              <PanelRight className="w-3.5 h-3.5 text-sky-400" />
+              <span>Inspector</span>
+              <span className="text-[10px] bg-[#14161b] text-zinc-400 px-1.5 py-0.2 rounded-full font-mono border border-[#272a34]">
+                {parts.length}
+              </span>
+            </button>
+          )}
 
           {/* Active 3D Annotation Mode Instruction Banner */}
           {isAnnotating && (
@@ -1133,222 +1270,11 @@ export const App: React.FC = () => {
               </div>
             )}
 
-          {/* Floating Tabbed Engineering Inspector Card */}
-          <div className="absolute top-14 right-4 z-10 pointer-events-auto flex flex-col items-end gap-2 max-h-[calc(100vh-140px)]">
-            {/* Tab Navigation Switcher Bar */}
-            <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-800/80 rounded-xl p-1 shadow-lg backdrop-blur-md text-xs">
-              <button
-                onClick={() => {
-                  setActiveInspectorTab('parts');
-                  setIsInspectorCollapsed(false);
-                }}
-                className={`px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition ${
-                  activeInspectorTab === 'parts' && !isInspectorCollapsed
-                    ? 'bg-sky-600 text-white shadow-sm'
-                    : 'text-slate-300 hover:bg-slate-800'
-                }`}
-                title="Assembly Parts Tree & Diagnostics"
-              >
-                <Box className="w-3.5 h-3.5" />
-                <span>Parts</span>
-                <span className="text-[10px] bg-slate-950/80 px-1.5 py-0.2 rounded-full font-mono">
-                  {parts.length}
-                </span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setActiveInspectorTab('mass');
-                  setIsInspectorCollapsed(false);
-                }}
-                className={`px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition ${
-                  activeInspectorTab === 'mass' && !isInspectorCollapsed
-                    ? 'bg-amber-600 text-white shadow-sm'
-                    : 'text-slate-300 hover:bg-slate-800'
-                }`}
-                title="Mass & Material Properties"
-              >
-                <Scale className="w-3.5 h-3.5" />
-                <span>Mass</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setActiveInspectorTab('annotations');
-                  setIsInspectorCollapsed(false);
-                }}
-                className={`px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition ${
-                  activeInspectorTab === 'annotations' && !isInspectorCollapsed
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-300 hover:bg-slate-800'
-                }`}
-                title="3D Inspection Pins & Annotations"
-              >
-                <MapPin className="w-3.5 h-3.5" />
-                <span>Pins</span>
-                {annotations.length > 0 && (
-                  <span className="text-[10px] bg-slate-950/80 px-1.5 py-0.2 rounded-full font-mono text-emerald-300">
-                    {annotations.length}
-                  </span>
-                )}
-              </button>
-
-              <div className="h-4 w-px bg-slate-800 mx-0.5" />
-
-              <button
-                onClick={() => setIsInspectorCollapsed((v) => !v)}
-                className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
-                title={isInspectorCollapsed ? 'Expand Inspector' : 'Collapse Inspector'}
-              >
-                {isInspectorCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-
-            {/* Active Inspector Card Content */}
-            {!isInspectorCollapsed && (
-              <div className="overflow-y-auto max-h-[calc(100vh-200px)] pr-0.5">
-                {activeInspectorTab === 'parts' && (
-                  <div className="bg-slate-900/95 border border-slate-800/90 rounded-xl shadow-2xl backdrop-blur-md overflow-hidden text-xs w-80 font-sans transition-all">
-                    <div className="px-3.5 py-2.5 bg-slate-950/70 border-b border-slate-800/80 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Box className="w-4 h-4 text-sky-400" />
-                        <span className="text-white font-semibold">Assembly Parts Tree</span>
-                        <span className="px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] font-mono text-sky-300">
-                          {parts.length}
-                        </span>
-                      </div>
-                      {hiddenPartNames.length > 0 && (
-                        <button
-                          onClick={handleShowAllParts}
-                          className="text-[10px] text-sky-400 hover:text-sky-300 underline font-medium"
-                        >
-                          Show All ({hiddenPartNames.length})
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="p-2 space-y-1.5 max-h-[calc(100vh-270px)] overflow-y-auto">
-                      {parts.length === 0 ? (
-                        <div className="text-center py-6 text-slate-500 text-xs">
-                          No CAD parts in assembly. Run script to synthesize.
-                        </div>
-                      ) : (
-                        parts.map((p) => {
-                          const isSelected = selectedPartName === p.name;
-                          const isHidden = hiddenPartNames.includes(p.name);
-                          const [r, g, b] = p.color || [0.35, 0.65, 0.95];
-                          return (
-                            <div
-                              key={p.name}
-                              onClick={() => setSelectedPartName(isSelected ? null : p.name)}
-                              className={`flex items-center justify-between p-2 rounded-lg border text-xs transition cursor-pointer ${
-                                isSelected
-                                  ? 'bg-sky-950/70 border-sky-500/80 text-white shadow-sm'
-                                  : isHidden
-                                  ? 'bg-slate-950/40 border-slate-800/30 text-slate-500 opacity-60'
-                                  : 'bg-slate-950/70 hover:bg-slate-900 border-slate-800/70 text-slate-200'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 min-w-0 pr-2">
-                                <div
-                                  className="w-3 h-3 rounded-full shrink-0 border border-slate-700 shadow-sm"
-                                  style={{
-                                    backgroundColor: `rgb(${Math.round(r * 255)}, ${Math.round(
-                                      g * 255
-                                    )}, ${Math.round(b * 255)})`,
-                                  }}
-                                />
-                                <div className="truncate">
-                                  <div className="font-mono font-medium truncate">/{p.name}</div>
-                                  <div className="text-[10px] text-slate-400 truncate">
-                                    {p.diagnostics.volume.toFixed(1)} cm³ • {p.mesh.points.length} pts
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                <span
-                                  className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
-                                    p.diagnostics.manifold
-                                      ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/50'
-                                      : 'bg-amber-950/80 text-amber-400 border border-amber-800/50'
-                                  }`}
-                                >
-                                  {p.diagnostics.manifold ? 'Solid' : 'Open'}
-                                </span>
-                                <button
-                                  onClick={() => handleTogglePartVisibility(p.name)}
-                                  className={`p-1 rounded hover:bg-slate-800 transition ${
-                                    isHidden ? 'text-slate-500' : 'text-slate-300'
-                                  }`}
-                                  title={isHidden ? 'Show Part' : 'Hide Part'}
-                                >
-                                  {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-
-                    {execResult?.summary && (
-                      <div className="px-3 py-2 bg-slate-950/90 border-t border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between">
-                        <span className="flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>
-                            {execResult.summary.all_manifold
-                              ? 'Watertight Solid Assembly'
-                              : 'Open Surfaces Detected'}
-                          </span>
-                        </span>
-                        <span className="font-mono text-slate-300">
-                          {execResult.summary.total_mesh_triangles} tris
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {activeInspectorTab === 'mass' && (
-                  <MassPropertiesPanel
-                    massProps={massProps}
-                    selectedMaterial={selectedMaterial}
-                    customDensity={customDensity}
-                    onSelectMaterial={setSelectedMaterial}
-                    onSetCustomDensity={setCustomDensity}
-                    showCenterOfMass={showCenterOfMass}
-                    onToggleCenterOfMass={setShowCenterOfMass}
-                  />
-                )}
-
-                {activeInspectorTab === 'annotations' && (
-                  <AnnotationsPanel
-                    annotations={annotations}
-                    selectedPartName={selectedPartName}
-                    selectedAnnotationId={selectedAnnotationId}
-                    onSelectAnnotation={setSelectedAnnotationId}
-                    onFocusAnnotation={handleFocusAnnotation}
-                    onEditAnnotation={handleEditAnnotation}
-                    onDeleteAnnotation={handleDeleteAnnotation}
-                    onToggleResolved={handleToggleResolved}
-                    isAnnotating={isAnnotating}
-                    onToggleAnnotating={() => setIsAnnotating((v) => !v)}
-                    snapToVertex={snapToVertex}
-                    onToggleSnapToVertex={() => setSnapToVertex((v) => !v)}
-                    showAnnotations={showAnnotations}
-                    onToggleShowAnnotations={() => setShowAnnotations((v) => !v)}
-                    assetName={selectedPresetId || 'CadAssembly'}
-                  />
-                )}
-              </div>
-            )}
-          </div>
-
           {/* Selected Part Pill (when clicked in 3D viewport) */}
           {selectedPart && (
-            <div className="absolute bottom-24 left-4 z-20 bg-slate-900/95 border border-slate-700/80 rounded-xl px-3.5 py-2 shadow-2xl backdrop-blur-md flex items-center gap-3 text-xs">
+            <div className="absolute bottom-6 left-4 z-20 bg-[#181a20]/95 border border-[#272a34] rounded-xl px-3.5 py-2 shadow-2xl backdrop-blur-md flex items-center gap-3 text-xs">
               <div
-                className="w-3 h-3 rounded-full"
+                className="w-3 h-3 rounded-full shrink-0 border border-zinc-700"
                 style={{
                   backgroundColor: `rgb(${Math.round(selectedPart.color[0] * 255)}, ${Math.round(
                     selectedPart.color[1] * 255
@@ -1357,13 +1283,13 @@ export const App: React.FC = () => {
               />
               <div>
                 <span className="font-mono font-semibold text-white">/{selectedPart.name}</span>
-                <span className="text-slate-400 ml-2">
+                <span className="text-zinc-400 ml-2">
                   Vol: {selectedPart.diagnostics.volume.toFixed(1)} cm³ • {selectedPart.diagnostics.manifold ? 'Watertight Solid' : 'Open'}
                 </span>
               </div>
               <button
                 onClick={() => setSelectedPartName(null)}
-                className="text-slate-400 hover:text-white ml-1"
+                className="text-zinc-400 hover:text-white ml-1"
               >
                 ✕
               </button>
@@ -1388,6 +1314,9 @@ export const App: React.FC = () => {
             explodeFactor={explodeFactor}
             partOffsets={partOffsets}
             hiddenPartNames={hiddenPartNames}
+            selectedMaterial={selectedMaterial}
+            customDensity={customDensity}
+            pbrFinishMode={pbrFinishMode}
             annotations={annotations}
             selectedAnnotationId={selectedAnnotationId}
             onSelectAnnotation={setSelectedAnnotationId}
@@ -1400,34 +1329,250 @@ export const App: React.FC = () => {
             onRequestPlaceAnnotation={handleRequestPlaceAnnotation}
             focusAnnotationTrigger={focusAnnotationTrigger}
           />
-
-          {/* Interactive Assembly Explosion Stages Timeline Dock (pointer-events-none on outer wrapper prevents wide hit-testing blocking 3D viewport) */}
-          <div
-            className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex justify-center ${
-              isTimelineCollapsed ? 'w-auto' : 'w-[94%] max-w-2xl'
-            }`}
-          >
-            <ExplosionTimeline
-              stages={currentExplosionStages}
-              partNames={currentPartNames}
-              onOffsetsChange={handleOffsetsChange}
-              explodeFactor={explodeFactor}
-              onExplodeFactorChange={setExplodeFactor}
-              isCollapsed={isTimelineCollapsed}
-              onToggleCollapsed={() => setIsTimelineCollapsed((v) => !v)}
-            />
-          </div>
         </div>
+
+        {/* DOCKED RIGHT SIDEBAR (Engineering Inspector & Explosion Controls) */}
+        {isRightSidebarOpen && (
+          <aside className="w-80 xl:w-92 border-l border-[#272a34] bg-[#181a20] flex flex-col z-10 shrink-0 select-none">
+            {/* Right Sidebar Header: Tab Navigation Switcher & Collapse Button */}
+            <div className="px-3 py-2 border-b border-[#272a34] bg-[#14161b] flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-1 bg-[#181a20] border border-[#272a34] p-0.5 rounded-xl text-xs">
+                {/* Tab: Parts */}
+                <button
+                  onClick={() => setActiveRightTab('parts')}
+                  className={`px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition ${
+                    activeRightTab === 'parts'
+                      ? 'bg-sky-600 text-white shadow-sm'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1e2028]'
+                  }`}
+                  title="Assembly Parts Tree"
+                >
+                  <Box className="w-3.5 h-3.5" />
+                  <span>Parts</span>
+                  <span className="text-[10px] bg-[#14161b] px-1.5 py-0.2 rounded-full font-mono text-zinc-300 border border-[#272a34]">
+                    {parts.length}
+                  </span>
+                </button>
+
+                {/* Tab: Mass */}
+                <button
+                  onClick={() => setActiveRightTab('mass')}
+                  className={`px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition ${
+                    activeRightTab === 'mass'
+                      ? 'bg-amber-600 text-white shadow-sm'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1e2028]'
+                  }`}
+                  title="Mass & Material Properties"
+                >
+                  <Scale className="w-3.5 h-3.5" />
+                  <span>Mass</span>
+                </button>
+
+                {/* Tab: Pins */}
+                <button
+                  onClick={() => setActiveRightTab('annotations')}
+                  className={`px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition ${
+                    activeRightTab === 'annotations'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1e2028]'
+                  }`}
+                  title="3D Inspection Pins & Annotations"
+                >
+                  <MapPin className="w-3.5 h-3.5" />
+                  <span>Pins</span>
+                  {annotations.length > 0 && (
+                    <span className="text-[10px] bg-[#14161b] px-1.5 py-0.2 rounded-full font-mono text-emerald-300 border border-[#272a34]">
+                      {annotations.length}
+                    </span>
+                  )}
+                </button>
+
+                {/* Tab: Explosion */}
+                <button
+                  onClick={() => setActiveRightTab('explosion')}
+                  className={`px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition ${
+                    activeRightTab === 'explosion'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1e2028]'
+                  }`}
+                  title="Kinematic Explosion Timeline"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Explode</span>
+                </button>
+              </div>
+
+              {/* Collapse Right Sidebar Button */}
+              <button
+                onClick={() => setIsRightSidebarOpen(false)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-[#1e2028] transition"
+                title="Collapse Inspector Dock"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Right Sidebar Body Content */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              {activeRightTab === 'parts' && (
+                <div className="bg-[#14161b] border border-[#272a34] rounded-xl overflow-hidden text-xs">
+                  <div className="px-3.5 py-2.5 bg-[#181a20] border-b border-[#272a34] flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Box className="w-4 h-4 text-sky-400" />
+                      <span className="text-zinc-100 font-semibold">Assembly Parts Tree</span>
+                      <span className="px-1.5 py-0.2 rounded-full bg-[#14161b] text-[10px] font-mono text-sky-300 border border-[#272a34]">
+                        {parts.length}
+                      </span>
+                    </div>
+                    {hiddenPartNames.length > 0 && (
+                      <button
+                        onClick={handleShowAllParts}
+                        className="text-[10px] text-sky-400 hover:text-sky-300 underline font-medium"
+                      >
+                        Show All ({hiddenPartNames.length})
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="p-2 space-y-1.5 max-h-[calc(100vh-280px)] overflow-y-auto">
+                    {parts.length === 0 ? (
+                      <div className="text-center py-8 text-zinc-500 text-xs">
+                        No CAD parts in assembly. Run script to synthesize.
+                      </div>
+                    ) : (
+                      parts.map((p) => {
+                        const isSelected = selectedPartName === p.name;
+                        const isHidden = hiddenPartNames.includes(p.name);
+                        const [r, g, b] = p.color || [0.35, 0.65, 0.95];
+                        return (
+                          <div
+                            key={p.name}
+                            onClick={() => setSelectedPartName(isSelected ? null : p.name)}
+                            className={`flex items-center justify-between p-2 rounded-lg border text-xs transition cursor-pointer ${
+                              isSelected
+                                ? 'bg-sky-950/70 border-sky-500/80 text-white shadow-sm'
+                                : isHidden
+                                ? 'bg-[#181a20]/40 border-[#272a34]/40 text-zinc-600 opacity-60'
+                                : 'bg-[#181a20] hover:bg-[#1e2028] border-[#272a34] text-zinc-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0 pr-2">
+                              <div
+                                className="w-3 h-3 rounded-full shrink-0 border border-zinc-700 shadow-sm"
+                                style={{
+                                  backgroundColor: `rgb(${Math.round(r * 255)}, ${Math.round(
+                                    g * 255
+                                  )}, ${Math.round(b * 255)})`,
+                                }}
+                              />
+                              <div className="truncate">
+                                <div className="font-mono font-medium truncate">/{p.name}</div>
+                                <div className="text-[10px] text-zinc-400 truncate">
+                                  {p.diagnostics.volume.toFixed(1)} cm³ • {p.mesh.points.length} pts
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                              <span
+                                className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                                  p.diagnostics.manifold
+                                    ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/50'
+                                    : 'bg-amber-950/80 text-amber-400 border border-amber-800/50'
+                                }`}
+                              >
+                                {p.diagnostics.manifold ? 'Solid' : 'Open'}
+                              </span>
+                              <button
+                                onClick={() => handleTogglePartVisibility(p.name)}
+                                className={`p-1 rounded hover:bg-[#20232c] transition ${
+                                  isHidden ? 'text-zinc-600' : 'text-zinc-300'
+                                }`}
+                                title={isHidden ? 'Show Part' : 'Hide Part'}
+                              >
+                                {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {execResult?.summary && (
+                    <div className="px-3 py-2 bg-[#181a20] border-t border-[#272a34] text-[11px] text-zinc-400 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>
+                          {execResult.summary.all_manifold
+                            ? 'Watertight Solid Assembly'
+                            : 'Open Surfaces Detected'}
+                        </span>
+                      </span>
+                      <span className="font-mono text-zinc-300">
+                        {execResult.summary.total_mesh_triangles} tris
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeRightTab === 'mass' && (
+                <MassPropertiesPanel
+                  massProps={massProps}
+                  selectedMaterial={selectedMaterial}
+                  customDensity={customDensity}
+                  onSelectMaterial={setSelectedMaterial}
+                  onSetCustomDensity={setCustomDensity}
+                  showCenterOfMass={showCenterOfMass}
+                  onToggleCenterOfMass={setShowCenterOfMass}
+                />
+              )}
+
+              {activeRightTab === 'annotations' && (
+                <AnnotationsPanel
+                  annotations={annotations}
+                  selectedPartName={selectedPartName}
+                  selectedAnnotationId={selectedAnnotationId}
+                  onSelectAnnotation={setSelectedAnnotationId}
+                  onFocusAnnotation={handleFocusAnnotation}
+                  onEditAnnotation={handleEditAnnotation}
+                  onDeleteAnnotation={handleDeleteAnnotation}
+                  onToggleResolved={handleToggleResolved}
+                  isAnnotating={isAnnotating}
+                  onToggleAnnotating={() => setIsAnnotating((v) => !v)}
+                  snapToVertex={snapToVertex}
+                  onToggleSnapToVertex={() => setSnapToVertex((v) => !v)}
+                  showAnnotations={showAnnotations}
+                  onToggleShowAnnotations={() => setShowAnnotations((v) => !v)}
+                  assetName={selectedPresetId || 'CadAssembly'}
+                />
+              )}
+
+              {activeRightTab === 'explosion' && (
+                <div className="bg-[#14161b] border border-[#272a34] rounded-xl p-3 shadow-lg">
+                  <ExplosionTimeline
+                    stages={currentExplosionStages}
+                    partNames={currentPartNames}
+                    onOffsetsChange={handleOffsetsChange}
+                    explodeFactor={explodeFactor}
+                    onExplodeFactorChange={setExplodeFactor}
+                    isDocked={true}
+                  />
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
 
         {/* OPTIONAL DEVELOPER DRAWER (Code & OpenUSD Stage, closed by default) */}
         {showDevDrawer && (
-          <div className="w-[28rem] border-l border-slate-800 bg-slate-950 flex flex-col z-20 shadow-2xl">
-            <div className="px-3.5 py-2.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
-              <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+          <div className="w-[28rem] border-l border-[#272a34] bg-[#181a20] flex flex-col z-20 shadow-2xl">
+            <div className="px-3.5 py-2.5 border-b border-[#272a34] flex items-center justify-between bg-[#14161b]">
+              <div className="flex items-center gap-1 bg-[#181a20] p-0.5 rounded-lg border border-[#272a34]">
                 <button
                   onClick={() => setDevTab('code')}
                   className={`px-2 py-1 rounded text-xs font-medium transition ${
-                    devTab === 'code' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'
+                    devTab === 'code' ? 'bg-sky-600 text-white' : 'text-zinc-400 hover:text-white'
                   }`}
                 >
                   Python B-Rep
@@ -1475,24 +1620,24 @@ export const App: React.FC = () => {
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 spellCheck={false}
-                className="flex-1 w-full bg-[#05070c] text-emerald-300 font-mono text-xs p-3 leading-relaxed focus:outline-none resize-none"
+                className="flex-1 w-full bg-[#14161b] text-emerald-300 font-mono text-xs p-3 leading-relaxed focus:outline-none resize-none"
               />
             ) : devTab === 'usd' ? (
-              <pre className="flex-1 overflow-auto p-3 text-xs font-mono text-slate-300 bg-[#05070c] leading-relaxed select-all">
+              <pre className="flex-1 overflow-auto p-3 text-xs font-mono text-zinc-300 bg-[#14161b] leading-relaxed select-all">
                 {execResult?.usda_mesh_text || '# Execute script to view OpenUSD stage'}
               </pre>
             ) : (
               /* NVIDIA usd-brep API Guide Explorer Tab */
-              <div className="flex-1 flex flex-col min-h-0 bg-[#05070c]">
+              <div className="flex-1 flex flex-col min-h-0 bg-[#14161b]">
                 {/* Search Bar */}
-                <div className="p-2 border-b border-slate-800 bg-slate-900/30 flex items-center gap-2">
-                  <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <div className="p-2 border-b border-[#272a34] bg-[#181a20] flex items-center gap-2">
+                  <Search className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
                   <input
                     type="text"
                     placeholder="Search 36 NVIDIA guides, skills, stubs..."
                     value={guideSearch}
                     onChange={(e) => setGuideSearch(e.target.value)}
-                    className="bg-transparent text-xs text-slate-200 placeholder-slate-500 w-full focus:outline-none"
+                    className="bg-transparent text-xs text-zinc-200 placeholder-zinc-500 w-full focus:outline-none"
                   />
                   {guideSearch && (
                     <button
@@ -1613,37 +1758,40 @@ export const App: React.FC = () => {
         onSave={handleSaveAnnotation}
       />
 
-      {/* Modal: Google AI Studio Details */}
+      {/* Modal: ApexCAD Studio Architecture */}
       {showAiStudioModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-5 shadow-2xl">
+          <div className="bg-[#181a20] border border-[#272a34] rounded-2xl max-w-lg w-full p-5 shadow-2xl">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <GitBranch className="w-4 h-4 text-indigo-400" />
-                <span>NVIDIA usd-brep Agentic CAD Studio</span>
+                <Box className="w-4 h-4 text-emerald-400" />
+                <span>ApexCAD Studio Architecture &amp; Diagnostics</span>
               </h3>
               <button
                 onClick={() => setShowAiStudioModal(false)}
-                className="text-slate-400 hover:text-white text-xs"
+                className="text-zinc-400 hover:text-white text-xs"
               >
                 ✕
               </button>
             </div>
-            <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
+            <div className="space-y-3 text-xs text-zinc-300 leading-relaxed">
               <p>
-                Agentic B-Rep CAD Studio powered by NVIDIA usd-brep (SMLib / OpenUSD) and Gemini 3.8 Flash.
+                ApexCAD Studio is an accelerated Generative B-Rep CAD and Silicon EDA engineering platform powered by NVIDIA usd-brep (OpenUSD / SMLib) and multi-harness reasoning intelligence.
               </p>
-              <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 space-y-1 font-mono text-[11px]">
-                <div className="text-indigo-300 font-semibold">Repository:</div>
+              <div className="bg-[#14161b] border border-[#272a34] rounded-lg p-3 space-y-1 font-mono text-[11px]">
+                <div className="text-sky-300 font-semibold">Engine Core:</div>
                 <div className="text-emerald-400 select-all">
-                  jimmyjdejesus-cmyk/agentic-cad-usd-brep
+                  NVIDIA usd-brep 1.0.0 • OpenUSD 24.08 • Accelerated Kernel
+                </div>
+                <div className="text-zinc-500 text-[10px] pt-1">
+                  Repository: jimmyjdejesus-cmyk/agentic-cad-usd-brep
                 </div>
               </div>
             </div>
             <div className="flex justify-end mt-4">
               <button
                 onClick={() => setShowAiStudioModal(false)}
-                className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs"
+                className="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs"
               >
                 Done
               </button>
@@ -1670,7 +1818,7 @@ export const App: React.FC = () => {
         currentCode={code}
       />
 
-      {/* Modal: OpenFlow-AI AMD ROCm Silicon EDA Studio */}
+      {/* Modal: ApexCAD Studio AMD ROCm Silicon EDA Studio */}
       <AmdEdaSiliconStudio
         isOpen={showAmdEdaStudio}
         onClose={() => setShowAmdEdaStudio(false)}

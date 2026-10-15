@@ -1,119 +1,134 @@
-# Dynamic Hugging Face Hub Integration with Cognitive Architecture Filtering & Hardware Profiling
+# ApexCAD Studio GUI Organization & Docked Workspace Architecture
 
-A universal, unconstrained connection to the Hugging Face Hub allowing engineers to search, inspect, and select any model across the open-source ecosystem—including uncensored/abliterated weights, deep reasoning models, and spatial world models—with real-time resource profiling and in-app CAD/EDA toolset execution.
+A comprehensive overhaul of the workspace layout, docking all previously floating elements into structured, collapsible panels, adopting an eye-friendly neutral charcoal zinc dark aesthetic, organizing the top toolbar into balanced functional zones, and rebranding to ApexCAD Studio with zero remaining third-party platform references.
 
----
-
-### User Confirmed Decisions & Architectural Directives
+## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The implementation incorporates the user's explicit answers and requirements:
-> - **Direct Hugging Face Hub Connection**: Dynamic live search directly querying the Hugging Face API (`https://huggingface.co/api/models`), plus support for manual repo ID entry (e.g., `failspy/Meta-Llama-3-8B-Instruct-abliterated-v3`, `cognitivecomputations/dolphin-2.9.2-qwen2-72b`, `facebook/ijepa`, `deepseek-ai/DeepSeek-R1`).
-> - **Hugging Face Token Support**: Persistent local storage of user HF tokens (`hf_...`) for authenticated access to gated repos, private models, and higher API rate limits.
-> - **Cognitive Architecture Filter Presets**:
->   1. **System 2 Deep Reasoning & Chain of Thought**: Tag/keyword filters for step-by-step thinking models (R1, QwQ, Marco-o1, Sky-T1, reasoning).
->   2. **System 1 Fast Intuitive Reflex**: Ultra-low latency, instant generation models under 3B/7B (SmolLM, Llama-3.2-1B/3B, Qwen-2.5-0.5B/1.5B).
->   3. **Abliterated & Uncensored Open Weights**: Unaligned, refusal-removed, and bypass models (Dolphin, Abliterated, Tess, Nous Hermes DPO).
->   4. **JEPA & World Model Spatial Embeddings**: Latent predictive, joint-embedding predictive architecture, and 3D spatial models (I-JEPA, V-JEPA, world-models, spatial encoders).
-> - **Hermes-Style Resource Profiler**: Dynamic comparison of model requirements (RAM, VRAM, quantization overhead) against detected system resources (`navigator.hardwareConcurrency`, `navigator.deviceMemory`, WebGPU adapter) with immediate Fit status (`Optimal Fit`, `Partial Offload`, `OOM Risk`).
-> - **In-App Toolsets & Skills Guarantee**: Tool execution (NVIDIA B-Rep NURBS, Mass/Physics, Kinematics, EDA Silicon Placer) remains 100% inside the app environment regardless of the model chosen.
+> The following architectural and design choices were confirmed during Phase 1 clarification:
+
+- **Confirmed Docking Strategy**: All floating overlays (Explosion timeline, Part tree, Mass calculator, 3D Annotations) are consolidated into a dedicated, dockable **Multi-Panel Right Sidebar** with clean tabbed navigation (`[Parts]`, `[Mass]`, `[Pins]`, `[Explosion]`). The 3D viewport canvas remains 100% unobstructed.
+- **Confirmed Visual Aesthetic**: Neutral charcoal zinc (`#121316` canvas, `#181a20` structural panels, `#272a34` borders) with soft matte finish designed for long-session mechanical and silicon CAD engineering without eye fatigue. Harsh and saturated dark blues are eliminated.
+- **Confirmed Brand Identity**: Renamed to **ApexCAD Studio** across the entire UI, top bar, modals, and metadata. All legacy references to AI Studio and OpenFlow are completely eradicated.
+- **Top Toolbar & Left Sidebar Stacking**: The top bar is reorganized into three logical zones (Brand/Preset, Workspace Mode, and Display/Export/Vault). The left Prompt Copilot is neatly stacked with hierarchical model configuration, toolset access, chat history, and prompt drafting.
 
 ---
 
-### 1. Proposed Architecture & Data Flow
+## 1. Overview & Core Concept
+
+### What It Does
+ApexCAD Studio is a high-precision generative CAD and Silicon EDA engineering suite powered by NVIDIA usd-brep and accelerated B-Rep geometry solvers. This redesign eliminates all fragmented floating overlays and HUD collisions by transitioning to an industry-standard dual-sidebar CAD docking paradigm.
+
+### Target Persona
+Mechanical engineers, CAD modelers, and silicon packaging architects who require an expansive, unobstructed 3D modeling canvas paired with predictable, docked engineering inspection panels.
+
+### Key Value
+- **Zero Viewport Clutter**: No floating timeline bar blocking the bottom of the geometry, no floating badges drifting in the top-right corner.
+- **Docked Precision Sidebar**: Parts tree, mass calculations, 3D pins, and kinematic explosion controls now share a cohesive, collapsible right-hand drawer.
+- **Eye-Friendly Matte Neutral Theme**: Replaces eye-straining high-saturation blues with smooth charcoal zinc and legible typography.
+- **Clean Brand Autonomy**: Professional CAD branding without platform leaks.
+
+---
+
+## 2. User Experience & Visual Design
+
+### Key User Flows
+
+1. **Workspace Navigation & Header Organization**:
+   - **Zone 1 (Left - Project Context)**: ApexCAD Studio logo, NVIDIA usd-brep kernel active pill, CAD Preset selector dropdown.
+   - **Zone 2 (Center - Workspace Modes)**: Segmented pill toggle between `3D CAD Studio`, `AMD Silicon EDA`, and `Code & USD`.
+   - **Zone 3 (Right - Viewport & Storage Utilities)**: Display Overlays dropdown (Grid, Bounds, Center of Mass, Wireframe, Snapping), Cloud Vault button, and Unified Export button.
+
+2. **Left Sidebar (Prompt Copilot & Toolset Registry)**:
+   - Collapsible panel with smooth toggle (`[<]` / `[>]`).
+   - Clean vertical stacking:
+     1. Header with title & collapse trigger.
+     2. Model & Harness selector row (Gemini, Hugging Face Hub, Ollama, etc.).
+     3. Active Toolsets & Skills drawer button (`NVIDIA usd-brep`, `AMD ROCm`, etc.).
+     4. Chat messages stream with clear code and status snippets.
+     5. Chat prompt input with generate trigger.
+
+3. **3D Viewport Canvas (Center)**:
+   - Full height and width between sidebars.
+   - Contextual placement notice only when Annotating (`Click surface to place pin · Esc to cancel`).
+   - Floating selection chip only when a specific 3D part is actively selected (`/{partName} · Vol · Watertight`).
+
+4. **Right Sidebar (Docked Engineering & Explosion Inspector)**:
+   - Docked on the right edge, collapsible to 0px with a single toggle button.
+   - Four dedicated tabs with badge counts:
+     - **Parts Tab**: Hierarchical parts tree, manifold status, visibility toggle (Eye/EyeOff), part volume, surface color swatch.
+     - **Mass Tab**: Material presets (Aluminum, Titanium, Steel, PEEK, Silicon), density override, total mass, volume, center of mass coordinates, bounding box dimensions.
+     - **Pins Tab**: 3D annotation list, filter resolved/active, jump-to-camera button, delete/edit.
+     - **Explosion Tab**: Disassembly sequence timeline, play/pause, step backward/forward, stage notches, playback speed (0.5x–2.0x), continuous radial vs stage mode.
+
+### Visual Identity & Theme Tokens
+
+- **Canvas Background (60%)**: `#121316` (Neutral Charcoal Zinc, matte non-glare).
+- **Structural Surfaces (30%)**: `#181a20` (Panel base), `#1e2028` (Cards & sub-headers), hairline borders `#272a34`.
+- **Accents & States (10%)**:
+  - Sky Blue (`#0284c7` / `#38bdf8`) for primary selections & active CAD modes.
+  - Emerald (`#10b981`) for kernel active & successful mesh verification.
+  - Amber (`#f59e0b`) for mass/center of mass highlights.
+  - Rose (`#f43f5e`) for AMD EDA mode.
+- **Typography**:
+  - Interface text: Clean sans (`Inter`, `system-ui`).
+  - Engineering readouts: `font-mono tabular-nums text-zinc-300` for weights, coordinates, and volumes.
+
+---
+
+## 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Docked Right Sidebar vs. Floating Overlays**
+  - *Chosen Approach*: Embed the Part tree, Mass properties, Annotations, and Explosion timeline into a tabbed right sidebar.
+  - *Why*: Eliminates floating bars that overlap 3D parts and obscure viewport rotation controls; follows standard SolidWorks/Onshape/Fusion360 patterns.
+  - *Alternatives Considered*: Floating draggable windows (rejected: complex window management, causes clutter).
+
+- **Decision 2: Explosion Timeline Inside Tabbed Inspector**
+  - *Chosen Approach*: Move the explosion playback and scrubbing controls into the `[Explosion]` tab of the right sidebar, with clean stage selection and scrub controls.
+  - *Why*: Frees up the entire bottom of the viewport canvas, eliminating the floating timeline bar that previously hovered over parts.
+  - *Alternatives Considered*: Permanent bottom shelf (rejected: permanently steals 80px of vertical height across all modes).
+
+- **Decision 3: Reorganized 3-Zone Top Bar**
+  - *Chosen Approach*: Move viewport display toggles (Grid, Wireframe, Bounds, CoM) into a clean `Display` flyout on the top bar or quick viewport pill, alongside Export and Vault.
+  - *Why*: Creates an uncluttered, balanced header with clear visual separation between project context, mode switching, and file actions.
+
+---
+
+## 4. Technical Architecture & Workspace Layout
+
+### Architecture Diagram
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        User Interface Layer                            │
-│  - Quick Model Selector in Header (Harness + Active Model)             │
-│  - Full AI Harness & HF Hub Configurator Modal                         │
-│    ├─ Live Search Bar (Debounced HF API Query or Direct Repo ID)       │
-│    ├─ Cognitive Architecture Filter Dropdown (System 1/2, Abliterated) │
-│    ├─ HF Access Token Input (Secure localStorage)                      │
-│    └─ Quantization Selector (FP16, Q8_0, Q4_K_M, INT4)                 │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│             Hugging Face Hub Live Service (hfHubService.ts)            │
-│  - Queries https://huggingface.co/api/models?search=...&filter=...     │
-│  - Fetches model metadata (safetensors size, model_type, downloads)    │
-│  - Direct Repo ID validator and config parser                          │
-│  - Persists & attaches Bearer tokens when provided                     │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│           Hermes-Style Hardware Resource Engine (cad.ts)               │
-│  - Hardware Detection: CPU cores, RAM, WebGPU device & VRAM            │
-│  - Parameter & Memory Estimator: Calculates weights + KV cache         │
-│  - Generates ResourceFit: 'optimal' | 'tight' | 'oom'                  │
-│  - Live Throughput Prediction (Tokens/sec)                             │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│            Agnostic Agent Dispatcher & In-App Tool Execution           │
-│  - Translates agent output to In-App CAD/EDA Tool Calls                │
-│  - Supports Nous Hermes XML tool_call format, Pi Agent streaming,      │
-│    and direct WebGPU/Ollama/vLLM/HF Inference endpoints               │
-└────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                 ApexCAD Studio Header                                  │
+│  [Logo · ApexCAD · Kernel]   ──   [3D CAD | Silicon EDA | Code]   ──   [Display · Export · Vault] │
+├──────────────────────┬──────────────────────────────────────────┬──────────────────────┤
+│                      │                                          │                      │
+│   Left Sidebar       │          Interactive 3D Viewport         │    Right Sidebar     │
+│   (Prompt Copilot)   │                                          │    (Inspector Dock)  │
+│                      │  • Unobstructed Three.js Canvas          │                      │
+│  • Model & Harness   │  • Orbit / Pan / Zoom                    │  [Parts][Mass][Pins] │
+│  • Toolset Registry  │  • Contextual Part Chip (on click)       │  [   Explosion     ] │
+│  • Prompt History    │  • Annotation Placement Guide            │                      │
+│  • CAD Generation    │                                          │  • Hierarchical Tree │
+│                      │                                          │  • Mass Properties   │
+│                      │                                          │  • Kinematics Scrub  │
+│                      │                                          │                      │
+└──────────────────────┴──────────────────────────────────────────┴──────────────────────┘
 ```
 
----
+### Component & State Mapping
 
-### 2. User Experience & Component Design
+1. **`App.tsx` Layout Restructure**:
+   - Introduce `isRightSidebarOpen` state and `activeRightTab` (`'parts' | 'mass' | 'annotations' | 'explosion'`).
+   - Replace floating overlays with the flex-docked `<aside>` on the right.
+   - Clean up top navigation header with unified neutral charcoal palette and `ApexCAD Studio` branding.
+   - Remove all legacy `AI Studio` text and modals, replacing with `ApexCAD Studio Details`.
 
-#### A. AI Model & Harness Modal Upgrades (`AiHarnessModal.tsx`)
-1. **Live Hugging Face Search & Direct Repo Input**:
-   - Live search input querying the Hugging Face Hub API in real time.
-   - Dedicated "Direct Repo ID" quick-load button: Engineers can paste any HF model ID (e.g. `author/model-name`) or URL and click **Load Model** to fetch config and calculate specs immediately.
-   - "Custom HF Access Token" field with eye toggle, status indicator, and local storage retention.
-2. **Cognitive Architecture Preset Filter**:
-   - Seamless dropdown selector with badges:
-     - `All / Unrestricted`: Universal search across all 1M+ Hugging Face models.
-     - `System 2 Deep Reasoning & CoT`: Filters for reasoning tags, chain-of-thought, and distillation models.
-     - `System 1 Fast Intuitive Reflex`: Filters for instant sub-3B/7B fast-reflex models.
-     - `Abliterated & Uncensored Open Weights`: Filters for `abliterated`, `uncensored`, `dolphin`, `hermes`, and open-weight variants without guardrails.
-     - `JEPA & World Model Spatial Embeddings`: Filters for joint-embedding architectures, visual-spatial representations, and 3D geometric world models.
-3. **Hermes Hardware Comparison Dashboard**:
-   - Visual RAM & VRAM gauge bar showing model footprint vs. available memory.
-   - Compatibility status banner:
-     - **Optimal Fit** (Green): Fits fully in VRAM with high throughput (>35 tok/sec).
-     - **Partial Offload** (Amber): Fits in system RAM with CPU/GPU offload (~10-20 tok/sec).
-     - **OOM Warning** (Red): Exceeds available memory; recommends 4-bit quantization or smaller variant.
-   - Hardware calibration sliders allowing users to manually adjust detected RAM, VRAM, and context window length (2K to 32K).
+2. **`ExplosionTimeline.tsx` Dock Integration**:
+   - Support rendering both as a docked panel view (inside the right sidebar) and standalone view with responsive layout.
+   - Clean up typography, remove unnecessary floating borders.
 
-#### B. Header & Control Bar Dropdown (`App.tsx`)
-- Combined model and harness dropdown:
-  - Groups: *Agent Harnesses (Hermes, Pi, LangChain, ROCm)*, *Cognitive & Reasoning Models*, *Hugging Face Hub (Custom & Active)*.
-  - Quick-action button: **HF Hub Connect & Explore** opening the search and resource profiler.
-  - Active model pill displays model name, quantization (e.g. `Q4_K_M`), and fit indicator.
-
----
-
-### 3. Implementation Steps
-
-1. **Hugging Face Hub Service (`src/services/hfHubService.ts`)**:
-   - Implement `searchHuggingFaceModels(query, filterMode, token, limit)` connecting to `https://huggingface.co/api/models`.
-   - Implement `fetchModelDetails(repoId, token)` fetching `model_type`, `safetensors` size, tags, and license.
-   - Implement token management (`getStoredHfToken()`, `setStoredHfToken(token)`).
-   - Implement parameter estimation heuristics from repo metadata and model architecture.
-
-2. **Types & Hardware Profiler Enhancements (`src/types/cad.ts` & `src/services/appToolsAndSkills.ts`)**:
-   - Add `CognitiveFilterMode` type: `'all' | 'system2-reasoning' | 'system1-reflex' | 'abliterated-uncensored' | 'jepa-world-model'`.
-   - Update `calculateResourceEstimate()` to dynamically handle arbitrary model parameter counts (from 100M to 120B+) and custom context lengths.
-   - Add preset models representing each cognitive category for instant offline fallback.
-
-3. **AiHarnessModal Refinement (`src/components/AiHarnessModal.tsx`)**:
-   - Integrate live query fetching with debouncing (350ms) and loading spinner.
-   - Add manual repository input field ("Load any Hugging Face repo ID").
-   - Add cognitive filter selector pills/dropdown.
-   - Render model cards with download stats, likes, tags (e.g., `reasoning`, `abliterated`, `vision`), memory requirement badge, and one-click "Select Model & Test Fit".
-
-4. **Agent Integration & Toolsets Invariance (`server.ts` & `src/services/geminiAgent.ts`)**:
-   - Ensure dynamic HF model selections pass correctly into the agent executor.
-   - Verify all CAD and EDA in-app tool calling functions run with full fidelity regardless of model selected.
-
-5. **Verification & Build**:
-   - Run TypeScript verification, compile applet, and verify zero regressions in CAD 3D viewport, synthesis, and placement.
+3. **Neutral Zinc Styling**:
+   - Update global backgrounds from `#07090e` / `#06080d` / `#0b0f17` to `#121316`, `#181a20`, `#1e2028`, and `#272a34`.
+   - Update `index.html` background and scrollbar colors to match.

@@ -506,25 +506,25 @@ export const AI_MODEL_OPTIONS: AiModelOption[] = [
     isRecommended: true,
   },
   {
-    id: 'gemini-2.5-flash',
-    name: 'Gemini 2.5 Flash',
+    id: 'gemini-flash-latest',
+    name: 'Gemini Flash (Latest & Fast)',
     provider: 'Google',
     recommendedHarness: 'google-genai',
     contextWindow: '1M tokens',
   },
   {
-    id: 'gemini-2.5-pro',
-    name: 'Gemini 2.5 Pro (Deep Reasoning)',
+    id: 'gemini-3.1-flash-lite',
+    name: 'Gemini 3.1 Flash Lite',
+    provider: 'Google',
+    recommendedHarness: 'google-genai',
+    contextWindow: '1M tokens',
+  },
+  {
+    id: 'gemini-4-argon',
+    name: 'Gemini 4 Argon (Pro Deep Reasoning)',
     provider: 'Google',
     recommendedHarness: 'google-genai',
     contextWindow: '2M tokens',
-  },
-  {
-    id: 'gemini-2.0-flash',
-    name: 'Gemini 2.0 Flash',
-    provider: 'Google',
-    recommendedHarness: 'google-genai',
-    contextWindow: '1M tokens',
   },
 
   // Hugging Face Hub (Local & Open-Source)

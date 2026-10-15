@@ -3,16 +3,38 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NVIDIA usd-brep Agentic CAD Studio</title>
-    <meta name="description" content="Agentic B-Rep CAD Studio powered by NVIDIA usd-brep (SMLib / OpenUSD) and Gemini 3.8 Flash. Features a text-to-3D CAD copilot with self-healing manifold verification, interactive 3D Z-up viewport, OpenUSD (.usda) &amp; NURBS Brep export, and an embedded NVIDIA usd-brep API Guide Explorer." />
-    <meta property="og:title" content="NVIDIA usd-brep Agentic CAD Studio" />
-    <meta property="og:description" content="Agentic B-Rep CAD Studio powered by NVIDIA usd-brep (SMLib / OpenUSD) and Gemini 3.8 Flash. Features a text-to-3D CAD copilot with self-healing manifold verification, interactive 3D Z-up viewport, OpenUSD (.usda) &amp; NURBS Brep export, and an embedded NVIDIA usd-brep API Guide Explorer." />
+    <title>ApexCAD Studio - Precision B-Rep &amp; Silicon EDA</title>
+    <meta name="description" content="ApexCAD Studio: High-precision B-Rep CAD and Silicon EDA engineering suite powered by NVIDIA usd-brep and accelerated geometry kernels." />
+    <meta property="og:title" content="ApexCAD Studio - Precision B-Rep &amp; Silicon EDA" />
+    <meta property="og:description" content="ApexCAD Studio: High-precision B-Rep CAD and Silicon EDA engineering suite powered by NVIDIA usd-brep and accelerated geometry kernels." />
+    <script>
+      // Early suppressor for benign ResizeObserver undelivered notifications in preview/test frames
+      window.addEventListener('error', function (e) {
+        if (
+          e.message &&
+          (e.message.indexOf('ResizeObserver loop completed') !== -1 ||
+            e.message.indexOf('ResizeObserver loop limit') !== -1)
+        ) {
+          e.stopImmediatePropagation();
+          e.preventDefault();
+        }
+      }, true);
+      window.onerror = function (msg) {
+        if (
+          typeof msg === 'string' &&
+          (msg.indexOf('ResizeObserver loop completed') !== -1 ||
+            msg.indexOf('ResizeObserver loop limit') !== -1)
+        ) {
+          return true;
+        }
+      };
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body {
         margin: 0;
-        background-color: #0b0f17;
-        color: #e2e8f0;
+        background-color: #121316;
+        color: #f4f4f5;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         overflow: hidden;
       }
@@ -21,14 +43,14 @@
         height: 6px;
       }
       ::-webkit-scrollbar-track {
-        background: #0f172a;
+        background: #181a20;
       }
       ::-webkit-scrollbar-thumb {
-        background: #334155;
+        background: #2c303b;
         border-radius: 3px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #475569;
+        background: #3f4453;
       }
     </style>
   </head>

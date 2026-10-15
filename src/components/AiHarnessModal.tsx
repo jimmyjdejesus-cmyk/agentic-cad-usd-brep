@@ -203,7 +203,7 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-white tracking-tight">
-                  OpenFlow-AI • Agnostic AI Harness & Hugging Face Hub
+                  ApexCAD Studio • Agnostic AI Harness & Hugging Face Hub
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-700/60">
                   Direct HF API Connection

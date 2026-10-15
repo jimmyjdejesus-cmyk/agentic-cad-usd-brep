@@ -104,7 +104,7 @@ export const AmdEdaSiliconStudio: React.FC<AmdEdaSiliconStudioProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-white tracking-tight">
-                  OpenFlow-AI: AMD ROCm Silicon EDA Pipeline
+                  ApexCAD Studio: AMD ROCm Silicon EDA Pipeline
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-950/80 text-red-300 border border-red-700/60">
                   AMD Skills
@@ -275,6 +275,7 @@ export const AmdEdaSiliconStudio: React.FC<AmdEdaSiliconStudioProps> = ({
                 const y1 = gA.y + gA.height / 2;
                 const x2 = gB.x + gB.width / 2;
                 const y2 = gB.y + gB.height / 2;
+                if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) return null;
                 const midX = (x1 + x2) / 2;
 
                 // Orthogonal routing path
@@ -304,6 +305,7 @@ export const AmdEdaSiliconStudio: React.FC<AmdEdaSiliconStudioProps> = ({
                 const y1 = a.y + a.height / 2;
                 const x2 = b.x + b.width / 2;
                 const y2 = b.y + b.height / 2;
+                if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) return null;
 
                 return (
                   <g key={v.id}>
@@ -491,7 +493,7 @@ export const AmdEdaSiliconStudio: React.FC<AmdEdaSiliconStudioProps> = ({
                     </button>
                   </div>
                   <pre className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 font-mono text-[10px] text-slate-300 overflow-x-auto leading-relaxed">
-                    {`# OpenFlow-AI Unified Netlist Class
+                    {`# ApexCAD Studio Unified Netlist Class
 class NetlistDatabase:
     def __init__(self):
         self.name = "${netlist.name}"

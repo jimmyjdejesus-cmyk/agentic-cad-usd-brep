@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
   Check,
   CheckCircle2,
@@ -13,7 +14,13 @@ import {
   Tag,
   Trash2,
 } from 'lucide-react';
-import { CadAnnotation, CadPartOutput } from '../types/cad';
+import { CadAnnotation, CadPartOutput, MaterialPreset } from '../types/cad';
+import {
+  computeTriplanarUvs,
+  createCadPbrMaterial,
+  resolvePbrFinish,
+  PbrFinishMode,
+} from '../services/pbrMaterialService';
 
 interface Viewport3DProps {
   parts: CadPartOutput[];
@@ -28,6 +35,9 @@ interface Viewport3DProps {
   explodeFactor: number;
   partOffsets?: Record<string, [number, number, number]>;
   hiddenPartNames?: string[];
+  selectedMaterial?: MaterialPreset;
+  customDensity?: number | null;
+  pbrFinishMode?: PbrFinishMode;
   // 3D Annotations
   annotations?: CadAnnotation[];
   selectedAnnotationId?: string | null;
@@ -71,6 +81,9 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   explodeFactor,
   partOffsets,
   hiddenPartNames = [],
+  selectedMaterial,
+  customDensity,
+  pbrFinishMode = 'auto',
   annotations = [],
   selectedAnnotationId = null,
   onSelectAnnotation,
@@ -202,9 +215,25 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
     container.innerHTML = '';
+    renderer.domElement.style.display = 'block';
+    renderer.domElement.style.position = 'absolute';
+    renderer.domElement.style.top = '0';
+    renderer.domElement.style.left = '0';
+    renderer.domElement.style.width = '100%';
+    renderer.domElement.style.height = '100%';
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
+
+    // Procedural Studio Environment for Physical PBR Reflections (Metals & Glossy Clearcoats)
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const roomEnv = new RoomEnvironment();
+    scene.environment = pmremGenerator.fromScene(roomEnv, 0.04).texture;
+    pmremGenerator.dispose();
 
     // Studio 3-point lighting for Z-up CAD inspection
     const ambient = new THREE.AmbientLight(0xdbeafe, 0.7);
@@ -506,13 +535,26 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     dom.addEventListener('wheel', onWheel, { passive: false });
     dom.addEventListener('contextmenu', onContextMenu);
 
-    const resizeObserver = new ResizeObserver(() => {
-      if (!container || !rendererRef.current || !cameraRef.current) return;
-      const w = container.clientWidth;
-      const h = Math.max(1, container.clientHeight);
-      cameraRef.current.aspect = w / h;
-      cameraRef.current.updateProjectionMatrix();
-      rendererRef.current.setSize(w, h);
+    let resizeFrameId = 0;
+    let lastW = 0;
+    let lastH = 0;
+    const resizeObserver = new ResizeObserver((entries) => {
+      cancelAnimationFrame(resizeFrameId);
+      resizeFrameId = requestAnimationFrame(() => {
+        if (!container || !rendererRef.current || !cameraRef.current) return;
+        const entry = entries[0];
+        const w = entry?.contentRect?.width ? Math.floor(entry.contentRect.width) : container.clientWidth;
+        const h = entry?.contentRect?.height
+          ? Math.max(1, Math.floor(entry.contentRect.height))
+          : Math.max(1, container.clientHeight);
+        if (w <= 0 || h <= 0) return;
+        if (w === lastW && h === lastH) return;
+        lastW = w;
+        lastH = h;
+        cameraRef.current.aspect = w / h;
+        cameraRef.current.updateProjectionMatrix();
+        rendererRef.current.setSize(w, h, false);
+      });
     });
     resizeObserver.observe(container);
 
@@ -538,8 +580,20 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
           const currentAnns = (window as unknown as { __CURRENT_ANNOTATIONS__?: CadAnnotation[] })
             .__CURRENT_ANNOTATIONS__ || [];
 
-          if (currentAnns.length > 0) {
-            const list: ProjectedAnnotation[] = currentAnns.map((ann) => {
+          if (currentAnns.length > 0 && w > 0 && h > 0) {
+            const list: ProjectedAnnotation[] = [];
+            currentAnns.forEach((ann) => {
+              if (
+                !ann ||
+                !Array.isArray(ann.position) ||
+                ann.position.length < 3 ||
+                !Number.isFinite(ann.position[0]) ||
+                !Number.isFinite(ann.position[1]) ||
+                !Number.isFinite(ann.position[2])
+              ) {
+                return;
+              }
+
               const partEntry = partEntriesRef.current.find((e) => e.partName === ann.partName);
               const offset = partEntry ? partEntry.mesh.position : new THREE.Vector3(0, 0, 0);
 
@@ -547,26 +601,42 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
               const pAnchor = worldAnchor.clone().project(cam);
               const ax = (pAnchor.x * 0.5 + 0.5) * w;
               const ay = (-pAnchor.y * 0.5 + 0.5) * h;
+
+              const isAnchorFinite = Number.isFinite(ax) && Number.isFinite(ay) && Number.isFinite(pAnchor.z);
+
               // Check frustum visibility and ensure parent part mesh is not hidden
               const isPartVisible = partEntry ? partEntry.mesh.visible : true;
-              const isVisible = pAnchor.z > -1 && pAnchor.z < 1 && isPartVisible;
+              const isAnchorVisible = isAnchorFinite && pAnchor.z > -1 && pAnchor.z < 1 && isPartVisible;
 
               // Offset for leader billboard
-              const norm = ann.normal ? new THREE.Vector3(...ann.normal) : new THREE.Vector3(0, 0, 1);
+              const norm =
+                ann.normal &&
+                Array.isArray(ann.normal) &&
+                ann.normal.length >= 3 &&
+                Number.isFinite(ann.normal[0]) &&
+                Number.isFinite(ann.normal[1]) &&
+                Number.isFinite(ann.normal[2])
+                  ? new THREE.Vector3(...ann.normal)
+                  : new THREE.Vector3(0, 0, 1);
+
               const worldLeader = worldAnchor.clone().addScaledVector(norm, 2.8).add(new THREE.Vector3(0, 0, 1.2));
               const pLeader = worldLeader.clone().project(cam);
               const lx = (pLeader.x * 0.5 + 0.5) * w;
               const ly = (-pLeader.y * 0.5 + 0.5) * h;
 
-              return {
-                id: ann.id,
-                ann,
-                anchorX: ax,
-                anchorY: ay,
-                leaderX: lx,
-                leaderY: ly,
-                visible: isVisible,
-              };
+              const isLeaderFinite = Number.isFinite(lx) && Number.isFinite(ly);
+
+              if (isAnchorFinite && isLeaderFinite) {
+                list.push({
+                  id: ann.id,
+                  ann,
+                  anchorX: ax,
+                  anchorY: ay,
+                  leaderX: lx,
+                  leaderY: ly,
+                  visible: isAnchorVisible,
+                });
+              }
             });
             setProjectedAnnotations(list);
           } else {
@@ -581,6 +651,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
 
     return () => {
       cancelAnimationFrame(animId);
+      cancelAnimationFrame(resizeFrameId);
       resizeObserver.disconnect();
       dom.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointermove', onPointerMove);
@@ -747,20 +818,22 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       geom.setIndex(part.mesh.triangles);
       geom.computeVertexNormals();
 
-      const isSelected = selectedPartName === part.name;
-      const [r, g, b] = part.color || [0.35, 0.65, 0.95];
-      const baseColor = new THREE.Color(r, g, b);
+      // Seamless triplanar box UV mapping for procedural PBR textures
+      computeTriplanarUvs(geom);
 
-      const mat = new THREE.MeshStandardMaterial({
-        color: baseColor,
-        metalness: 0.38,
-        roughness: 0.32,
-        emissive: isSelected ? new THREE.Color(0x0ea5e9) : new THREE.Color(0x000000),
-        emissiveIntensity: isSelected ? 0.32 : 0,
-        polygonOffset: true,
-        polygonOffsetFactor: 1,
-        polygonOffsetUnits: 1,
-      });
+      const isSelected = selectedPartName === part.name;
+      const effectiveDensity =
+        typeof customDensity === 'number' && Number.isFinite(customDensity)
+          ? customDensity
+          : selectedMaterial?.density ?? 2.70;
+
+      const mat = createCadPbrMaterial(
+        part,
+        isSelected,
+        effectiveDensity,
+        selectedMaterial,
+        pbrFinishMode
+      );
 
       const mesh = new THREE.Mesh(geom, mat);
       mesh.userData = { partName: part.name };
@@ -830,7 +903,17 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       const overallHelper = new THREE.Box3Helper(overallBox, new THREE.Color(0x10b981));
       group.add(overallHelper);
     }
-  }, [parts, selectedPartName, showWireframe, showBounds, overallBounds, hiddenPartNames]);
+  }, [
+    parts,
+    selectedPartName,
+    showWireframe,
+    showBounds,
+    overallBounds,
+    hiddenPartNames,
+    selectedMaterial,
+    customDensity,
+    pbrFinishMode,
+  ]);
 
   // Toggle part and attached 3D annotation pin visibility reactively when hiddenPartNames updates
   useEffect(() => {
@@ -1001,13 +1084,39 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     }
   };
 
+  const effectiveDensity =
+    typeof customDensity === 'number' && Number.isFinite(customDensity)
+      ? customDensity
+      : selectedMaterial?.density ?? 2.70;
+  const pbrConfig = resolvePbrFinish(effectiveDensity, selectedMaterial, pbrFinishMode);
+
   return (
     <div
-      className={`relative w-full h-full bg-[#0b0f17] select-none overflow-hidden ${
+      className={`relative w-full h-full bg-[#121316] select-none overflow-hidden ${
         isAnnotating ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
       }`}
     >
       <div ref={mountRef} className="w-full h-full" />
+
+      {/* PBR Surface Realism Status Indicator */}
+      <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#181a20]/85 backdrop-blur-md border border-[#272a34] text-[11px] shadow-lg pointer-events-none select-none">
+        <span
+          className={`w-2 h-2 rounded-full ${
+            pbrConfig.type === 'metallic'
+              ? 'bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.7)]'
+              : pbrConfig.type === 'plastic'
+              ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.7)]'
+              : pbrConfig.type === 'carbon_fiber'
+              ? 'bg-purple-400 shadow-[0_0_8px_rgba(192,132,252,0.7)]'
+              : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]'
+          }`}
+        />
+        <span className="font-semibold text-zinc-100">{pbrConfig.label}</span>
+        <span className="text-zinc-600">•</span>
+        <span className="text-zinc-400 font-mono text-[10px]">
+          {pbrConfig.type.toUpperCase()} PBR
+        </span>
+      </div>
 
       {/* 2D BILLBOARD ANNOTATION OVERLAY (Crisp High-DPI Cards + Leader Lines) */}
       {showAnnotations && projectedAnnotations.length > 0 && (
@@ -1015,17 +1124,39 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
           {/* SVG Leader Lines from 3D Anchor to 2D Label Card */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none">
             {projectedAnnotations.map((proj) => {
-              if (!proj.visible) return null;
+              if (
+                !proj ||
+                !proj.visible ||
+                typeof proj.anchorX !== 'number' ||
+                !Number.isFinite(proj.anchorX) ||
+                typeof proj.anchorY !== 'number' ||
+                !Number.isFinite(proj.anchorY) ||
+                typeof proj.leaderX !== 'number' ||
+                !Number.isFinite(proj.leaderX) ||
+                typeof proj.leaderY !== 'number' ||
+                !Number.isFinite(proj.leaderY)
+              ) {
+                return null;
+              }
+              const ax = Math.round(proj.anchorX);
+              const ay = Math.round(proj.anchorY);
+              const lx = Math.round(proj.leaderX);
+              const ly = Math.round(proj.leaderY);
+
+              if (isNaN(ax) || isNaN(ay) || isNaN(lx) || isNaN(ly)) {
+                return null;
+              }
+
               const isSelected = selectedAnnotationId === proj.id;
               const isHovered = hoveredCardId === proj.id;
-              const strokeColor = proj.ann.color || '#38bdf8';
+              const strokeColor = proj.ann?.color || '#38bdf8';
 
               return (
                 <g key={`lead_${proj.id}`}>
                   {/* Anchor Point Halo */}
                   <circle
-                    cx={proj.anchorX}
-                    cy={proj.anchorY}
+                    cx={ax}
+                    cy={ay}
                     r={isSelected ? 6 : 4}
                     fill={strokeColor}
                     fillOpacity={isSelected ? 0.9 : 0.65}
@@ -1034,10 +1165,10 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
                   />
                   {/* Connecting Leader Line */}
                   <line
-                    x1={proj.anchorX}
-                    y1={proj.anchorY}
-                    x2={proj.leaderX}
-                    y2={proj.leaderY}
+                    x1={ax}
+                    y1={ay}
+                    x2={lx}
+                    y2={ly}
                     stroke={strokeColor}
                     strokeWidth={isSelected || isHovered ? 2 : 1.2}
                     strokeDasharray={isSelected ? 'none' : '3 2'}
@@ -1050,7 +1181,22 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
 
           {/* Floating Billboard Cards */}
           {projectedAnnotations.map((proj) => {
-            if (!proj.visible) return null;
+            if (
+              !proj ||
+              !proj.visible ||
+              typeof proj.leaderX !== 'number' ||
+              !Number.isFinite(proj.leaderX) ||
+              typeof proj.leaderY !== 'number' ||
+              !Number.isFinite(proj.leaderY)
+            ) {
+              return null;
+            }
+            const lx = Math.round(proj.leaderX);
+            const ly = Math.round(proj.leaderY);
+            if (isNaN(lx) || isNaN(ly)) {
+              return null;
+            }
+
             const ann = proj.ann;
             const isSelected = selectedAnnotationId === ann.id;
             const isHovered = hoveredCardId === ann.id;
@@ -1072,8 +1218,8 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
                   if (onSelectPart) onSelectPart(ann.partName);
                 }}
                 style={{
-                  left: `${proj.leaderX}px`,
-                  top: `${proj.leaderY}px`,
+                  left: `${lx}px`,
+                  top: `${ly}px`,
                   transform: 'translate(-50%, -100%) translateY(-6px)',
                 }}
                 className={`pointer-events-auto absolute transition-all duration-150 rounded-xl shadow-2xl backdrop-blur-md border ${

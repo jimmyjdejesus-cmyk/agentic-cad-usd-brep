@@ -12,7 +12,7 @@ import {
   executeInAppTool,
 } from './appToolsAndSkills';
 
-describe('OpenFlow-AI AMD ROCm Silicon EDA Engine', () => {
+describe('ApexCAD Studio AMD ROCm Silicon EDA Engine', () => {
   it('synthesizes unified netlist database for 4-bit ALU', () => {
     const netlist = synthesizeCircuitNetlist('alu_4bit');
     expect(netlist.gates.length).toBeGreaterThan(10);

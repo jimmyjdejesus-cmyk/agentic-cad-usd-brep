@@ -147,9 +147,9 @@ export const AnnotationsPanel: React.FC<AnnotationsPanelProps> = ({
   };
 
   return (
-    <div className="bg-slate-900/95 border border-slate-800/90 rounded-xl shadow-2xl backdrop-blur-md overflow-hidden text-xs w-80 font-sans transition-all">
+    <div className="bg-[#181a20] border border-[#272a34] rounded-xl shadow-lg overflow-hidden text-xs w-full font-sans transition-all">
       {/* Header Bar */}
-      <div className="px-3.5 py-2.5 bg-slate-950/70 border-b border-slate-800/80 flex items-center justify-between">
+      <div className="px-3.5 py-2.5 bg-[#14161b] border-b border-[#272a34] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setIsExpanded(!isExpanded)}

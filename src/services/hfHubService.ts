@@ -1,11 +1,12 @@
 import { HuggingFaceModel, CognitiveFilterMode, HarnessTypeId } from '../types/cad';
 
 const HF_API_BASE = 'https://huggingface.co/api/models';
-const HF_TOKEN_STORAGE_KEY = 'openflow_hf_access_token';
+const HF_TOKEN_STORAGE_KEY = 'apexcad_hf_access_token';
+const LEGACY_HF_TOKEN_STORAGE_KEY = 'openflow_hf_access_token';
 
 export function getStoredHfToken(): string {
   try {
-    return localStorage.getItem(HF_TOKEN_STORAGE_KEY) || '';
+    return localStorage.getItem(HF_TOKEN_STORAGE_KEY) || localStorage.getItem(LEGACY_HF_TOKEN_STORAGE_KEY) || '';
   } catch {
     return '';
   }

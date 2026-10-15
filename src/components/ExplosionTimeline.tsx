@@ -27,6 +27,7 @@ export interface ExplosionTimelineProps {
   onExplodeFactorChange: (factor: number) => void;
   isCollapsed?: boolean;
   onToggleCollapsed?: (collapsed: boolean) => void;
+  isDocked?: boolean;
 }
 
 export function areOffsetsEqual(
@@ -150,6 +151,7 @@ export const ExplosionTimeline: React.FC<ExplosionTimelineProps> = ({
   onExplodeFactorChange,
   isCollapsed,
   onToggleCollapsed,
+  isDocked = false,
 }) => {
   const [internalCollapsed, setInternalCollapsed] = useState<boolean>(false);
   const isDockCollapsed = isCollapsed !== undefined ? isCollapsed : internalCollapsed;
@@ -325,6 +327,261 @@ export const ExplosionTimeline: React.FC<ExplosionTimelineProps> = ({
     const ms = Math.floor((secs - s) * 10);
     return `${s.toString().padStart(2, '0')}.${ms}s`;
   };
+
+  if (isDocked) {
+    return (
+      <div className="flex flex-col gap-3 select-none w-full text-xs text-zinc-200">
+        {/* Docked Header: Mode Switch & Indicator */}
+        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-[#272a34]">
+          <div className="flex items-center gap-1.5 text-sky-400 font-semibold tracking-wide">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span className="text-xs uppercase font-bold">Kinematics &amp; Explosion</span>
+          </div>
+          <button
+            onClick={() => setUseContinuousSlider((v) => !v)}
+            className={`px-2 py-0.5 rounded text-[11px] font-medium border transition ${
+              useContinuousSlider
+                ? 'bg-amber-950/60 border-amber-600/70 text-amber-200'
+                : 'bg-[#14161b] border-[#272a34] text-zinc-400 hover:text-zinc-200'
+            }`}
+            title="Toggle between Sequential Stages and Radial Explode Slider"
+          >
+            {useContinuousSlider ? 'Radial Slider' : 'Stage Sequence'}
+          </button>
+        </div>
+
+        {/* Transport & Timeline Scrubber */}
+        {useContinuousSlider ? (
+          <div className="flex flex-col gap-2.5 p-3 bg-[#14161b] border border-[#272a34] rounded-xl">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-zinc-400">Scatter Factor:</span>
+              <span className="font-mono text-sky-400 font-bold">{Math.round(explodeFactor * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={explodeFactor}
+              onChange={(e) => onExplodeFactorChange(parseFloat(e.target.value))}
+              className="w-full accent-sky-400 cursor-pointer h-1.5 bg-zinc-800 rounded-lg"
+            />
+            <div className="flex justify-between items-center pt-1 text-[11px] text-zinc-500">
+              <button
+                onClick={() => onExplodeFactorChange(0)}
+                className="hover:text-zinc-300 transition"
+              >
+                Reset (0%)
+              </button>
+              <button
+                onClick={() => onExplodeFactorChange(1)}
+                className="hover:text-zinc-300 transition"
+              >
+                Full (100%)
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2.5 p-3 bg-[#14161b] border border-[#272a34] rounded-xl">
+            {/* Stage Selector Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setShowStageMenu((v) => !v)}
+                className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-[#181a20] border border-[#272a34] hover:border-zinc-700 text-zinc-200 text-xs font-medium transition"
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                  <span className="truncate">
+                    {currentStageInfo
+                      ? currentStageInfo.isAssembled
+                        ? '0. Fully Assembled (t = 0)'
+                        : `Stage ${currentStageInfo.index + 1}/${stages.length}: ${currentStageInfo.label}`
+                      : 'Assembly Loaded'}
+                  </span>
+                </div>
+                <ChevronDown className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+              </button>
+
+              {showStageMenu && (
+                <div className="absolute top-full left-0 right-0 mt-1.5 bg-[#181a20] border border-[#272a34] rounded-xl shadow-2xl z-30 py-1 overflow-hidden backdrop-blur-xl">
+                  <div className="px-2.5 py-1 text-[10px] uppercase font-semibold text-zinc-400 border-b border-[#272a34]">
+                    Select Stage Milestone
+                  </div>
+                  <button
+                    onClick={() => handleJumpToStage(-1)}
+                    className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-[#20232c] transition ${
+                      currentTime === 0 ? 'text-sky-300 font-medium bg-sky-950/40' : 'text-zinc-300'
+                    }`}
+                  >
+                    <span>0. Fully Assembled</span>
+                    <span className="text-[10px] text-zinc-500 font-mono">0.0s</span>
+                  </button>
+                  {stageTimeline.map((s) => (
+                    <button
+                      key={s.stage.id || s.index}
+                      onClick={() => handleJumpToStage(s.index)}
+                      className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-[#20232c] transition ${
+                        currentStageInfo?.index === s.index && currentTime > 0
+                          ? 'text-sky-300 font-medium bg-sky-950/40'
+                          : 'text-zinc-300'
+                      }`}
+                    >
+                      <span className="truncate pr-2">
+                        {s.index + 1}. {s.stage.name}
+                      </span>
+                      <span className="text-[10px] text-zinc-500 font-mono shrink-0">
+                        {s.end.toFixed(1)}s
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Scrubber Timeline Track */}
+            <div className="relative flex items-center pt-1 pb-1">
+              <div className="absolute inset-x-0 h-2 rounded bg-zinc-800 overflow-hidden pointer-events-none">
+                <div
+                  className="h-full bg-gradient-to-r from-sky-500 to-indigo-500 transition-all duration-75"
+                  style={{ width: `${(currentTime / Math.max(0.1, totalDuration)) * 100}%` }}
+                />
+              </div>
+
+              {stageTimeline.map((s) => {
+                const pct = (s.end / totalDuration) * 100;
+                return (
+                  <div
+                    key={s.index}
+                    className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1.5 h-3.5 bg-zinc-600 rounded-sm pointer-events-none z-10 hover:bg-sky-400"
+                    style={{ left: `${pct}%` }}
+                    title={`${s.stage.name} (${s.end.toFixed(1)}s)`}
+                  />
+                );
+              })}
+
+              <input
+                type="range"
+                min={0}
+                max={totalDuration}
+                step={0.02}
+                value={currentTime}
+                onChange={(e) => {
+                  setIsPlaying(false);
+                  setCurrentTime(parseFloat(e.target.value));
+                }}
+                className="w-full opacity-0 cursor-pointer h-6 z-20"
+                title="Scrub Animation Timeline"
+              />
+            </div>
+
+            {/* Time & Playback Controls */}
+            <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#272a34]">
+              {/* Transport Buttons */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleResetReassemble}
+                  className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
+                  title="Reset to Assembled (t = 0)"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={handleStepBack}
+                  className="p-1.5 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
+                  title="Previous Stage"
+                >
+                  <SkipBack className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setIsPlaying((v) => !v)}
+                  className="w-7 h-7 rounded-lg bg-sky-500 hover:bg-sky-400 active:scale-95 text-slate-950 flex items-center justify-center font-bold shadow-sm transition"
+                  title={isPlaying ? 'Pause Animation' : 'Play Sequence'}
+                >
+                  {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
+                </button>
+                <button
+                  onClick={handleStepForward}
+                  className="p-1.5 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
+                  title="Next Stage"
+                >
+                  <SkipForward className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Time Readout */}
+              <div className="font-mono text-xs text-zinc-400 tabular-nums">
+                <span className="text-sky-300 font-semibold">{formatTime(currentTime)}</span>
+                <span className="text-zinc-600"> / </span>
+                <span>{formatTime(totalDuration)}</span>
+              </div>
+
+              {/* Loop & Speed */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    const speeds = [0.5, 1.0, 1.5, 2.0];
+                    const nextIdx = (speeds.indexOf(playbackSpeed) + 1) % speeds.length;
+                    setPlaybackSpeed(speeds[nextIdx]);
+                  }}
+                  className="px-1.5 py-0.5 rounded bg-[#181a20] border border-[#272a34] text-[10px] text-zinc-300 hover:text-white font-mono"
+                  title="Playback Rate"
+                >
+                  {playbackSpeed}x
+                </button>
+                <button
+                  onClick={() => setLoop((v) => !v)}
+                  className={`p-1 rounded border text-[10px] transition ${
+                    loop
+                      ? 'bg-sky-950/80 border-sky-600 text-sky-300'
+                      : 'bg-[#181a20] border-[#272a34] text-zinc-400 hover:text-zinc-200'
+                  }`}
+                  title={loop ? 'Looping enabled' : 'Loop disabled'}
+                >
+                  <Repeat className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Detailed Stages List */}
+        <div className="flex flex-col gap-1.5 pt-1">
+          <div className="text-[10px] uppercase font-semibold text-zinc-400 tracking-wider">
+            Assembly Sequence Stages ({stages.length})
+          </div>
+          <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+            {stageTimeline.map((s) => {
+              const isCurrent = currentStageInfo?.index === s.index && currentTime > 0;
+              return (
+                <div
+                  key={s.index}
+                  onClick={() => handleJumpToStage(s.index)}
+                  className={`p-2 rounded-xl border text-xs cursor-pointer transition flex items-center justify-between ${
+                    isCurrent
+                      ? 'bg-sky-950/40 border-sky-500/60 text-white'
+                      : 'bg-[#14161b] hover:bg-[#1e2028] border-[#272a34] text-zinc-300'
+                  }`}
+                >
+                  <div className="min-w-0 pr-2">
+                    <div className="font-medium truncate flex items-center gap-1.5">
+                      <span className="text-[10px] font-mono text-zinc-500">#{s.index + 1}</span>
+                      <span className="truncate">{s.stage.name}</span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500 truncate mt-0.5">
+                      {Object.keys(s.stage.parts).length} part{Object.keys(s.stage.parts).length === 1 ? '' : 's'} ({s.stage.easing || 'ease-in-out'})
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono text-zinc-400 shrink-0">
+                    {s.end.toFixed(1)}s
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isDockCollapsed) {
     return (
