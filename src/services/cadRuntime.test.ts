@@ -287,6 +287,31 @@ def build_parts():
 
     expect(clearTimeoutSpy).toHaveBeenCalled();
   });
+
+  it('synthesizes sm.create_wedge with valid 3D geometry and manifold mesh', () => {
+    const code = `import usd_brep as sm
+def build_parts():
+    w = sm.create_wedge((0.0, 0.0, 0.0), 10.0, 10.0, 8.0, 2.0)
+    return [("wedge_part", w, (0.4, 0.6, 0.8), "anchor")]
+`;
+    const res = evaluateClientSideUsdBrep(code, 'WedgeTest');
+    expect(res.success).toBe(true);
+    expect(res.parts?.length).toBe(1);
+    expect(res.parts?.[0].name).toBe('wedge_part');
+    expect(res.summary?.all_manifold).toBe(true);
+    expect(res.usda_mesh_text).toContain('def Mesh "wedge_part"');
+  });
+
+  it('rejects invalid sm.create_wedge dimensions with SM_ERR_INVALID_INPUT', () => {
+    const code = `import usd_brep as sm
+def build_parts():
+    w = sm.create_wedge((0.0, 0.0, 0.0), -10.0, 10.0, 8.0, 2.0)
+    return [("wedge_part", w, (0.4, 0.6, 0.8), "anchor")]
+`;
+    const res = evaluateClientSideUsdBrep(code, 'BadWedgeTest');
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('SM_ERR_INVALID_INPUT');
+  });
 });
 
 

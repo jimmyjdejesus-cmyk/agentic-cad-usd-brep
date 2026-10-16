@@ -352,18 +352,34 @@ def build_parts():
     const returnPos = currentCode.lastIndexOf('return [');
     if (returnPos === -1) return null;
 
-    const codeBeforeReturn = currentCode.substring(0, returnPos);
-    const returnRest = currentCode.substring(returnPos);
-    const listEndPos = returnRest.indexOf(']');
+    const lineStart = currentCode.lastIndexOf('\n', returnPos);
+    const indent = lineStart === -1 ? '' : currentCode.substring(lineStart + 1, returnPos);
+    const codeBeforeReturn = currentCode.substring(0, lineStart === -1 ? 0 : lineStart + 1);
+
+    const openBracketIdx = currentCode.indexOf('[', returnPos);
+    let listEndPos = -1;
+    let depth = 0;
+    for (let i = openBracketIdx; i < currentCode.length; i++) {
+      if (currentCode[i] === '[') depth++;
+      else if (currentCode[i] === ']') {
+        depth--;
+        if (depth === 0) {
+          listEndPos = i;
+          break;
+        }
+      }
+    }
     if (listEndPos === -1) return null;
 
-    const returnListContent = returnRest.substring(0, listEndPos);
-    const afterList = returnRest.substring(listEndPos);
+    const returnListContent = currentCode.substring(returnPos, listEndPos);
+    const afterList = currentCode.substring(listEndPos + 1);
 
-    const insertion = `    # Injected primitive shape\n    ${varName} = ${createExpr}\n\n    `;
-    const newTuple = `        ("${uniqueName}", ${varName}, ${color}, "${kind}"),\n`;
+    const insertion = `${indent}# Injected primitive shape\n${indent}${varName} = ${createExpr}\n\n`;
+    const tupleIndent = `${indent}    `;
+    const trimmedListContent = returnListContent.trimEnd();
+    const newTuple = `\n${tupleIndent}("${uniqueName}", ${varName}, ${color}, "${kind}"),\n${indent}`;
 
-    return `${codeBeforeReturn}${insertion}${returnListContent}${newTuple}    ${afterList}`;
+    return `${codeBeforeReturn}${insertion}${indent}${trimmedListContent}${newTuple}]${afterList}`;
   };
 
   // 1. Box / Cube primitive

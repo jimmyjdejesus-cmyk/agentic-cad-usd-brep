@@ -100,6 +100,7 @@ export function pickRecommendedHarness(repoId: string, tags: string[] = []): Har
 }
 
 export function getOllamaCommandForModel(id: string, name?: string): string {
+  if (!id) return '';
   const lower = (id + ' ' + (name || '')).toLowerCase();
   if (lower.includes('hermes3') || lower.includes('hermes-3')) {
     return lower.includes('70b') ? 'ollama run hermes3:70b' : 'ollama run hermes3:8b';
@@ -722,14 +723,12 @@ export async function fetchModelFromHfHub(
 
 function getFallbackForQuery(query: string, filterMode: CognitiveFilterMode): HuggingFaceModel[] {
   const list = COGNITIVE_FALLBACK_MODELS[filterMode] || COGNITIVE_FALLBACK_MODELS.all;
-  if (!query) return list;
-  const qLower = query.toLowerCase();
-  const filtered = list.filter(
-    (m) =>
-      m.name.toLowerCase().includes(qLower) ||
-      m.id.toLowerCase().includes(qLower) ||
-      m.tags.some((t) => t.toLowerCase().includes(qLower))
-  );
+  if (!query.trim()) return list;
+  const tokens = query.toLowerCase().trim().split(/\s+/);
+  const filtered = list.filter((m) => {
+    const text = `${m.name} ${m.id} ${m.tags.join(' ')}`.toLowerCase();
+    return tokens.every((token) => text.includes(token));
+  });
   return filtered.length > 0 ? filtered : list;
 }
 

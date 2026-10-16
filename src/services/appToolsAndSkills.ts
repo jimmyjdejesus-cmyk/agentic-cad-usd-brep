@@ -346,8 +346,13 @@ export async function fetchSystemHardwareResources(): Promise<SystemHardwareReso
     const res = await fetch('/api/system/hardware');
     if (res.ok) {
       const data = await res.json();
+      const browserSpecs = detectSystemHardwareResources();
       cachedHostHardware = {
+        ...browserSpecs,
         ...data,
+        gpuAdapterName: data.gpuAdapterName || browserSpecs.gpuAdapterName,
+        hasCuda: data.hasCuda || browserSpecs.hasCuda,
+        hasRocm: data.hasRocm || browserSpecs.hasRocm,
         hasWebGpu: !!(navigator as any).gpu,
       };
       return cachedHostHardware!;
@@ -510,11 +515,12 @@ export function calculateModelResourceFootprint(
   );
 
   // Available memory target
-  const availableTargetGb = preferGpu
+  const rawTargetGb = preferGpu
     ? systemResources.gpuVramGb > 0
       ? systemResources.gpuVramGb
       : systemResources.systemRamGb
     : systemResources.systemRamGb;
+  const availableTargetGb = Math.max(1, rawTargetGb);
 
   const utilizationPercentage = Math.round(
     (totalRequiredRamGb / availableTargetGb) * 100
@@ -567,7 +573,7 @@ export function calculateModelResourceFootprint(
       runtimeCategory = 'Ollama / Local Socket';
       offloadStrategy = 'Partial GPU + CPU Offload';
     } else {
-      runtimeNeeded = 'Requires Larger Machine or Cloud API (> 16GB RAM)';
+      runtimeNeeded = `Requires Larger Machine or Cloud API (> ${Math.ceil(totalRequiredRamGb)}GB RAM)`;
       runtimeCategory = 'Cloud API';
       offloadStrategy = 'Partial GPU + CPU Offload';
     }
@@ -578,6 +584,16 @@ export function calculateModelResourceFootprint(
       offloadStrategy = '100% GPU / Unified Memory';
     } else {
       runtimeNeeded = 'CUDA + Host System RAM Offload';
+      runtimeCategory = 'Ollama / Local Socket';
+      offloadStrategy = 'Partial GPU + CPU Offload';
+    }
+  } else if (systemResources.hasRocm) {
+    if (totalRequiredRamGb <= systemResources.gpuVramGb * 0.9) {
+      runtimeNeeded = 'AMD ROCm / HIP Acceleration (Ollama / llama.cpp)';
+      runtimeCategory = 'Ollama / Local Socket';
+      offloadStrategy = '100% GPU / Unified Memory';
+    } else {
+      runtimeNeeded = 'AMD ROCm + Host System RAM Offload';
       runtimeCategory = 'Ollama / Local Socket';
       offloadStrategy = 'Partial GPU + CPU Offload';
     }

@@ -109,13 +109,25 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
   // State for copying Ollama local command
   const [copiedOllamaCmd, setCopiedOllamaCmd] = useState<string | null>(null);
 
-  const handleCopyCommand = (cmd: string) => {
+  const handleCopyCommand = async (cmd: string) => {
     try {
-      navigator.clipboard.writeText(cmd);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(cmd);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = cmd;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        textArea.remove();
+      }
       setCopiedOllamaCmd(cmd);
       setTimeout(() => setCopiedOllamaCmd(null), 2500);
-    } catch {
-      // Fallback
+    } catch (err) {
+      console.warn('Clipboard write error:', err);
     }
   };
 

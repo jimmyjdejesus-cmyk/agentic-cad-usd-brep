@@ -108,4 +108,33 @@ describe('Hermes Hardware & Resource Estimator Service', () => {
     expect(COGNITIVE_FALLBACK_MODELS['local-gguf']).toBeDefined();
     expect(COGNITIVE_FALLBACK_MODELS['local-gguf'].length).toBeGreaterThanOrEqual(6);
   });
+
+  it('correctly maps AMD ROCm / HIP acceleration when hasRocm is true', () => {
+    const mockRocmRig: SystemHardwareResources = {
+      systemRamGb: 64,
+      gpuVramGb: 24,
+      cpuCores: 16,
+      hasWebGpu: false,
+      gpuAdapterName: 'AMD Radeon RX 7900 XTX',
+      osPlatform: 'Linux',
+      deviceType: 'Workstation',
+      isAppleSilicon: false,
+      hasRocm: true,
+    };
+
+    const estimate = calculateModelResourceFootprint(14.0, 'Q4_K_M', mockRocmRig, true);
+    expect(estimate.runtimeNeeded).toContain('AMD ROCm');
+    expect(estimate.offloadStrategy).toBe('100% GPU / Unified Memory');
+  });
+
+  it('performs multi-word tokenized query matching in fallback models', async () => {
+    // Search with two separated tokens 'qwen coder'
+    const models = await searchHuggingFaceModels('qwen coder', 'all');
+    expect(models.length).toBeGreaterThanOrEqual(1);
+    expect(models.some((m) => m.name.toLowerCase().includes('qwen'))).toBe(true);
+  });
+
+  it('safely handles empty or missing id in getOllamaCommandForModel', () => {
+    expect(getOllamaCommandForModel('')).toBe('');
+  });
 });

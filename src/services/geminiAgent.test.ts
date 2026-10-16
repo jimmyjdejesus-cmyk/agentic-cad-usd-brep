@@ -135,5 +135,30 @@ def build_parts():
     expect(turn.finalCode).toContain('sm.create_cylinder');
     expect(turn.executionResult.success).toBe(true);
     expect(turn.executionResult.parts?.length).toBe(2);
+    // Verify indentation is preserved properly
+    expect(turn.finalCode).toContain('    return [');
+  });
+
+  it('handles nested brackets in existing return statement without truncation', async () => {
+    const complexCode = `import usd_brep as sm
+
+def build_parts():
+    base = sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, 2.0)
+    return [
+        ("base_plate", base, [0.5, 0.5, 0.5], "anchor"),
+    ]
+`;
+
+    const turn = await runAgenticCadTurn({
+      prompt: 'Add a new sphere primitive at 0, 0, 5 with radius 3',
+      currentCode: complexCode,
+    });
+
+    expect(turn.finalCode).toContain('base_plate');
+    expect(turn.finalCode).toContain('sphere_part');
+    expect(turn.finalCode).toContain('    return [');
+    expect(turn.finalCode.trim().endsWith(']')).toBe(true);
+    expect(turn.executionResult.success).toBe(true);
+    expect(turn.executionResult.parts?.length).toBe(2);
   });
 });

@@ -519,6 +519,49 @@ export function evaluateClientSideUsdBrep(
       continue;
     }
 
+    // sm.create_wedge((ox, oy, oz), dx, dy, dz, ltx)
+    const wedgeMatch = line.match(
+      /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.create_wedge\(\s*(\([^)]+\))\s*,\s*([^,]+),\s*([^,]+),\s*([^,]+)(?:,\s*([^)]+))?\)/
+    );
+    if (wedgeMatch) {
+      const [, varName, origStr, dxStr, dyStr, dzStr, ltxStr] = wedgeMatch;
+      const [ox, oy, oz] = parseVec3(origStr);
+      const dx = evalNum(dxStr);
+      const dy = evalNum(dyStr);
+      const dz = evalNum(dzStr);
+      const ltx = ltxStr ? evalNum(ltxStr) : 0.0;
+      if (dx <= 0 || dy <= 0 || dz <= 0) {
+        return {
+          ok: false,
+          success: false,
+          kernel: 'browser-usd-brep-fallback',
+          error: 'RuntimeError: SM_ERR_INVALID_INPUT: Wedge dimensions must be positive',
+          error_type: 'RuntimeError',
+        };
+      }
+
+      const shape2d = new THREE.Shape();
+      shape2d.moveTo(0, 0);
+      shape2d.lineTo(dx, 0);
+      shape2d.lineTo(ltx, dz);
+      if (ltx > 0) shape2d.lineTo(0, dz);
+      shape2d.closePath();
+
+      const geom = new THREE.ExtrudeGeometry(shape2d, { depth: dy, bevelEnabled: false });
+      geom.rotateX(Math.PI / 2);
+      geom.translate(ox, oy + dy, oz);
+      geom.computeVertexNormals();
+      shapes[varName] = {
+        geometries: [geom],
+        nurbsFaces: ltx > 0 ? 6 : 5,
+        nurbsEdges: 9,
+        nurbsVertices: 6,
+        volumeEstimate: 0.5 * (dx + ltx) * dy * dz,
+        areaEstimate: dx * dy + dy * dz + Math.hypot(dx - ltx, dz) * dy,
+      };
+      continue;
+    }
+
     // sm.sweep_along_planar_path fallback
     const sweepMatch = line.match(
       /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.sweep_along_planar_path\(/
@@ -613,9 +656,9 @@ export function evaluateClientSideUsdBrep(
     }
   }
 
-  // Extract return tuple list entries: ("name", varName, (r, g, b), "kind")
+  // Extract return tuple list entries: ("name", varName, (r, g, b) or [r, g, b], "kind")
   const tupleRegex =
-    /\(\s*["']([^"']+)["']\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)\s*(?:,\s*["']([^"']+)["'])?\s*\)/g;
+    /\(\s*["']([^"']+)["']\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*[\(\[]\s*([^,]+),\s*([^,]+),\s*([^\]\)]+)[\)\]]\s*(?:,\s*["']([^"']+)["'])?\s*\)/g;
   const partsOutput: CadPartOutput[] = [];
   let match: RegExpExecArray | null;
   while ((match = tupleRegex.exec(code)) !== null) {

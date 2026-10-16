@@ -770,19 +770,36 @@ export const App: React.FC = () => {
 
       const returnIdx = code.lastIndexOf('return [');
       if (returnIdx !== -1) {
-        const codeBeforeReturn = code.substring(0, returnIdx);
-        const returnRest = code.substring(returnIdx);
-        const listEndIdx = returnRest.indexOf(']');
+        const lineStart = code.lastIndexOf('\n', returnIdx);
+        const indent = lineStart === -1 ? '' : code.substring(lineStart + 1, returnIdx);
+        const codeBeforeReturn = code.substring(0, lineStart === -1 ? 0 : lineStart + 1);
+
+        // Bracket depth counter to accurately find matching ']'
+        const openBracketIdx = code.indexOf('[', returnIdx);
+        let listEndIdx = -1;
+        let depth = 0;
+        for (let i = openBracketIdx; i < code.length; i++) {
+          if (code[i] === '[') depth++;
+          else if (code[i] === ']') {
+            depth--;
+            if (depth === 0) {
+              listEndIdx = i;
+              break;
+            }
+          }
+        }
 
         if (listEndIdx !== -1) {
-          const returnListContent = returnRest.substring(0, listEndIdx);
-          const afterList = returnRest.substring(listEndIdx);
+          const returnListContent = code.substring(returnIdx, listEndIdx);
+          const afterList = code.substring(listEndIdx + 1);
 
-          const creationLine = shape.generateCode(varName);
-          const insertion = `    # Inserted ${shape.label} primitive\n${creationLine}\n\n`;
-          const tupleEntry = `        ("${uniqueName}", ${varName}, (0.35, 0.65, 0.95), "anchor"),\n`;
+          const rawCreation = shape.generateCode(varName).trim();
+          const insertion = `${indent}# Inserted ${shape.label} primitive\n${indent}${rawCreation}\n\n`;
+          const tupleIndent = `${indent}    `;
+          const trimmedListContent = returnListContent.trimEnd();
+          const tupleEntry = `\n${tupleIndent}("${uniqueName}", ${varName}, (0.35, 0.65, 0.95), "anchor"),\n${indent}`;
 
-          const updatedCode = `${codeBeforeReturn}${insertion}${returnListContent}${tupleEntry}    ${afterList}`;
+          const updatedCode = `${codeBeforeReturn}${insertion}${indent}${trimmedListContent}${tupleEntry}]${afterList}`;
           setCode(updatedCode);
           await handleExecuteCode(updatedCode);
           setSaveNotification(`Inserted ${shape.label} into active 3D assembly!`);
@@ -1302,7 +1319,9 @@ export const App: React.FC = () => {
             <Cpu className="w-3.5 h-3.5 text-amber-400" />
             <span className="hidden md:inline">Hermes Rig &amp; HF Hub</span>
             <span className="text-[10px] bg-amber-950/60 text-amber-300 px-1.5 py-0.2 rounded font-mono border border-amber-800/40">
-              {hardwareSpecs.cpuModel?.includes('Apple') ? 'Apple M1 16GB' : `${hardwareSpecs.systemRamGb}GB`}
+              {hardwareSpecs.isAppleSilicon || hardwareSpecs.cpuModel?.includes('Apple')
+                ? `${hardwareSpecs.cpuModel?.replace('Apple ', '') || 'M-Series'} ${hardwareSpecs.systemRamGb}GB`
+                : `${hardwareSpecs.systemRamGb}GB RAM`}
             </span>
           </button>
         </div>
