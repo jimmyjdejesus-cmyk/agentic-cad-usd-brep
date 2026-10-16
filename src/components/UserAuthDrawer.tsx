@@ -17,6 +17,7 @@ import {
   deleteUserAssembly,
   signInWithGoogle,
   logOut,
+  isFirebaseConfigured,
 } from '../services/firebase';
 import { AssemblyMassProperties, CadAnnotation } from '../types/cad';
 
@@ -51,16 +52,19 @@ export const UserAuthDrawer: React.FC<UserAuthDrawerProps> = ({
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const handleSignIn = async () => {
     setIsSigningIn(true);
+    setAuthError(null);
     try {
       await signInWithGoogle();
       await onRefreshAssemblies();
     } catch (err) {
       console.error('Sign-in failed:', err);
+      setAuthError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsSigningIn(false);
     }
@@ -193,6 +197,27 @@ export const UserAuthDrawer: React.FC<UserAuthDrawerProps> = ({
             </button>
           )}
         </div>
+
+        {/* Unconfigured / Auth Error Notice Banner */}
+        {authError && (
+          <div className="px-5 py-2.5 bg-rose-950/60 border-b border-rose-800/80 text-rose-200 text-xs flex items-center justify-between">
+            <span>{authError}</span>
+            <button
+              onClick={() => setAuthError(null)}
+              className="text-rose-400 hover:text-white text-xs font-mono ml-2"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        {!user && !isFirebaseConfigured() && (
+          <div className="px-5 py-2 bg-amber-950/40 border-b border-amber-800/50 text-amber-200 text-[11px] flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+            <span>
+              Cloud persistence is offline. Set <code className="bg-amber-900/40 px-1 py-0.5 rounded text-amber-100 font-mono">VITE_FIREBASE_API_KEY</code> in your <code className="font-mono">.env</code> to enable cloud saving.
+            </span>
+          </div>
+        )}
 
         {/* Content Body */}
         <div className="p-5 overflow-y-auto space-y-4 flex-1">

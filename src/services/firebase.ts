@@ -22,9 +22,74 @@ import {
 import firebaseConfig from '../../firebase-applet-config.json';
 import { CadAnnotation } from '../types/cad';
 
-// Initialize Firebase
-export const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Safely resolve environment variables across Vite (import.meta.env) and Node (process.env).
+// This ensures that API keys and cloud credentials are never hardcoded into tracked source files.
+const envApiKey =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_API_KEY) ||
+  (typeof process !== 'undefined' && (process.env?.VITE_FIREBASE_API_KEY || process.env?.FIREBASE_API_KEY)) ||
+  '';
+
+const envProjectId =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_PROJECT_ID) ||
+  (typeof process !== 'undefined' && (process.env?.VITE_FIREBASE_PROJECT_ID || process.env?.FIREBASE_PROJECT_ID)) ||
+  '';
+
+const envAuthDomain =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN) ||
+  (typeof process !== 'undefined' && (process.env?.VITE_FIREBASE_AUTH_DOMAIN || process.env?.FIREBASE_AUTH_DOMAIN)) ||
+  '';
+
+const envFirestoreDatabaseId =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_FIRESTORE_DATABASE_ID) ||
+  (typeof process !== 'undefined' && (process.env?.VITE_FIREBASE_FIRESTORE_DATABASE_ID || process.env?.FIREBASE_FIRESTORE_DATABASE_ID)) ||
+  '';
+
+const envStorageBucket =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET) ||
+  (typeof process !== 'undefined' && (process.env?.VITE_FIREBASE_STORAGE_BUCKET || process.env?.FIREBASE_STORAGE_BUCKET)) ||
+  '';
+
+const envMessagingSenderId =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID) ||
+  (typeof process !== 'undefined' && (process.env?.VITE_FIREBASE_MESSAGING_SENDER_ID || process.env?.FIREBASE_MESSAGING_SENDER_ID)) ||
+  '';
+
+const envAppId =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_APP_ID) ||
+  (typeof process !== 'undefined' && (process.env?.VITE_FIREBASE_APP_ID || process.env?.FIREBASE_APP_ID)) ||
+  '';
+
+// Resolve configuration: environment variables take precedence over config file to prevent secret exposure
+const resolvedApiKey = (envApiKey || firebaseConfig.apiKey || '').trim();
+
+/**
+ * Check whether a valid, non-placeholder Firebase API key is configured.
+ * Returns true if an active key is present via VITE_FIREBASE_API_KEY or config.
+ */
+export const isFirebaseConfigured = (): boolean => {
+  return Boolean(
+    resolvedApiKey &&
+    resolvedApiKey !== 'placeholder-dev-key' &&
+    !resolvedApiKey.startsWith('YOUR_')
+  );
+};
+
+// Construct effective configuration. When no key is set, a non-empty placeholder string
+// is supplied to prevent Firebase getAuth(app) from synchronously throwing an 'auth/invalid-api-key' error on boot.
+const effectiveFirebaseConfig = {
+  ...firebaseConfig,
+  apiKey: resolvedApiKey || 'placeholder-dev-key',
+  projectId: envProjectId || firebaseConfig.projectId,
+  authDomain: envAuthDomain || firebaseConfig.authDomain,
+  firestoreDatabaseId: envFirestoreDatabaseId || firebaseConfig.firestoreDatabaseId,
+  storageBucket: envStorageBucket || firebaseConfig.storageBucket,
+  messagingSenderId: envMessagingSenderId || firebaseConfig.messagingSenderId,
+  appId: envAppId || firebaseConfig.appId,
+};
+
+// Initialize Firebase with secure effective configuration
+export const app = initializeApp(effectiveFirebaseConfig);
+export const db = getFirestore(app, effectiveFirebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
@@ -95,6 +160,14 @@ export async function testConnection(): Promise<boolean> {
 
 // Google Sign-In with popup
 export async function signInWithGoogle(): Promise<FirebaseUser | null> {
+  // Guard check: notify user cleanly if Firebase has not been configured in .env
+  if (!isFirebaseConfigured()) {
+    const errorMsg =
+      'Firebase API key is not configured. Please add VITE_FIREBASE_API_KEY to your .env file to enable Google authentication.';
+    console.warn(errorMsg);
+    throw new Error(errorMsg);
+  }
+
   try {
     const cred = await signInWithPopup(auth, googleProvider);
     const user = cred.user;
