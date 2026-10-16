@@ -3,7 +3,16 @@
 import { spawn } from 'node:child_process';
 import http from 'node:http';
 
-const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// Resolve Chrome binary path with support for environment overrides (process.env.CHROME_BIN / process.env.CHROME_PATH)
+// and standard platform defaults (macOS, Linux CI, Windows).
+const CHROME_PATH =
+  process.env.CHROME_BIN ||
+  process.env.CHROME_PATH ||
+  (process.platform === 'darwin'
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    : process.platform === 'win32'
+    ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+    : '/usr/bin/google-chrome');
 const DEBUG_PORT = 9333; // Use dedicated debug port to avoid any conflict
 const SERVER_PORT = 3001; // Use dedicated test port
 
