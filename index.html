@@ -29,6 +29,19 @@
         }
       };
     </script>
+    <script>
+      window.tailwind = window.tailwind || {};
+      window.tailwind.config = {
+        theme: {
+          extend: {
+            spacing: {
+              '88': '22rem',
+              '92': '23rem',
+            },
+          },
+        },
+      };
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body {
@@ -51,6 +64,25 @@
       }
       ::-webkit-scrollbar-thumb:hover {
         background: #3f4453;
+      }
+      /* Fallback width rules for custom extended spacing in case Tailwind CDN fails or delays */
+      .hidden {
+        display: none !important;
+      }
+      .w-0 {
+        width: 0 !important;
+      }
+      .min-w-0 {
+        min-width: 0 !important;
+      }
+      .max-w-0 {
+        max-width: 0 !important;
+      }
+      .w-88 {
+        width: 22rem;
+      }
+      .w-92 {
+        width: 23rem;
       }
     </style>
   </head>

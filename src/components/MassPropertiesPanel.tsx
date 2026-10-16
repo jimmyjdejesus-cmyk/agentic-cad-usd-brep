@@ -103,7 +103,10 @@ export const MassPropertiesPanel: React.FC<MassPropertiesPanelProps> = ({
             <button
               onClick={() => setIsExpanded(!isExpanded)}
               className="p-1 rounded-md text-slate-400 hover:text-slate-200 transition"
-              title={isExpanded ? 'Collapse' : 'Expand'}
+              title={isExpanded ? 'Collapse Mass & Envelope Properties' : 'Expand Mass & Envelope Properties'}
+              aria-label={isExpanded ? 'Collapse Mass & Envelope Properties' : 'Expand Mass & Envelope Properties'}
+              aria-expanded={isExpanded}
+              aria-controls="mass-properties-panel-content"
             >
               {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
             </button>
@@ -111,7 +114,7 @@ export const MassPropertiesPanel: React.FC<MassPropertiesPanelProps> = ({
         </div>
 
         {isExpanded && (
-          <div className="p-3.5 space-y-3">
+          <div id="mass-properties-panel-content" className="p-3.5 space-y-3">
             {/* Active Material Header & Search Trigger */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-[11px] text-slate-400">
@@ -173,7 +176,10 @@ export const MassPropertiesPanel: React.FC<MassPropertiesPanelProps> = ({
                       ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
-                  title="Toggle Custom Density Input"
+                  title={showDensityInput ? 'Hide Custom Density Input' : 'Show Custom Density Input'}
+                  aria-label={showDensityInput ? 'Hide Custom Density Input' : 'Show Custom Density Input'}
+                  aria-expanded={showDensityInput}
+                  aria-controls="custom-density-input-drawer"
                 >
                   <Sliders className="w-3 h-3" />
                 </button>
@@ -182,6 +188,7 @@ export const MassPropertiesPanel: React.FC<MassPropertiesPanelProps> = ({
               {/* Custom Density Direct Input Drawer */}
               {showDensityInput && (
                 <form
+                  id="custom-density-input-drawer"
                   onSubmit={handleApplyCustomDensity}
                   className="flex items-center gap-1.5 pt-1 bg-slate-950/70 p-2 rounded-lg border border-slate-800"
                 >

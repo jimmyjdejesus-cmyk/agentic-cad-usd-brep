@@ -110,6 +110,8 @@ export const MaterialDatabaseModal: React.FC<MaterialDatabaseModalProps> = ({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
+            title="Close"
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
           >
             <X className="w-4 h-4" />
@@ -132,6 +134,8 @@ export const MaterialDatabaseModal: React.FC<MaterialDatabaseModalProps> = ({
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
+                aria-label="Clear search query"
+                title="Clear search query"
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
               >
                 <X className="w-3.5 h-3.5" />

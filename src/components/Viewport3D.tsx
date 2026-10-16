@@ -100,6 +100,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const [webGlError, setWebGlError] = useState<string | null>(null);
   const partGroupRef = useRef<THREE.Group | null>(null);
   const comGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.Group | null>(null);
@@ -211,7 +212,15 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     cameraRef.current = camera;
     updateCameraPosition();
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    } catch (err: any) {
+      console.warn('WebGL context creation failed:', err);
+      setWebGlError(err?.message || 'WebGL context could not be created');
+      return;
+    }
+
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
@@ -1388,6 +1397,19 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
           <span>Click Part: Inspect B-Rep</span>
         )}
       </div>
+
+      {/* WebGL Context Creation Fallback Notice */}
+      {webGlError && (
+        <div className="absolute inset-0 flex items-center justify-center p-6 bg-[#121316]/95 z-30">
+          <div className="text-center max-w-sm space-y-2 p-5 rounded-2xl bg-[#181a20] border border-amber-500/40 shadow-2xl">
+            <ShieldAlert className="w-8 h-8 text-amber-400 mx-auto" />
+            <h4 className="text-sm font-semibold text-white">3D Viewport Hardware Acceleration Unavailable</h4>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              WebGL context could not be initialized in this environment ({webGlError}). The CAD studio, Python code generator, and tools remain fully active.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -9,23 +9,24 @@ import { DEFAULT_PRESETS } from './src/data/presetsData';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 const DOCS_ROOT = path.resolve(__dirname, 'docs', 'nvidia-usd-brep');
 const PYTHON_BACKEND_URL = process.env.PYTHON_BACKEND_URL || 'http://127.0.0.1:8000';
 
 async function checkPythonBackend(): Promise<{ available: boolean; data?: any }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1200);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 1200);
     const res = await fetch(`${PYTHON_BACKEND_URL}/api/health`, { signal: controller.signal });
-    clearTimeout(timer);
     if (res.ok) {
       const data = await res.json();
       return { available: Boolean(data.usd_brep_available), data };
     }
   } catch {
     // Backend offline / not reachable
+  } finally {
+    clearTimeout(timer);
   }
   return { available: false };
 }
@@ -303,39 +304,46 @@ async function startServer() {
 
   // GET /api/presets
   app.get('/api/presets', async (_req: Request, res: Response) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1500);
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 1500);
       const pyRes = await fetch(`${PYTHON_BACKEND_URL}/api/presets`, { signal: controller.signal });
-      clearTimeout(timer);
       if (pyRes.ok) {
         const data = await pyRes.json();
         return res.json(data);
       }
     } catch {
       // Backend not running, serve presets from repository data
+    } finally {
+      clearTimeout(timer);
     }
     res.json({ presets: DEFAULT_PRESETS });
   });
 
   // POST /api/execute
   app.post('/api/execute', async (req: Request, res: Response) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 15000);
       const pyRes = await fetch(`${PYTHON_BACKEND_URL}/api/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body),
         signal: controller.signal,
       });
-      clearTimeout(timer);
       if (pyRes.ok) {
         const data = await pyRes.json();
+        // If Python engine signals fallback (e.g. usd_brep C++ wheels unavailable),
+        // respond with 503 so frontend triggers client-side geometric synthesizer
+        if (data?.fallback === true) {
+          return res.status(503).json(data);
+        }
         return res.json(data);
       }
     } catch {
       // Python backend not running or timed out
+    } finally {
+      clearTimeout(timer);
     }
     // Return 503 fallback signal so cadRuntime knows to evaluate client-side without crashing
     res.status(503).json({

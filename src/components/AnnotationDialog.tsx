@@ -176,6 +176,8 @@ export const AnnotationDialog: React.FC<AnnotationDialogProps> = ({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
+            title="Close"
             className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
           >
             <X className="w-4 h-4" />
