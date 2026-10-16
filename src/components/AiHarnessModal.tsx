@@ -30,11 +30,14 @@ import {
   Compass,
   Unlock,
   FastForward,
+  Copy,
+  Check,
 } from 'lucide-react';
 import {
   AI_HARNESS_OPTIONS,
   AI_MODEL_OPTIONS,
   detectSystemHardwareResources,
+  fetchSystemHardwareResources,
   calculateModelResourceFootprint,
 } from '../services/appToolsAndSkills';
 import {
@@ -103,10 +106,37 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
   // Custom harness state
   const [customHarnessName, setCustomHarnessName] = useState('');
 
-  // Re-detect on mount
+  // State for copying Ollama local command
+  const [copiedOllamaCmd, setCopiedOllamaCmd] = useState<string | null>(null);
+
+  const handleCopyCommand = async (cmd: string) => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(cmd);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = cmd;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        textArea.remove();
+      }
+      setCopiedOllamaCmd(cmd);
+      setTimeout(() => setCopiedOllamaCmd(null), 2500);
+    } catch (err) {
+      console.warn('Clipboard write error:', err);
+    }
+  };
+
+  // Re-detect on mount with true host specs via fetchSystemHardwareResources
   useEffect(() => {
     if (isOpen) {
-      setHardwareSpecs(detectSystemHardwareResources());
+      fetchSystemHardwareResources().then((specs) => {
+        setHardwareSpecs(specs);
+      });
       setHfToken(getStoredHfToken());
     }
   }, [isOpen]);
@@ -306,13 +336,58 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
           {activeTab === 'huggingface-hub' && (
             <div className="space-y-4">
               
+              {/* Hermes Host Rig & Runtime Status Banner */}
+              <div className="p-3.5 rounded-xl bg-gradient-to-r from-slate-950 via-[#131722] to-slate-950 border border-slate-800 shadow-md flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-950/80 border border-emerald-600/50 flex items-center justify-center shrink-0 shadow-sm shadow-emerald-500/10">
+                    <Cpu className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-white text-xs flex items-center gap-2">
+                      <span>{hardwareSpecs.cpuModel || 'Apple Silicon / Multi-Core'}</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-300 border border-emerald-700/60 font-mono font-semibold">
+                        {hardwareSpecs.systemRamGb} GB Unified Memory
+                      </span>
+                      {hardwareSpecs.hasMetal && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-indigo-950 text-indigo-300 border border-indigo-700/60 font-mono">
+                          Metal GPU Accelerated
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-2 mt-0.5">
+                      <span>Platform: <strong className="text-slate-300">{hardwareSpecs.osPlatform}</strong> ({hardwareSpecs.cpuCores} Threads)</span>
+                      <span>•</span>
+                      <span>Target Quant: <strong className="text-amber-300 font-mono">{hardwareSpecs.recommendedLocalQuant || 'Q4_K_M'}</strong></span>
+                      <span>•</span>
+                      <span>Max Local Params: <strong className="text-emerald-400 font-mono">{hardwareSpecs.recommendedMaxModelParams || 14}B</strong></span>
+                      <span>•</span>
+                      <span className="text-[10px] text-emerald-400/90 font-medium">✓ Precision Rig ({hardwareSpecs.detectedVia || 'host-system'})</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      const specs = await fetchSystemHardwareResources();
+                      setHardwareSpecs(specs);
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs text-slate-300 flex items-center gap-1.5 transition cursor-pointer"
+                    title="Re-query host hardware specs"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Re-Detect Rig</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Cognitive Architecture Filter Dropdown / Presets */}
               <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <BrainCircuit className="w-4 h-4 text-emerald-400" />
                     <span className="font-bold text-white text-xs">
-                      Cognitive Architecture & Model Type Filter:
+                      Cognitive Architecture &amp; Model Type Filter:
                     </span>
                   </div>
 
@@ -321,7 +396,7 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
                   {COGNITIVE_PRESET_OPTIONS.map((preset) => {
                     const isSelected = cognitiveFilter === preset.id;
                     return (
@@ -341,6 +416,7 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
                       >
                         <div className="flex items-center justify-between w-full">
                           <span className="text-xs font-bold truncate">{preset.label.split(':')[0]}</span>
+                          {preset.id === 'local-gguf' && <Terminal className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
                           {preset.id === 'system2-reasoning' && <BrainCircuit className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
                           {preset.id === 'system1-reflex' && <FastForward className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
                           {preset.id === 'abliterated-uncensored' && <Unlock className="w-3.5 h-3.5 text-purple-400 shrink-0" />}
@@ -575,6 +651,53 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
                   </div>
                 </div>
 
+                {/* Runtime Needed & Offload Strategy (Hermes Style) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
+                  <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between">
+                    <span className="text-slate-400">Runtime Needed:</span>
+                    <span className="text-emerald-300 font-semibold font-mono flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                      {resourceEstimate.runtimeNeeded}
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between">
+                    <span className="text-slate-400">Offload Strategy:</span>
+                    <span className="text-sky-300 font-semibold font-mono">
+                      {resourceEstimate.offloadStrategy}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 1-Click Terminal Command for Ollama / GGUF Local Run */}
+                {inspectedHfModel.ollamaCommand && (
+                  <div className="p-2.5 rounded-lg bg-slate-900/90 border border-emerald-900/40 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-slate-400">Ollama Local Run Command:</span>
+                      <code className="px-2 py-0.5 rounded bg-black/60 text-emerald-300 font-mono text-[11px] border border-emerald-900/30">
+                        {inspectedHfModel.ollamaCommand}
+                      </code>
+                    </div>
+                    <button
+                      onClick={() => handleCopyCommand(inspectedHfModel.ollamaCommand!)}
+                      className="px-2.5 py-1 rounded-md bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/50 text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                      title="Copy Ollama run command to clipboard"
+                    >
+                      {copiedOllamaCmd === inspectedHfModel.ollamaCommand ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          <span>Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3 text-emerald-400" />
+                          <span>Copy CLI Command</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
                 {/* Recommendation & Activation Button */}
                 <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800/80 text-xs text-slate-300 flex flex-wrap items-center justify-between gap-3">
                   <div className="flex-1">
@@ -690,6 +813,31 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
                               {cardEstimate.totalRequiredRamGb} GB RAM
                             </span>
                           </div>
+                        </div>
+
+                        {/* Runtime & CLI Shortcut */}
+                        <div className="flex items-center justify-between gap-1 text-[9px] pt-1 border-t border-slate-800/40">
+                          <span className="text-zinc-400 truncate flex items-center gap-1 font-mono" title={cardEstimate.runtimeNeeded}>
+                            <Zap className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                            <span className="truncate">{cardEstimate.runtimeNeeded.split('(')[0].trim()}</span>
+                          </span>
+                          {m.ollamaCommand && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCopyCommand(m.ollamaCommand!);
+                              }}
+                              className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-800/50 text-emerald-300 font-mono flex items-center gap-1 transition"
+                              title={`Copy: ${m.ollamaCommand}`}
+                            >
+                              {copiedOllamaCmd === m.ollamaCommand ? (
+                                <Check className="w-2.5 h-2.5 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-2.5 h-2.5 text-emerald-400" />
+                              )}
+                              <span>Copy CLI</span>
+                            </button>
+                          )}
                         </div>
 
                         {/* Footer Action */}
@@ -879,11 +1027,14 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
                     </p>
                   </div>
                   <button
-                    onClick={() => setHardwareSpecs(detectSystemHardwareResources())}
-                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 flex items-center gap-1.5 transition"
+                    onClick={async () => {
+                      const specs = await fetchSystemHardwareResources();
+                      setHardwareSpecs(specs);
+                    }}
+                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 flex items-center gap-1.5 transition cursor-pointer"
                   >
-                    <RefreshCw className="w-3 h-3" />
-                    <span>Re-Detect</span>
+                    <RefreshCw className="w-3 h-3 text-amber-400" />
+                    <span>Re-Detect Host</span>
                   </button>
                 </div>
 
@@ -952,10 +1103,19 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
                   </div>
                 </div>
 
-                <div className="p-3 rounded-lg bg-slate-900/60 border border-slate-800/60 text-[11px] text-slate-400 flex flex-wrap gap-4">
-                  <div><strong>GPU Device:</strong> {hardwareSpecs.gpuAdapterName}</div>
-                  <div><strong>Platform:</strong> {hardwareSpecs.osPlatform}</div>
-                  <div><strong>WebGPU Available:</strong> {hardwareSpecs.hasWebGpu ? 'Yes' : 'No'}</div>
+                <div className="p-3.5 rounded-lg bg-slate-900/70 border border-slate-800/70 text-xs text-slate-300 grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  <div><strong>CPU Architecture:</strong> <span className="font-mono text-white">{hardwareSpecs.cpuModel || 'Apple Silicon / ARM64'}</span></div>
+                  <div><strong>Host Memory:</strong> <span className="font-mono text-emerald-300">{hardwareSpecs.systemRamGb} GB</span> ({hardwareSpecs.freeRamGb ? `${hardwareSpecs.freeRamGb} GB free` : 'Unified dynamic'})</div>
+                  <div><strong>GPU Device:</strong> <span className="text-slate-200">{hardwareSpecs.gpuAdapterName}</span></div>
+                  <div><strong>Platform &amp; Kernel:</strong> <span className="text-slate-200">{hardwareSpecs.osPlatform}</span></div>
+                  <div><strong>Unified Memory / Metal:</strong> <span className="font-mono text-indigo-300">{hardwareSpecs.hasMetal ? 'Metal Active (Zero PCIe Bottleneck)' : 'Discrete PCIe'}</span></div>
+                  <div><strong>WebGPU Available:</strong> <span className="font-mono text-emerald-400">{hardwareSpecs.hasWebGpu ? 'Yes' : 'No'}</span></div>
+                  <div className="md:col-span-2 pt-1 border-t border-slate-800/60">
+                    <span className="text-slate-400">Available Host Runtimes: </span>
+                    <span className="font-mono text-amber-300">
+                      {hardwareSpecs.runtimesAvailable?.join(' • ') || 'Ollama, WebGPU, Cloud Gemini'}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

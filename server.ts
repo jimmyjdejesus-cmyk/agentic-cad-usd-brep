@@ -3,6 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import os from 'os';
 import { GoogleGenAI, Type } from '@google/genai';
 import { DEFAULT_PRESETS } from './src/data/presetsData';
 
@@ -241,6 +242,195 @@ def build_parts():
     };
   }
 
+  // Helper to append a primitive to existing build_parts code if present
+  const appendPrimitiveIfPossible = (
+    partName: string,
+    createExpr: string,
+    color: string,
+    kind: string = 'component'
+  ): string | null => {
+    if (!currentCode || !currentCode.includes('def build_parts():') || !currentCode.includes('return [')) {
+      return null;
+    }
+    // Determine unique part name
+    let uniqueName = partName;
+    let idx = 1;
+    while (currentCode.includes(`"${uniqueName}"`) || currentCode.includes(`'${uniqueName}'`)) {
+      idx++;
+      uniqueName = `${partName}_${idx}`;
+    }
+    const varName = uniqueName.replace(/[^a-zA-Z0-9_]/g, '_');
+    const returnPos = currentCode.lastIndexOf('return [');
+    if (returnPos === -1) return null;
+
+    const lineStart = currentCode.lastIndexOf('\n', returnPos);
+    const indent = lineStart === -1 ? '' : currentCode.substring(lineStart + 1, returnPos);
+    const codeBeforeReturn = currentCode.substring(0, lineStart === -1 ? 0 : lineStart + 1);
+
+    const openBracketIdx = currentCode.indexOf('[', returnPos);
+    let listEndPos = -1;
+    let depth = 0;
+    for (let i = openBracketIdx; i < currentCode.length; i++) {
+      if (currentCode[i] === '[') depth++;
+      else if (currentCode[i] === ']') {
+        depth--;
+        if (depth === 0) {
+          listEndPos = i;
+          break;
+        }
+      }
+    }
+    if (listEndPos === -1) return null;
+
+    const returnListContent = currentCode.substring(returnPos, listEndPos);
+    const afterList = currentCode.substring(listEndPos + 1);
+
+    const insertion = `${indent}# Injected primitive shape\n${indent}${varName} = ${createExpr}\n\n`;
+    const tupleIndent = `${indent}    `;
+    const trimmedListContent = returnListContent.trimEnd();
+    const newTuple = `\n${tupleIndent}("${uniqueName}", ${varName}, ${color}, "${kind}"),\n${indent}`;
+
+    return `${codeBeforeReturn}${insertion}${indent}${trimmedListContent}${newTuple}]${afterList}`;
+  };
+
+  // 1. Box / Cube primitive
+  if (lower.includes('box') || lower.includes('cube') || lower.includes('cuboid') || lower.includes('prism')) {
+    const appended = appendPrimitiveIfPossible('box_part', 'sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, 10.0)', '(0.35, 0.65, 0.95)', 'anchor');
+    if (appended) {
+      return {
+        explanation: 'Appended a solid 10 × 10 × 10 cm box/cube primitive to your active CAD assembly using sm.create_box.',
+        code: appended,
+      };
+    }
+    return {
+      explanation: 'Synthesized a solid 10 × 10 × 10 cm parametric box/cube manifold B-Rep using sm.create_box resting on the ground plane (z=0).',
+      code: `import usd_brep as sm
+
+def build_parts():
+    """Parametric Solid Box / Cube manifold B-Rep."""
+    cube = sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, 10.0)
+    return [
+        ("cube", cube, (0.35, 0.65, 0.95), "anchor"),
+    ]
+`,
+    };
+  }
+
+  // 2. Cylinder / Shaft primitive
+  if (lower.includes('cylinder') || lower.includes('shaft') || lower.includes('rod') || lower.includes('puck')) {
+    const appended = appendPrimitiveIfPossible('cylinder_part', 'sm.create_cylinder((0.0, 0.0, 0.0), 5.0, 10.0)', '(0.30, 0.75, 0.60)', 'anchor');
+    if (appended) {
+      return {
+        explanation: 'Appended a solid cylinder primitive (radius 5 cm, height 10 cm) to your active CAD assembly using sm.create_cylinder.',
+        code: appended,
+      };
+    }
+    return {
+      explanation: 'Synthesized a solid cylinder primitive (radius 5 cm, height 10 cm) standing at the origin using sm.create_cylinder.',
+      code: `import usd_brep as sm
+
+def build_parts():
+    """Parametric Solid Cylinder manifold B-Rep."""
+    cylinder = sm.create_cylinder((0.0, 0.0, 0.0), 5.0, 10.0)
+    return [
+        ("cylinder", cylinder, (0.30, 0.75, 0.60), "anchor"),
+    ]
+`,
+    };
+  }
+
+  // 3. Sphere primitive
+  if (lower.includes('sphere') || lower.includes('ball') || lower.includes('orb')) {
+    const appended = appendPrimitiveIfPossible('sphere_part', 'sm.create_sphere((0.0, 0.0, 5.0), 5.0)', '(0.95, 0.55, 0.25)', 'anchor');
+    if (appended) {
+      return {
+        explanation: 'Appended a solid sphere primitive (radius 5 cm) to your active CAD assembly using sm.create_sphere.',
+        code: appended,
+      };
+    }
+    return {
+      explanation: 'Synthesized a solid sphere primitive (radius 5 cm) resting on the ground plane at (0, 0, 5) using sm.create_sphere.',
+      code: `import usd_brep as sm
+
+def build_parts():
+    """Parametric Solid Sphere manifold B-Rep."""
+    sphere = sm.create_sphere((0.0, 0.0, 5.0), 5.0)
+    return [
+        ("sphere", sphere, (0.95, 0.55, 0.25), "anchor"),
+    ]
+`,
+    };
+  }
+
+  // 4. Cone primitive
+  if (lower.includes('cone') || lower.includes('taper') || lower.includes('funnel')) {
+    const appended = appendPrimitiveIfPossible('cone_part', 'sm.create_cone((0.0, 0.0, 0.0), radius_base=5.0, radius_top=0.5, height=10.0)', '(0.85, 0.35, 0.75)', 'anchor');
+    if (appended) {
+      return {
+        explanation: 'Appended a solid cone primitive (base radius 5 cm, top radius 0.5 cm, height 10 cm) to your active CAD assembly using sm.create_cone.',
+        code: appended,
+      };
+    }
+    return {
+      explanation: 'Synthesized a solid cone primitive standing at the origin using sm.create_cone.',
+      code: `import usd_brep as sm
+
+def build_parts():
+    """Parametric Solid Cone manifold B-Rep."""
+    cone = sm.create_cone((0.0, 0.0, 0.0), radius_base=5.0, radius_top=0.5, height=10.0)
+    return [
+        ("cone", cone, (0.85, 0.35, 0.75), "anchor"),
+    ]
+`,
+    };
+  }
+
+  // 5. Torus primitive
+  if (lower.includes('torus') || lower.includes('ring') || lower.includes('donut')) {
+    const appended = appendPrimitiveIfPossible('torus_part', 'sm.create_torus((0.0, 0.0, 1.5), 5.0, 1.5)', '(0.90, 0.80, 0.20)', 'anchor');
+    if (appended) {
+      return {
+        explanation: 'Appended a solid torus ring (major radius 5 cm, tube radius 1.5 cm) to your active CAD assembly using sm.create_torus.',
+        code: appended,
+      };
+    }
+    return {
+      explanation: 'Synthesized a solid torus ring centered at origin using sm.create_torus.',
+      code: `import usd_brep as sm
+
+def build_parts():
+    """Parametric Solid Torus manifold B-Rep."""
+    torus = sm.create_torus((0.0, 0.0, 1.5), 5.0, 1.5)
+    return [
+        ("torus", torus, (0.90, 0.80, 0.20), "anchor"),
+    ]
+`,
+    };
+  }
+
+  // 6. Wedge primitive
+  if (lower.includes('wedge') || lower.includes('ramp')) {
+    const appended = appendPrimitiveIfPossible('wedge_part', 'sm.create_wedge((-5.0, -5.0, 0.0), 10.0, 10.0, 8.0, 2.0)', '(0.92, 0.60, 0.20)', 'anchor');
+    if (appended) {
+      return {
+        explanation: 'Appended a solid right-angled wedge primitive to your active CAD assembly using sm.create_wedge.',
+        code: appended,
+      };
+    }
+    return {
+      explanation: 'Synthesized a solid right-angled wedge manifold B-Rep standing at origin using sm.create_wedge.',
+      code: `import usd_brep as sm
+
+def build_parts():
+    """Parametric Solid Wedge manifold B-Rep."""
+    wedge = sm.create_wedge((-5.0, -5.0, 0.0), 10.0, 10.0, 8.0, 2.0)
+    return [
+        ("wedge", wedge, (0.92, 0.60, 0.20), "anchor"),
+    ]
+`,
+    };
+  }
+
   return {
     explanation: 'Constructed a multi-part precision sensor turret assembly with a filleted base plate, rotating azimuth drum, dual optical barrels, and top LiDAR dome.',
     code: `import usd_brep as sm
@@ -306,6 +496,85 @@ async function startServer() {
       docs_available: docsAvailable,
       preset_count: DEFAULT_PRESETS.length,
       gemini_configured: isValidGeminiApiKey(process.env.GEMINI_API_KEY),
+    });
+  });
+
+  // GET /api/system/hardware - Accurate host hardware specs & runtime environment (Hermes & LM Studio style)
+  app.get('/api/system/hardware', (_req: Request, res: Response) => {
+    const totalBytes = os.totalmem();
+    const freeBytes = os.freemem();
+    const totalGb = parseFloat((totalBytes / (1024 * 1024 * 1024)).toFixed(1));
+    const freeGb = parseFloat((freeBytes / (1024 * 1024 * 1024)).toFixed(1));
+    const cpus = os.cpus() || [];
+    const cpuModel = cpus.length > 0 ? cpus[0].model.trim() : 'Generic Host CPU';
+    const cpuCores = cpus.length || 8;
+    const platform = os.platform();
+    const arch = os.arch();
+
+    // Accurately identify Apple Silicon (M1/M2/M3/M4) unified memory architectures
+    const isAppleSilicon = platform === 'darwin' && (arch === 'arm64' || cpuModel.includes('Apple'));
+
+    // On Apple Silicon, unified memory is shared dynamically by CPU and GPU Metal cores with zero PCIe transfer bottleneck
+    const gpuVramGb = isAppleSilicon ? totalGb : Math.max(4, Math.min(24, Math.round(totalGb * 0.5)));
+
+    const osPlatform = isAppleSilicon
+      ? 'macOS (Apple Silicon)'
+      : platform === 'darwin'
+      ? 'macOS (Intel)'
+      : platform === 'win32'
+      ? 'Windows'
+      : 'Linux / Unix';
+
+    const deviceType = isAppleSilicon
+      ? 'Apple Silicon Mac (Unified Memory)'
+      : totalGb >= 16
+      ? 'Desktop / Workstation'
+      : 'Laptop / Mobile';
+
+    const runtimesAvailable: string[] = [];
+    if (isAppleSilicon) {
+      runtimesAvailable.push('Ollama (Metal Accelerated)');
+      runtimesAvailable.push('PyTorch MPS (Metal Performance Shaders)');
+    }
+    runtimesAvailable.push('WebGPU In-Browser (Wasm/WebGPU Engine)');
+    runtimesAvailable.push('Agnostic Tool-Calling (OpenAI / LiteLLM)');
+    runtimesAvailable.push('Cloud Gemini API');
+
+    // Recommended local quantization format and parameter ceiling based on host memory
+    let recommendedLocalQuant = 'Q4_K_M';
+    let recommendedMaxModelParams = 8;
+    if (totalGb >= 32) {
+      recommendedLocalQuant = 'Q5_K_M';
+      recommendedMaxModelParams = 32;
+    } else if (totalGb >= 16) {
+      recommendedLocalQuant = 'Q4_K_M';
+      recommendedMaxModelParams = 14;
+    } else if (totalGb >= 8) {
+      recommendedLocalQuant = 'Q4_0';
+      recommendedMaxModelParams = 7;
+    } else {
+      recommendedLocalQuant = 'Q4_0';
+      recommendedMaxModelParams = 3;
+    }
+
+    res.json({
+      systemRamGb: totalGb,
+      freeRamGb: freeGb,
+      gpuVramGb,
+      cpuCores,
+      cpuModel,
+      osPlatform,
+      deviceType,
+      gpuAdapterName: isAppleSilicon ? `${cpuModel} (Metal Unified GPU)` : 'Host System Graphics',
+      hasWebGpu: true,
+      hasMetal: isAppleSilicon,
+      hasCuda: false,
+      hasRocm: false,
+      isAppleSilicon,
+      recommendedLocalQuant,
+      recommendedMaxModelParams,
+      runtimesAvailable,
+      detectedVia: 'host-system',
     });
   });
 

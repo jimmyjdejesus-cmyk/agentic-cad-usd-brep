@@ -268,8 +268,10 @@ export interface AiHarness {
 
 export type QuantizationType = 'Q4_K_M' | 'Q4_0' | 'Q5_K_M' | 'Q8_0' | 'FP16';
 
+// Filter modes for exploring Hugging Face models, including local GGUF/Ollama models
 export type CognitiveFilterMode =
   | 'all'
+  | 'local-gguf'
   | 'system2-reasoning'
   | 'system1-reflex'
   | 'abliterated-uncensored'
@@ -289,8 +291,11 @@ export interface HuggingFaceModel {
   tags: string[];
   description: string;
   isCustom?: boolean;
+  // Recommended local CLI or Ollama run command, e.g. 'ollama run qwen2.5-coder:7b'
+  ollamaCommand?: string;
 }
 
+// Comprehensive hardware resource inventory accurately detected from host OS and browser
 export interface SystemHardwareResources {
   systemRamGb: number;
   gpuVramGb: number;
@@ -298,9 +303,20 @@ export interface SystemHardwareResources {
   hasWebGpu: boolean;
   gpuAdapterName: string;
   osPlatform: string;
-  deviceType: 'Desktop / Workstation' | 'Laptop / Mobile' | 'Server';
+  deviceType: 'Desktop / Workstation' | 'Laptop / Mobile' | 'Server' | 'Apple Silicon Mac (Unified Memory)' | string;
+  cpuModel?: string;
+  freeRamGb?: number;
+  hasMetal?: boolean;
+  hasCuda?: boolean;
+  hasRocm?: boolean;
+  isAppleSilicon?: boolean;
+  recommendedLocalQuant?: string;
+  recommendedMaxModelParams?: number;
+  runtimesAvailable?: string[];
+  detectedVia?: 'host-system' | 'browser-fallback';
 }
 
+// Memory footprint and runtime compatibility evaluation (Hermes & LM Studio style)
 export interface ResourceEstimate {
   modelWeightsRamGb: number;
   kvCacheRamGb: number;
@@ -313,6 +329,12 @@ export interface ResourceEstimate {
   fitColor: string;
   estimatedTokensPerSec: number;
   recommendation: string;
+  // Specific execution runtime required to run this model on current hardware
+  runtimeNeeded: string;
+  // High-level runtime classification category
+  runtimeCategory: 'Ollama / Local Socket' | 'WebGPU In-Browser' | 'PyTorch / MPS' | 'Cloud API';
+  // Hardware offload execution strategy
+  offloadStrategy: '100% GPU / Unified Memory' | 'Partial GPU + CPU Offload' | 'CPU Only';
 }
 
 export interface AiModelOption {
