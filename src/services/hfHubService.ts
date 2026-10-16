@@ -99,6 +99,40 @@ export function pickRecommendedHarness(repoId: string, tags: string[] = []): Har
   return 'hermes-agent';
 }
 
+export function getOllamaCommandForModel(id: string, name?: string): string {
+  const lower = (id + ' ' + (name || '')).toLowerCase();
+  if (lower.includes('hermes3') || lower.includes('hermes-3')) {
+    return lower.includes('70b') ? 'ollama run hermes3:70b' : 'ollama run hermes3:8b';
+  }
+  if (lower.includes('qwen2.5-coder') || lower.includes('qwen-2.5-coder')) {
+    if (lower.includes('1.5b')) return 'ollama run qwen2.5-coder:1.5b';
+    if (lower.includes('14b')) return 'ollama run qwen2.5-coder:14b';
+    if (lower.includes('32b')) return 'ollama run qwen2.5-coder:32b';
+    return 'ollama run qwen2.5-coder:7b';
+  }
+  if (lower.includes('deepseek-r1') || lower.includes('deepseek_r1')) {
+    if (lower.includes('1.5b')) return 'ollama run deepseek-r1:1.5b';
+    if (lower.includes('8b')) return 'ollama run deepseek-r1:8b';
+    if (lower.includes('14b')) return 'ollama run deepseek-r1:14b';
+    return 'ollama run deepseek-r1:7b';
+  }
+  if (lower.includes('llama-3.2') || lower.includes('llama3.2')) {
+    if (lower.includes('1b')) return 'ollama run llama3.2:1b';
+    return 'ollama run llama3.2:3b';
+  }
+  if (lower.includes('llama-3.1') || lower.includes('llama3.1')) {
+    return 'ollama run llama3.1:8b';
+  }
+  if (lower.includes('mistral')) {
+    return 'ollama run mistral';
+  }
+  if (lower.includes('phi-3.5') || lower.includes('phi3.5')) {
+    return 'ollama run phi3.5';
+  }
+  const cleanName = id.split('/')[1] || id;
+  return `ollama run ${cleanName.toLowerCase().replace(/-gguf$/, '')}`;
+}
+
 /**
  * Cognitive preset filters mapping to search terms or tags
  */
@@ -110,6 +144,14 @@ export const COGNITIVE_PRESET_OPTIONS: {
   description: string;
   defaultQuery: string;
 }[] = [
+  {
+    id: 'local-gguf',
+    label: 'Local GGUF & Ollama (Hermes Rig)',
+    badge: 'Offline Local Run',
+    color: 'emerald',
+    description: 'Pre-quantized GGUF open weights tuned for local Ollama, llama.cpp, and LM Studio with zero cloud telemetry.',
+    defaultQuery: 'gguf ollama hermes coder',
+  },
   {
     id: 'all',
     label: 'All Models (Live HF Hub)',
@@ -404,6 +446,98 @@ export const COGNITIVE_FALLBACK_MODELS: Record<CognitiveFilterMode, HuggingFaceM
       description: 'Learned spatial latent embeddings representing continuous 3D implicit neural representations and manifold surfaces.',
     },
   ],
+  'local-gguf': [
+    {
+      id: 'NousResearch/Hermes-3-Llama-3.1-8B-GGUF',
+      name: 'Hermes 3 Llama 3.1 8B (GGUF)',
+      author: 'NousResearch',
+      paramsBillions: 8.0,
+      contextWindow: 131072,
+      architecture: 'LlamaForCausalLM',
+      downloads: '1.4M',
+      likes: 960,
+      pipelineTag: 'text-generation',
+      recommendedHarness: 'ollama-local',
+      tags: ['gguf', 'ollama', 'hermes', 'tool-use', 'offline-ready'],
+      description: 'Nous Research flagship open agent model with native tool-calling and scratchpad reasoning in GGUF format.',
+      ollamaCommand: 'ollama run hermes3:8b',
+    },
+    {
+      id: 'Qwen/Qwen2.5-Coder-7B-Instruct-GGUF',
+      name: 'Qwen 2.5 Coder 7B Instruct (GGUF)',
+      author: 'Qwen',
+      paramsBillions: 7.61,
+      contextWindow: 32768,
+      architecture: 'Qwen2ForCausalLM',
+      downloads: '2.1M',
+      likes: 1240,
+      pipelineTag: 'text-generation',
+      recommendedHarness: 'ollama-local',
+      tags: ['gguf', 'ollama', 'code-generation', 'cad-expert'],
+      description: 'State-of-the-art 7B code generation model excelling at complex Python geometry and NURBS scripts.',
+      ollamaCommand: 'ollama run qwen2.5-coder:7b',
+    },
+    {
+      id: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B-GGUF',
+      name: 'DeepSeek R1 Distill Qwen 7B (GGUF)',
+      author: 'deepseek-ai',
+      paramsBillions: 7.6,
+      contextWindow: 32768,
+      architecture: 'Qwen2ForCausalLM',
+      downloads: '5.2M',
+      likes: 2450,
+      pipelineTag: 'text-generation',
+      recommendedHarness: 'ollama-local',
+      tags: ['gguf', 'ollama', 'reasoning', 'system2'],
+      description: 'System 2 chain-of-thought distillation with deep CAD geometrical reasoning traces in GGUF.',
+      ollamaCommand: 'ollama run deepseek-r1:7b',
+    },
+    {
+      id: 'meta-llama/Llama-3.2-3B-Instruct-GGUF',
+      name: 'Llama 3.2 3B Instruct (GGUF)',
+      author: 'meta-llama',
+      paramsBillions: 3.21,
+      contextWindow: 131072,
+      architecture: 'LlamaForCausalLM',
+      downloads: '1.8M',
+      likes: 810,
+      pipelineTag: 'text-generation',
+      recommendedHarness: 'ollama-local',
+      tags: ['gguf', 'ollama', 'compact', 'fast-inference'],
+      description: 'Compact 3B model offering 50+ tokens/sec on Apple Silicon and modest GPUs with high fidelity.',
+      ollamaCommand: 'ollama run llama3.2:3b',
+    },
+    {
+      id: 'bartowski/Llama-3.2-1B-Instruct-GGUF',
+      name: 'Llama 3.2 1B Instruct (GGUF)',
+      author: 'bartowski',
+      paramsBillions: 1.23,
+      contextWindow: 131072,
+      architecture: 'LlamaForCausalLM',
+      downloads: '950K',
+      likes: 420,
+      pipelineTag: 'text-generation',
+      recommendedHarness: 'ollama-local',
+      tags: ['gguf', 'ollama', 'sub-1gb', 'ultra-portable'],
+      description: 'Sub-1GB GGUF footprint model. Operates on almost any machine with zero memory pressure.',
+      ollamaCommand: 'ollama run llama3.2:1b',
+    },
+    {
+      id: 'Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF',
+      name: 'Qwen 2.5 Coder 1.5B (GGUF)',
+      author: 'Qwen',
+      paramsBillions: 1.54,
+      contextWindow: 32768,
+      architecture: 'Qwen2ForCausalLM',
+      downloads: '780K',
+      likes: 390,
+      pipelineTag: 'text-generation',
+      recommendedHarness: 'ollama-local',
+      tags: ['gguf', 'ollama', 'coder', 'instant-reflex'],
+      description: 'Instant sub-100ms CAD patch generator ideal for real-time slider manipulation and fast fixes.',
+      ollamaCommand: 'ollama run qwen2.5-coder:1.5b',
+    },
+  ],
 };
 
 /**
@@ -431,7 +565,9 @@ export async function searchHuggingFaceModels(
       effectiveSearch = preset.defaultQuery;
     } else if (preset && effectiveSearch) {
       // Append tag hints to refine the live query
-      if (filterMode === 'system2-reasoning' && !effectiveSearch.toLowerCase().includes('reason')) {
+      if (filterMode === 'local-gguf' && !effectiveSearch.toLowerCase().includes('gguf')) {
+        effectiveSearch = `${effectiveSearch} gguf`;
+      } else if (filterMode === 'system2-reasoning' && !effectiveSearch.toLowerCase().includes('reason')) {
         effectiveSearch = `${effectiveSearch} reasoning`;
       } else if (filterMode === 'abliterated-uncensored' && !effectiveSearch.toLowerCase().includes('uncensored') && !effectiveSearch.toLowerCase().includes('abliterated')) {
         effectiveSearch = `${effectiveSearch} abliterated`;
@@ -497,6 +633,7 @@ export async function searchHuggingFaceModels(
         tags: tags.slice(0, 8),
         description: item.description || `Hugging Face model ${id} (${paramsBillions}B params, ${pipelineTag}).`,
         isCustom: true,
+        ollamaCommand: getOllamaCommandForModel(id, name),
       };
     });
   } catch (err) {
@@ -551,6 +688,7 @@ export async function fetchModelFromHfHub(
         tags: tags.slice(0, 8),
         description: item.description || `Hugging Face Hub repository ${cleanId}`,
         isCustom: true,
+        ollamaCommand: getOllamaCommandForModel(cleanId, name),
       };
     }
   } catch (err) {
@@ -578,6 +716,7 @@ export async function fetchModelFromHfHub(
     tags: ['custom-hf', 'direct-load', 'open-weights'],
     description: `Direct Hugging Face repository ${cleanId} loaded on demand.`,
     isCustom: true,
+    ollamaCommand: getOllamaCommandForModel(cleanId, name),
   };
 }
 

@@ -175,7 +175,7 @@ export async function runAgenticCadTurn(params: {
 
 export function synthesizeParametricEditFallback(
   prompt: string,
-  _currentCode: string
+  currentCode: string
 ): { explanation: string; code: string } {
   const lower = prompt.toLowerCase();
 
@@ -326,6 +326,179 @@ def build_parts():
         ("vane_accelerator_l", vane_left, (0.35, 0.65, 0.85), "component"),
         ("vane_accelerator_r", vane_right, (0.35, 0.65, 0.85), "component"),
         ("ergonomic_tip", tip, (0.90, 0.82, 0.25), "component"),
+    ]
+`,
+    };
+  }
+
+  // Helper to append a primitive to existing build_parts code if present
+  const appendPrimitiveIfPossible = (
+    partName: string,
+    createExpr: string,
+    color: string,
+    kind: string = 'component'
+  ): string | null => {
+    if (!currentCode || !currentCode.includes('def build_parts():') || !currentCode.includes('return [')) {
+      return null;
+    }
+    // Determine unique part name
+    let uniqueName = partName;
+    let idx = 1;
+    while (currentCode.includes(`"${uniqueName}"`) || currentCode.includes(`'${uniqueName}'`)) {
+      idx++;
+      uniqueName = `${partName}_${idx}`;
+    }
+    const varName = uniqueName.replace(/[^a-zA-Z0-9_]/g, '_');
+    const returnPos = currentCode.lastIndexOf('return [');
+    if (returnPos === -1) return null;
+
+    const codeBeforeReturn = currentCode.substring(0, returnPos);
+    const returnRest = currentCode.substring(returnPos);
+    const listEndPos = returnRest.indexOf(']');
+    if (listEndPos === -1) return null;
+
+    const returnListContent = returnRest.substring(0, listEndPos);
+    const afterList = returnRest.substring(listEndPos);
+
+    const insertion = `    # Injected primitive shape\n    ${varName} = ${createExpr}\n\n    `;
+    const newTuple = `        ("${uniqueName}", ${varName}, ${color}, "${kind}"),\n`;
+
+    return `${codeBeforeReturn}${insertion}${returnListContent}${newTuple}    ${afterList}`;
+  };
+
+  // 1. Box / Cube primitive
+  if (lower.includes('box') || lower.includes('cube') || lower.includes('cuboid') || lower.includes('prism')) {
+    const appended = appendPrimitiveIfPossible('box_part', 'sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, 10.0)', '(0.35, 0.65, 0.95)', 'anchor');
+    if (appended) {
+      return {
+        explanation: 'Appended a solid 10 × 10 × 10 cm box/cube primitive to your active CAD assembly using `sm.create_box`.',
+        code: appended,
+      };
+    }
+    return {
+      explanation: 'Synthesized a solid 10 × 10 × 10 cm parametric box/cube manifold B-Rep using `sm.create_box` resting on the ground plane (z=0).',
+      code: `import usd_brep as sm
+
+def build_parts():
+    """Parametric Solid Box / Cube manifold B-Rep."""
+    cube = sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, 10.0)
+    return [
+        ("cube", cube, (0.35, 0.65, 0.95), "anchor"),
+    ]
+`,
+    };
+  }
+
+  // 2. Cylinder / Shaft primitive
+  if (lower.includes('cylinder') || lower.includes('shaft') || lower.includes('rod') || lower.includes('puck')) {
+    const appended = appendPrimitiveIfPossible('cylinder_part', 'sm.create_cylinder((0.0, 0.0, 0.0), 5.0, 10.0)', '(0.30, 0.75, 0.60)', 'anchor');
+    if (appended) {
+      return {
+        explanation: 'Appended a solid cylinder primitive (radius 5 cm, height 10 cm) to your active CAD assembly using `sm.create_cylinder`.',
+        code: appended,
+      };
+    }
+    return {
+      explanation: 'Synthesized a solid cylinder primitive (radius 5 cm, height 10 cm) standing at the origin using `sm.create_cylinder`.',
+      code: `import usd_brep as sm
+
+def build_parts():
+    """Parametric Solid Cylinder manifold B-Rep."""
+    cylinder = sm.create_cylinder((0.0, 0.0, 0.0), 5.0, 10.0)
+    return [
+        ("cylinder", cylinder, (0.30, 0.75, 0.60), "anchor"),
+    ]
+`,
+    };
+  }
+
+  // 3. Sphere primitive
+  if (lower.includes('sphere') || lower.includes('ball') || lower.includes('orb')) {
+    const appended = appendPrimitiveIfPossible('sphere_part', 'sm.create_sphere((0.0, 0.0, 5.0), 5.0)', '(0.95, 0.55, 0.25)', 'anchor');
+    if (appended) {
+      return {
+        explanation: 'Appended a solid sphere primitive (radius 5 cm) to your active CAD assembly using `sm.create_sphere`.',
+        code: appended,
+      };
+    }
+    return {
+      explanation: 'Synthesized a solid sphere primitive (radius 5 cm) resting on the ground plane at (0, 0, 5) using `sm.create_sphere`.',
+      code: `import usd_brep as sm
+
+def build_parts():
+    """Parametric Solid Sphere manifold B-Rep."""
+    sphere = sm.create_sphere((0.0, 0.0, 5.0), 5.0)
+    return [
+        ("sphere", sphere, (0.95, 0.55, 0.25), "anchor"),
+    ]
+`,
+    };
+  }
+
+  // 4. Cone primitive
+  if (lower.includes('cone') || lower.includes('taper') || lower.includes('funnel')) {
+    const appended = appendPrimitiveIfPossible('cone_part', 'sm.create_cone((0.0, 0.0, 0.0), radius_base=5.0, radius_top=0.5, height=10.0)', '(0.85, 0.35, 0.75)', 'anchor');
+    if (appended) {
+      return {
+        explanation: 'Appended a solid cone primitive (base radius 5 cm, top radius 0.5 cm, height 10 cm) to your active CAD assembly using `sm.create_cone`.',
+        code: appended,
+      };
+    }
+    return {
+      explanation: 'Synthesized a solid cone primitive standing at the origin using `sm.create_cone`.',
+      code: `import usd_brep as sm
+
+def build_parts():
+    """Parametric Solid Cone manifold B-Rep."""
+    cone = sm.create_cone((0.0, 0.0, 0.0), radius_base=5.0, radius_top=0.5, height=10.0)
+    return [
+        ("cone", cone, (0.85, 0.35, 0.75), "anchor"),
+    ]
+`,
+    };
+  }
+
+  // 5. Torus primitive
+  if (lower.includes('torus') || lower.includes('ring') || lower.includes('donut')) {
+    const appended = appendPrimitiveIfPossible('torus_part', 'sm.create_torus((0.0, 0.0, 1.5), 5.0, 1.5)', '(0.90, 0.80, 0.20)', 'anchor');
+    if (appended) {
+      return {
+        explanation: 'Appended a solid torus ring (major radius 5 cm, tube radius 1.5 cm) to your active CAD assembly using `sm.create_torus`.',
+        code: appended,
+      };
+    }
+    return {
+      explanation: 'Synthesized a solid torus ring centered at origin using `sm.create_torus`.',
+      code: `import usd_brep as sm
+
+def build_parts():
+    """Parametric Solid Torus manifold B-Rep."""
+    torus = sm.create_torus((0.0, 0.0, 1.5), 5.0, 1.5)
+    return [
+        ("torus", torus, (0.90, 0.80, 0.20), "anchor"),
+    ]
+`,
+    };
+  }
+
+  // 6. Wedge primitive
+  if (lower.includes('wedge') || lower.includes('ramp')) {
+    const appended = appendPrimitiveIfPossible('wedge_part', 'sm.create_wedge((-5.0, -5.0, 0.0), 10.0, 10.0, 8.0, 2.0)', '(0.92, 0.60, 0.20)', 'anchor');
+    if (appended) {
+      return {
+        explanation: 'Appended a solid right-angled wedge primitive to your active CAD assembly using `sm.create_wedge`.',
+        code: appended,
+      };
+    }
+    return {
+      explanation: 'Synthesized a solid right-angled wedge manifold B-Rep standing at origin using `sm.create_wedge`.',
+      code: `import usd_brep as sm
+
+def build_parts():
+    """Parametric Solid Wedge manifold B-Rep."""
+    wedge = sm.create_wedge((-5.0, -5.0, 0.0), 10.0, 10.0, 8.0, 2.0)
+    return [
+        ("wedge", wedge, (0.92, 0.60, 0.20), "anchor"),
     ]
 `,
     };

@@ -91,4 +91,49 @@ describe('Gemini Agentic CAD Service', () => {
     expect(turn.finalCode).toContain('ergonomic_tip');
     expect(turn.executionResult.success).toBe(true);
   });
+
+  it('synthesizes solid box primitive when prompt requests cube/box', async () => {
+    const turn = await runAgenticCadTurn({
+      prompt: 'Add a new solid box/cube to the assembly at the origin with dimensions 10x10x10 cm.',
+      currentCode: '',
+    });
+
+    expect(turn.explanation.toLowerCase()).toContain('box');
+    expect(turn.finalCode).toContain('sm.create_box');
+    expect(turn.finalCode).toContain('cube');
+    expect(turn.executionResult.success).toBe(true);
+  });
+
+  it('synthesizes solid cylinder when prompt requests cylinder', async () => {
+    const turn = await runAgenticCadTurn({
+      prompt: 'Add a new solid cylinder to the assembly standing at the origin with radius 5 cm and height 10 cm.',
+      currentCode: '',
+    });
+
+    expect(turn.explanation.toLowerCase()).toContain('cylinder');
+    expect(turn.finalCode).toContain('sm.create_cylinder');
+    expect(turn.executionResult.success).toBe(true);
+  });
+
+  it('appends primitive shape to existing code without overwriting existing parts', async () => {
+    const baseCode = `import usd_brep as sm
+
+def build_parts():
+    base = sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, 2.0)
+    return [
+        ("base_plate", base, (0.5, 0.5, 0.5), "anchor"),
+    ]
+`;
+
+    const turn = await runAgenticCadTurn({
+      prompt: 'Add a cylinder standing on the base',
+      currentCode: baseCode,
+    });
+
+    expect(turn.finalCode).toContain('base_plate');
+    expect(turn.finalCode).toContain('cylinder_part');
+    expect(turn.finalCode).toContain('sm.create_cylinder');
+    expect(turn.executionResult.success).toBe(true);
+    expect(turn.executionResult.parts?.length).toBe(2);
+  });
 });

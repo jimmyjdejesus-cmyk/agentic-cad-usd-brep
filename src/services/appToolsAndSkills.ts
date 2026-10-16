@@ -329,26 +329,70 @@ export const HUGGING_FACE_PRESET_MODELS: HuggingFaceModel[] = [
 // Hardware Detection & Hermes-Style Computer Resource Calculator
 // ============================================================================
 
+// In-memory cache for host-level hardware telemetry
+let cachedHostHardware: SystemHardwareResources | null = null;
+
+/**
+ * Asynchronously queries the host hardware backend (/api/system/hardware)
+ * to bypass browser security clampings (e.g. navigator.deviceMemory clamped to 8GB)
+ * and accurately identify Apple Silicon unified memory, CPU model, and local runtimes.
+ */
+export async function fetchSystemHardwareResources(): Promise<SystemHardwareResources> {
+  if (typeof window === 'undefined') {
+    return detectSystemHardwareResources();
+  }
+
+  try {
+    const res = await fetch('/api/system/hardware');
+    if (res.ok) {
+      const data = await res.json();
+      cachedHostHardware = {
+        ...data,
+        hasWebGpu: !!(navigator as any).gpu,
+      };
+      return cachedHostHardware!;
+    }
+  } catch {
+    // Backend offline or running in standalone static mode; fallback to browser heuristic
+  }
+
+  return detectSystemHardwareResources();
+}
+
 export function detectSystemHardwareResources(): SystemHardwareResources {
+  if (cachedHostHardware) {
+    return cachedHostHardware;
+  }
+
   if (typeof window === 'undefined') {
     return {
       systemRamGb: 16,
-      gpuVramGb: 8,
+      gpuVramGb: 16,
       cpuCores: 8,
       hasWebGpu: false,
-      gpuAdapterName: 'Hardware Engine',
-      osPlatform: 'Linux/Unix',
-      deviceType: 'Desktop / Workstation',
+      gpuAdapterName: 'Apple M1 Unified Memory Engine',
+      osPlatform: 'macOS (Apple Silicon)',
+      deviceType: 'Apple Silicon Mac (Unified Memory)',
+      cpuModel: 'Apple M1',
+      freeRamGb: 7.5,
+      hasMetal: true,
+      hasCuda: false,
+      hasRocm: false,
+      isAppleSilicon: true,
+      recommendedLocalQuant: 'Q4_K_M',
+      recommendedMaxModelParams: 14,
+      runtimesAvailable: ['Ollama (Metal Accelerated)', 'WebGPU In-Browser', 'PyTorch MPS', 'Cloud API'],
+      detectedVia: 'browser-fallback',
     };
   }
 
-  // Detect RAM via navigator.deviceMemory (returns GiB: 2, 4, 8, etc.)
-  const detectedRam = (navigator as any).deviceMemory || 16;
+  // Detect RAM via navigator.deviceMemory (note: clamped to 8 GiB in modern browsers)
+  const rawBrowserRam = (navigator as any).deviceMemory || 8;
   const cpuCores = navigator.hardwareConcurrency || 8;
   const hasWebGpu = !!(navigator as any).gpu;
 
   // Detect WebGL GPU Adapter
-  let gpuAdapterName = 'Standard 3D Acceleration';
+  let gpuAdapterName = 'Apple GPU (Unified Memory)';
   try {
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
@@ -362,36 +406,68 @@ export function detectSystemHardwareResources(): SystemHardwareResources {
     // Ignore fallback
   }
 
-  // Estimate VRAM based on platform & detected GPU
-  let estimatedVram = 8;
   const lowerGpu = gpuAdapterName.toLowerCase();
-  if (lowerGpu.includes('rtx 4090') || lowerGpu.includes('a100') || lowerGpu.includes('h100') || lowerGpu.includes('mi300')) {
+  const isMac = navigator.userAgent.includes('Mac');
+  const isAppleSilicon = isMac && (lowerGpu.includes('apple') || lowerGpu.includes('metal') || cpuCores >= 8);
+
+  // Modern Mac desktops and laptops commonly have 16GB+ Unified Memory; unclamp browser 8GB limit
+  const systemRamGb = isAppleSilicon ? Math.max(16, rawBrowserRam) : Math.max(8, rawBrowserRam);
+
+  let estimatedVram = 8;
+  if (isAppleSilicon) {
+    // Apple Silicon unified memory operates with zero PCIe latency for GPU cores
+    estimatedVram = systemRamGb;
+  } else if (lowerGpu.includes('rtx 4090') || lowerGpu.includes('a100') || lowerGpu.includes('h100') || lowerGpu.includes('mi300')) {
     estimatedVram = 24;
   } else if (lowerGpu.includes('rtx 4080') || lowerGpu.includes('rtx 3080') || lowerGpu.includes('rx 7900')) {
     estimatedVram = 16;
   } else if (lowerGpu.includes('rtx 4070') || lowerGpu.includes('rtx 3060') || lowerGpu.includes('rx 6700')) {
     estimatedVram = 12;
-  } else if (lowerGpu.includes('apple') || lowerGpu.includes('m1') || lowerGpu.includes('m2') || lowerGpu.includes('m3')) {
-    // Unified memory
-    estimatedVram = Math.max(8, Math.round(detectedRam * 0.75));
   } else if (lowerGpu.includes('intel') || lowerGpu.includes('iris') || lowerGpu.includes('uhd')) {
     estimatedVram = 4;
   }
 
-  const osPlatform = navigator.userAgent.includes('Mac')
+  const osPlatform = isAppleSilicon
+    ? 'macOS (Apple Silicon)'
+    : isMac
     ? 'macOS'
     : navigator.userAgent.includes('Windows')
     ? 'Windows'
     : 'Linux / Unix';
 
+  const deviceType = isAppleSilicon
+    ? 'Apple Silicon Mac (Unified Memory)'
+    : systemRamGb >= 16
+    ? 'Desktop / Workstation'
+    : 'Laptop / Mobile';
+
+  const runtimesAvailable: string[] = [];
+  if (isAppleSilicon) {
+    runtimesAvailable.push('Ollama (Metal Accelerated)');
+    runtimesAvailable.push('PyTorch MPS');
+  }
+  runtimesAvailable.push('WebGPU In-Browser');
+  runtimesAvailable.push('Agnostic Tool-Calling');
+  runtimesAvailable.push('Cloud Gemini API');
+
   return {
-    systemRamGb: Math.max(8, detectedRam),
+    systemRamGb,
     gpuVramGb: estimatedVram,
     cpuCores,
     hasWebGpu,
     gpuAdapterName,
     osPlatform,
-    deviceType: detectedRam >= 16 ? 'Desktop / Workstation' : 'Laptop / Mobile',
+    deviceType,
+    cpuModel: isAppleSilicon ? 'Apple Silicon (M-Series)' : 'Host Multi-Core CPU',
+    freeRamGb: Math.round(systemRamGb * 0.45),
+    hasMetal: isAppleSilicon,
+    hasCuda: lowerGpu.includes('nvidia') || lowerGpu.includes('geforce'),
+    hasRocm: lowerGpu.includes('amd') || lowerGpu.includes('radeon'),
+    isAppleSilicon,
+    recommendedLocalQuant: systemRamGb >= 16 ? 'Q4_K_M' : 'Q4_0',
+    recommendedMaxModelParams: systemRamGb >= 32 ? 32 : systemRamGb >= 16 ? 14 : 7,
+    runtimesAvailable,
+    detectedVia: 'browser-fallback',
   };
 }
 
@@ -455,7 +531,7 @@ export function calculateModelResourceFootprint(
     fitLabel = 'Optimal Local Fit (Fastest)';
     fitColor = 'emerald';
     estimatedTokensPerSec = preferGpu ? 52 : 22;
-    recommendation = `Fully fits in ${preferGpu ? 'VRAM' : 'System RAM'}. High throughput with minimal thermal load.`;
+    recommendation = `Fully fits in ${preferGpu ? (systemResources.isAppleSilicon ? 'Unified Memory' : 'VRAM') : 'System RAM'}. High throughput with minimal thermal load.`;
   } else if (utilizationPercentage <= 85) {
     fitStatus = 'moderate';
     fitLabel = 'Fits Hardware Well';
@@ -476,6 +552,49 @@ export function calculateModelResourceFootprint(
     recommendation = `Model requires ${totalRequiredRamGb} GB but only ${availableTargetGb} GB is available. High risk of out-of-memory crash. Use a smaller model, Q4 quantization, or Cloud Harness.`;
   }
 
+  // Determine specific runtime needed and offload strategy (Hermes style)
+  let runtimeNeeded = 'Ollama / Local Socket';
+  let runtimeCategory: 'Ollama / Local Socket' | 'WebGPU In-Browser' | 'PyTorch / MPS' | 'Cloud API' = 'Ollama / Local Socket';
+  let offloadStrategy: '100% GPU / Unified Memory' | 'Partial GPU + CPU Offload' | 'CPU Only' = '100% GPU / Unified Memory';
+
+  if (systemResources.isAppleSilicon || systemResources.hasMetal) {
+    if (totalRequiredRamGb <= systemResources.systemRamGb * 0.85) {
+      runtimeNeeded = 'Metal Unified Memory (Ollama / llama.cpp)';
+      runtimeCategory = 'Ollama / Local Socket';
+      offloadStrategy = '100% GPU / Unified Memory';
+    } else if (totalRequiredRamGb <= systemResources.systemRamGb * 1.1) {
+      runtimeNeeded = 'Metal + CPU Memory Swap (Ollama)';
+      runtimeCategory = 'Ollama / Local Socket';
+      offloadStrategy = 'Partial GPU + CPU Offload';
+    } else {
+      runtimeNeeded = 'Requires Larger Machine or Cloud API (> 16GB RAM)';
+      runtimeCategory = 'Cloud API';
+      offloadStrategy = 'Partial GPU + CPU Offload';
+    }
+  } else if (systemResources.hasCuda) {
+    if (totalRequiredRamGb <= systemResources.gpuVramGb * 0.9) {
+      runtimeNeeded = 'NVIDIA CUDA Acceleration (vLLM / Ollama)';
+      runtimeCategory = 'Ollama / Local Socket';
+      offloadStrategy = '100% GPU / Unified Memory';
+    } else {
+      runtimeNeeded = 'CUDA + Host System RAM Offload';
+      runtimeCategory = 'Ollama / Local Socket';
+      offloadStrategy = 'Partial GPU + CPU Offload';
+    }
+  } else if (paramsBillions <= 3.0 && systemResources.hasWebGpu) {
+    runtimeNeeded = 'WebGPU In-Browser Runtime (Zero Setup)';
+    runtimeCategory = 'WebGPU In-Browser';
+    offloadStrategy = '100% GPU / Unified Memory';
+  } else if (preferGpu) {
+    runtimeNeeded = 'Ollama / Local Socket Execution';
+    runtimeCategory = 'Ollama / Local Socket';
+    offloadStrategy = totalRequiredRamGb <= systemResources.gpuVramGb ? '100% GPU / Unified Memory' : 'Partial GPU + CPU Offload';
+  } else {
+    runtimeNeeded = 'CPU-Only Vectorized Inference (AVX-512/NEON)';
+    runtimeCategory = 'Ollama / Local Socket';
+    offloadStrategy = 'CPU Only';
+  }
+
   return {
     modelWeightsRamGb,
     kvCacheRamGb,
@@ -488,6 +607,9 @@ export function calculateModelResourceFootprint(
     fitColor,
     estimatedTokensPerSec,
     recommendation,
+    runtimeNeeded,
+    runtimeCategory,
+    offloadStrategy,
   };
 }
 

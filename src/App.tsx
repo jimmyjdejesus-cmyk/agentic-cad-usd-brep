@@ -54,7 +54,7 @@ import { InAppToolsetsModal } from './components/InAppToolsetsModal';
 import { AiHarnessModal } from './components/AiHarnessModal';
 import { NewDesignModal } from './components/NewDesignModal';
 import { CadShapeThumbnail } from './components/CadShapeThumbnail';
-import { BASIC_SHAPE_INSERT_OPTIONS, CAD_TEMPLATES } from './data/cadTemplates';
+import { BASIC_SHAPE_INSERT_OPTIONS, CAD_TEMPLATES, BasicShapeInsertOption } from './data/cadTemplates';
 import { DEFAULT_PRESETS } from './data/presetsData';
 import { DEFAULT_ANNOTATIONS_MAP } from './data/defaultAnnotations';
 import {
@@ -93,6 +93,8 @@ import { runAgenticCadTurn } from './services/geminiAgent';
 import {
   AI_HARNESS_OPTIONS,
   AI_MODEL_OPTIONS,
+  detectSystemHardwareResources,
+  fetchSystemHardwareResources,
 } from './services/appToolsAndSkills';
 import {
   CadAnnotation,
@@ -105,6 +107,7 @@ import {
   HarnessTypeId,
   MaterialPreset,
   UserCadFile,
+  SystemHardwareResources,
 } from './types/cad';
 
 const QUICK_PROMPTS = [
@@ -128,6 +131,9 @@ export const App: React.FC = () => {
   // Agnostic AI Harness & Model Selection
   const [selectedHarness, setSelectedHarness] = useState<HarnessTypeId>('google-genai');
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3.8-flash');
+  const [hardwareSpecs, setHardwareSpecs] = useState<SystemHardwareResources>(() =>
+    detectSystemHardwareResources()
+  );
   const [showHarnessModal, setShowHarnessModal] = useState<boolean>(false);
   const [showToolsetsModal, setShowToolsetsModal] = useState<boolean>(false);
   const [showAmdEdaStudio, setShowAmdEdaStudio] = useState<boolean>(false);
@@ -560,6 +566,11 @@ export const App: React.FC = () => {
       }
 
       await handleExecuteCode(targetToLoad.code, targetToLoad.name, targetToLoad.envelope);
+
+      // Query host hardware telemetry
+      fetchSystemHardwareResources().then((specs) => {
+        setHardwareSpecs(specs);
+      });
     };
     init();
 
@@ -726,6 +737,63 @@ export const App: React.FC = () => {
     };
 
     await handleCreateNewDesign(newFile);
+  };
+
+  const handleInsertPrimitiveShape = async (shape: BasicShapeInsertOption) => {
+    setChatInput(shape.copilotPrompt);
+
+    // 1. If code is empty or just the starter template, load the template starter code directly
+    const isBlankOrStarter =
+      !code ||
+      code.trim() === '' ||
+      code.includes('Blank Canvas') ||
+      code.includes('Custom CAD Part. Use Prompt Copilot');
+
+    if (isBlankOrStarter) {
+      const template = CAD_TEMPLATES.find((t) => t.id === shape.id) || CAD_TEMPLATES[0];
+      setCode(template.starterCode);
+      await handleExecuteCode(template.starterCode);
+      setSaveNotification(`Generated 3D ${shape.label} primitive!`);
+      setTimeout(() => setSaveNotification(null), 3000);
+      return;
+    }
+
+    // 2. If code already has build_parts(), append the new part to the active assembly
+    if (code.includes('def build_parts():') && code.includes('return [')) {
+      let uniqueName = shape.defaultPartName;
+      let counter = 1;
+      while (code.includes(`"${uniqueName}"`) || code.includes(`'${uniqueName}'`)) {
+        counter++;
+        uniqueName = `${shape.defaultPartName}_${counter}`;
+      }
+      const varName = uniqueName.replace(/[^a-zA-Z0-9_]/g, '_');
+
+      const returnIdx = code.lastIndexOf('return [');
+      if (returnIdx !== -1) {
+        const codeBeforeReturn = code.substring(0, returnIdx);
+        const returnRest = code.substring(returnIdx);
+        const listEndIdx = returnRest.indexOf(']');
+
+        if (listEndIdx !== -1) {
+          const returnListContent = returnRest.substring(0, listEndIdx);
+          const afterList = returnRest.substring(listEndIdx);
+
+          const creationLine = shape.generateCode(varName);
+          const insertion = `    # Inserted ${shape.label} primitive\n${creationLine}\n\n`;
+          const tupleEntry = `        ("${uniqueName}", ${varName}, (0.35, 0.65, 0.95), "anchor"),\n`;
+
+          const updatedCode = `${codeBeforeReturn}${insertion}${returnListContent}${tupleEntry}    ${afterList}`;
+          setCode(updatedCode);
+          await handleExecuteCode(updatedCode);
+          setSaveNotification(`Inserted ${shape.label} into active 3D assembly!`);
+          setTimeout(() => setSaveNotification(null), 3000);
+          return;
+        }
+      }
+    }
+
+    // 3. Fallback: prompt copilot
+    await handleSendAgentPrompt(shape.copilotPrompt);
   };
 
   const handleQuickSaveCurrent = async () => {
@@ -1224,6 +1292,19 @@ export const App: React.FC = () => {
               {guides.length || 36}
             </span>
           </button>
+
+          {/* Hermes Rig & HF Model Explorer Trigger */}
+          <button
+            onClick={() => setShowHarnessModal(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#14161b] hover:bg-[#1e2028] text-amber-300 border border-[#272a34] hover:border-amber-600/50 transition shadow-sm cursor-pointer"
+            title="Explore Hugging Face Local GGUF models & Inspect Hardware Specs (Hermes Rig)"
+          >
+            <Cpu className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden md:inline">Hermes Rig &amp; HF Hub</span>
+            <span className="text-[10px] bg-amber-950/60 text-amber-300 px-1.5 py-0.2 rounded font-mono border border-amber-800/40">
+              {hardwareSpecs.cpuModel?.includes('Apple') ? 'Apple M1 16GB' : `${hardwareSpecs.systemRamGb}GB`}
+            </span>
+          </button>
         </div>
 
         {/* 3. Right: Viewport Display, Vault, Unified Export & Inspector Toggle */}
@@ -1705,12 +1786,10 @@ export const App: React.FC = () => {
               {BASIC_SHAPE_INSERT_OPTIONS.map((shape) => (
                 <button
                   key={shape.id}
-                  onClick={() => {
-                    setChatInput(shape.copilotPrompt);
-                  }}
-                  disabled={isAgentRunning}
+                  onClick={() => handleInsertPrimitiveShape(shape)}
+                  disabled={isAgentRunning || isExecuting}
                   className="shrink-0 text-[10px] font-medium bg-[#181a20] hover:bg-[#1e2028] text-emerald-300 hover:text-emerald-200 border border-[#272a34] hover:border-emerald-600/50 rounded-lg px-2 py-1 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title={shape.copilotPrompt}
+                  title={`Directly insert ${shape.label} into 3D assembly (also prompts Copilot)`}
                 >
                   <CadShapeThumbnail shape={shape.id} size="xs" />
                   <span>+ {shape.label}</span>
