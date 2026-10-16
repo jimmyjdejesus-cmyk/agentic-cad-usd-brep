@@ -172,6 +172,32 @@ export interface CadPreset {
   code: string;
 }
 
+export type CadTemplateType = 'box' | 'cylinder' | 'sphere' | 'cone' | 'torus' | 'blank';
+
+export interface CadTemplate {
+  id: CadTemplateType;
+  name: string;
+  tagline: string;
+  description: string;
+  defaultName: string;
+  envelope: [number, number, number];
+  starterCode: string;
+}
+
+export interface UserCadFile {
+  id: string;
+  name: string;
+  code: string;
+  envelope: [number, number, number];
+  materialName?: string;
+  materialDensity?: number;
+  templateId?: CadTemplateType;
+  createdAt: string;
+  updatedAt: string;
+  isCustom: true;
+  cloudSynced?: boolean;
+}
+
 export interface GuideDocSummary {
   path: string;
   title: string;

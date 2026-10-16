@@ -11,11 +11,14 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Circle,
+  CircleDot,
   Code2,
   Cpu,
   Download,
   Eye,
   EyeOff,
+  FilePlus,
   FileText,
   GitBranch,
   Grid,
@@ -26,12 +29,14 @@ import {
   Pencil,
   Play,
   RefreshCw,
+  Save,
   Scale,
   Search,
   Send,
   Sliders,
   Sparkles,
   Target,
+  Trash2,
   Workflow,
   Wrench,
   X,
@@ -47,6 +52,9 @@ import { UserAuthDrawer } from './components/UserAuthDrawer';
 import { AmdEdaSiliconStudio } from './components/AmdEdaSiliconStudio';
 import { InAppToolsetsModal } from './components/InAppToolsetsModal';
 import { AiHarnessModal } from './components/AiHarnessModal';
+import { NewDesignModal } from './components/NewDesignModal';
+import { CadShapeThumbnail } from './components/CadShapeThumbnail';
+import { BASIC_SHAPE_INSERT_OPTIONS, CAD_TEMPLATES } from './data/cadTemplates';
 import { DEFAULT_PRESETS } from './data/presetsData';
 import { DEFAULT_ANNOTATIONS_MAP } from './data/defaultAnnotations';
 import {
@@ -55,6 +63,13 @@ import {
   fetchUserAssemblies,
   SavedAssemblyRecord,
 } from './services/firebase';
+import {
+  loadUserFiles,
+  saveUserFile,
+  deleteUserFile,
+  syncUserFileToCloud,
+  assemblyToUserFile,
+} from './services/cadFileManager';
 import {
   calculateAssemblyMassProperties,
   DEFAULT_MATERIAL,
@@ -83,23 +98,29 @@ import {
   CadAnnotation,
   CadExecutionResult,
   CadPreset,
+  CadTemplateType,
   ChatMessage,
   GuideDocDetail,
   GuideDocSummary,
   HarnessTypeId,
   MaterialPreset,
+  UserCadFile,
 } from './types/cad';
 
 const QUICK_PROMPTS = [
-  'Synthesize AMD ROCm 2.5D Silicon MCM Package with HBM cache',
-  'Build an aerodynamic helical vortex straw with flow chambers',
-  'Design a dual-optic LiDAR turret with filleted base',
-  'Create a 90° flanged pipe elbow with 6 bolt holes',
-  'Build a 12-tooth spur gear with weight-reduction holes',
+  'Add 4 mounting bolt holes at the corners',
+  'Fillet all exterior sharp edges with 0.5 cm radius',
+  'Hollow out the interior with a 0.8 cm wall thickness',
+  'Add a cylindrical mounting boss with center bore on top',
+  'Cut a through-slot across the center',
 ];
 
 export const App: React.FC = () => {
   const [presets, setPresets] = useState<CadPreset[]>(DEFAULT_PRESETS);
+  const [userFiles, setUserFiles] = useState<UserCadFile[]>([]);
+  const [isNewDesignModalOpen, setIsNewDesignModalOpen] = useState<boolean>(false);
+  const [saveNotification, setSaveNotification] = useState<string | null>(null);
+  const [isSavingCurrent, setIsSavingCurrent] = useState<boolean>(false);
   const [selectedPresetId, setSelectedPresetId] = useState<string>(DEFAULT_PRESETS[0].id);
   const [code, setCode] = useState<string>(DEFAULT_PRESETS[0].code);
   const [envelope, setEnvelope] = useState<[number, number, number]>(DEFAULT_PRESETS[0].envelope);
@@ -478,6 +499,20 @@ export const App: React.FC = () => {
         try {
           const list = await fetchUserAssemblies();
           setSavedAssemblies(list);
+          // Mirror saved cloud assemblies into userFiles so they appear in dropdown
+          if (list.length > 0) {
+            setUserFiles((prev) => {
+              const merged = [...prev];
+              list.forEach((asm) => {
+                if (!merged.some((f) => f.id === asm.id || f.name === asm.name)) {
+                  const asUserFile = assemblyToUserFile(asm);
+                  merged.push(asUserFile);
+                  saveUserFile(asUserFile);
+                }
+              });
+              return merged;
+            });
+          }
         } catch (err) {
           console.warn('Initial assemblies fetch error:', err);
         }
@@ -487,6 +522,10 @@ export const App: React.FC = () => {
     });
 
     const init = async () => {
+      // 1. Load user custom files from localStorage
+      const loadedUserFiles = loadUserFiles();
+      setUserFiles(loadedUserFiles);
+
       const [h, loadedPresets] = await Promise.all([
         checkBackendHealth(),
         fetchPresets(),
@@ -494,24 +533,33 @@ export const App: React.FC = () => {
       setHealth(h);
       setPresets(loadedPresets);
 
-      const first = loadedPresets[0] || DEFAULT_PRESETS[0];
-      setSelectedPresetId(first.id);
-      setCode(first.code);
-      setEnvelope(first.envelope);
+      // Check if user previously had an active file
+      const lastActiveId = localStorage.getItem('cad_last_active_id');
+      const activeCustom = loadedUserFiles.find((f) => f.id === lastActiveId);
+      const activePreset = loadedPresets.find((p) => p.id === lastActiveId);
 
-      // Initialize annotations for initial preset
+      const targetToLoad =
+        activeCustom ||
+        activePreset ||
+        (loadedUserFiles.length > 0 ? loadedUserFiles[0] : loadedPresets[0] || DEFAULT_PRESETS[0]);
+
+      setSelectedPresetId(targetToLoad.id);
+      setCode(targetToLoad.code);
+      setEnvelope(targetToLoad.envelope);
+
+      // Initialize annotations for initial design
       try {
-        const saved = localStorage.getItem(`cad_annotations_${first.id}`);
+        const saved = localStorage.getItem(`cad_annotations_${targetToLoad.id}`);
         if (saved) {
           setAnnotations(JSON.parse(saved));
         } else {
-          setAnnotations(DEFAULT_ANNOTATIONS_MAP[first.id] || []);
+          setAnnotations(DEFAULT_ANNOTATIONS_MAP[targetToLoad.id] || []);
         }
       } catch {
-        setAnnotations(DEFAULT_ANNOTATIONS_MAP[first.id] || []);
+        setAnnotations(DEFAULT_ANNOTATIONS_MAP[targetToLoad.id] || []);
       }
 
-      await handleExecuteCode(first.code, first.id, first.envelope);
+      await handleExecuteCode(targetToLoad.code, targetToLoad.name, targetToLoad.envelope);
     };
     init();
 
@@ -538,9 +586,56 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleSelectDesign = async (designId: string) => {
+    localStorage.setItem('cad_last_active_id', designId);
+
+    // 1. Check if it's one of user's custom files
+    const custom = userFiles.find((f) => f.id === designId);
+    if (custom) {
+      setSelectedPresetId(custom.id);
+      setCode(custom.code);
+      setEnvelope(custom.envelope);
+      setSelectedPartName(null);
+      setHiddenPartNames([]);
+      setExplodeFactor(0);
+      setPartOffsets({});
+      setEditingPartName(null);
+      setRenameError(null);
+
+      // Restore persistent renames
+      let customRenames: Record<string, string> = {};
+      try {
+        const savedRenames = localStorage.getItem(`cad_renames_${custom.id}`);
+        if (savedRenames) customRenames = JSON.parse(savedRenames);
+      } catch {}
+      setPartRenames(customRenames);
+
+      // Restore annotations
+      try {
+        const saved = localStorage.getItem(`cad_annotations_${custom.id}`);
+        if (saved) {
+          setAnnotations(JSON.parse(saved));
+        } else {
+          setAnnotations([]);
+        }
+      } catch {
+        setAnnotations([]);
+      }
+      setSelectedAnnotationId(null);
+      setIsAnnotating(false);
+
+      await handleExecuteCode(custom.code, custom.name, custom.envelope, customRenames);
+      return;
+    }
+
+    // 2. Otherwise handle factory preset
+    await handleSelectPreset(designId);
+  };
+
   const handleSelectPreset = async (presetId: string) => {
     const found = presets.find((p) => p.id === presetId);
     if (!found) return;
+    localStorage.setItem('cad_last_active_id', found.id);
     setSelectedPresetId(found.id);
     setCode(found.code);
     setEnvelope(found.envelope);
@@ -578,9 +673,138 @@ export const App: React.FC = () => {
     await handleExecuteCode(found.code, found.id, found.envelope, presetRenames);
   };
 
+  const handleCreateNewDesign = async (newFile: UserCadFile) => {
+    const updated = saveUserFile(newFile);
+    setUserFiles(updated);
+    setSelectedPresetId(newFile.id);
+    setCode(newFile.code);
+    setEnvelope(newFile.envelope);
+    setSelectedPartName(null);
+    setHiddenPartNames([]);
+    setExplodeFactor(0);
+    setPartOffsets({});
+    setEditingPartName(null);
+    setRenameError(null);
+    setAnnotations([]);
+    setPartRenames({});
+    localStorage.setItem('cad_last_active_id', newFile.id);
+
+    await handleExecuteCode(newFile.code, newFile.name, newFile.envelope);
+
+    if (user) {
+      await syncUserFileToCloud(newFile, {
+        totalMass: massProps.totalMassGrams,
+        totalVolume: massProps.totalVolumeCm3,
+        partCount: execResult?.parts?.length || 1,
+      });
+      await refreshSavedAssemblies();
+      setSaveNotification(`Created & synced "${newFile.name}" to Cloud Vault!`);
+    } else {
+      setSaveNotification(`Created "${newFile.name}" (saved locally in browser)!`);
+    }
+    setTimeout(() => setSaveNotification(null), 3000);
+  };
+
+  const handleQuickCreateTemplate = async (templateId: CadTemplateType) => {
+    const template = CAD_TEMPLATES.find((t) => t.id === templateId) || CAD_TEMPLATES[0];
+    const timestamp = new Date().toISOString().slice(11, 19).replace(/:/g, '');
+    const cleanName = `${template.defaultName}_${timestamp}`;
+    const now = new Date().toISOString();
+
+    const newFile: UserCadFile = {
+      id: `cad_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: cleanName,
+      code: template.starterCode,
+      envelope: template.envelope,
+      materialName: 'Aluminum 6061-T6',
+      materialDensity: 2.7,
+      templateId: template.id,
+      createdAt: now,
+      updatedAt: now,
+      isCustom: true,
+      cloudSynced: false,
+    };
+
+    await handleCreateNewDesign(newFile);
+  };
+
+  const handleQuickSaveCurrent = async () => {
+    setIsSavingCurrent(true);
+    try {
+      const isCustom = userFiles.some((f) => f.id === selectedPresetId);
+      const existing = userFiles.find((f) => f.id === selectedPresetId);
+      const name = existing ? existing.name : `${selectedPresetId}_custom`;
+      const id = existing ? existing.id : `cad_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const now = new Date().toISOString();
+
+      const fileToSave: UserCadFile = {
+        id,
+        name,
+        code,
+        envelope,
+        materialName: selectedMaterial.name,
+        materialDensity: customDensity || selectedMaterial.density,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+        isCustom: true,
+        cloudSynced: false,
+      };
+
+      const updated = saveUserFile(fileToSave);
+      setUserFiles(updated);
+      setSelectedPresetId(id);
+      localStorage.setItem('cad_last_active_id', id);
+
+      if (user) {
+        const [cx, cy, cz] = massProps.centerOfMass;
+        const [dx, dy, dz] = massProps.boundingBox.dimensions;
+        await syncUserFileToCloud(fileToSave, {
+          totalMass: massProps.totalMassGrams,
+          totalVolume: massProps.totalVolumeCm3,
+          centerOfMass: `${cx.toFixed(2)}, ${cy.toFixed(2)}, ${cz.toFixed(2)} cm`,
+          boundingBox: `${dx.toFixed(1)} × ${dy.toFixed(1)} × ${dz.toFixed(1)} cm`,
+          partCount: execResult?.parts?.length || 1,
+        });
+        await refreshSavedAssemblies();
+        setSaveNotification(`Saved "${name}" locally & synced to Cloud Vault!`);
+      } else {
+        setSaveNotification(`Saved "${name}" to browser storage!`);
+      }
+    } finally {
+      setIsSavingCurrent(false);
+      setTimeout(() => setSaveNotification(null), 3000);
+    }
+  };
+
+  const handleDeleteUserFile = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const target = userFiles.find((f) => f.id === id);
+    if (!target) return;
+    if (!window.confirm(`Delete custom CAD design "${target.name}"?`)) return;
+
+    const nextFiles = deleteUserFile(id);
+    setUserFiles(nextFiles);
+
+    if (selectedPresetId === id) {
+      if (nextFiles.length > 0) {
+        await handleSelectDesign(nextFiles[0].id);
+      } else {
+        await handleSelectPreset(presets[0]?.id || DEFAULT_PRESETS[0].id);
+      }
+    }
+    setSaveNotification(`Deleted "${target.name}".`);
+    setTimeout(() => setSaveNotification(null), 2500);
+  };
+
   const handleLoadSavedAssembly = async (asm: SavedAssemblyRecord) => {
+    // Ensure it exists in userFiles list
+    const asFile = assemblyToUserFile(asm);
+    const updatedFiles = saveUserFile(asFile);
+    setUserFiles(updatedFiles);
+
     setCode(asm.code);
-    setSelectedPresetId(asm.name);
+    setSelectedPresetId(asm.id);
+    localStorage.setItem('cad_last_active_id', asm.id);
     const foundMat = MATERIAL_PRESETS.find((m) => m.name === asm.materialName) || DEFAULT_MATERIAL;
     setSelectedMaterial(foundMat);
     if (asm.materialDensity && asm.materialDensity !== foundMat.density) {
@@ -796,22 +1020,164 @@ export const App: React.FC = () => {
 
           <div className="h-4 w-px bg-[#272a34] mx-1 hidden sm:block" />
 
-          {/* Preset Selector */}
-          <div className="flex items-center gap-1.5 bg-[#14161b] border border-[#272a34] rounded-lg px-2.5 py-1 text-xs">
-            <Layers className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-            <span className="text-zinc-400 text-[11px] hidden sm:inline">Design:</span>
-            <select
-              aria-label="Select CAD Preset"
-              value={selectedPresetId}
-              onChange={(e) => handleSelectPreset(e.target.value)}
-              className="bg-transparent font-medium text-zinc-100 focus:outline-none cursor-pointer text-xs"
-            >
-              {presets.map((p) => (
-                <option key={p.id} value={p.id} className="bg-[#181a20] text-zinc-100">
-                  {p.name}
-                </option>
-              ))}
-            </select>
+          {/* New Design & File Selector (Target of CSS Selector 1) */}
+          <div className="flex items-center gap-1.5">
+            {/* Dedicated + New File Action Button with Hover Quick-Start Popover */}
+            <div className="relative group flex items-center gap-1.5">
+              <button
+                onClick={() => setIsNewDesignModalOpen(true)}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-slate-950 transition shadow-sm cursor-pointer shrink-0"
+                title="Create new CAD design (Hover for quick-start shapes)"
+              >
+                <FilePlus className="w-3.5 h-3.5" />
+                <span>New</span>
+                <ChevronDown className="w-3 h-3 ml-0.5 opacity-70 group-hover:rotate-180 transition-transform" />
+              </button>
+
+              {/* Hover-State Quick-Start Popover */}
+              <div className="absolute left-0 top-full pt-1.5 w-64 z-50 transition-all duration-150 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto">
+                <div className="bg-[#16181f] border border-[#2b2f3a] rounded-xl shadow-2xl p-1.5 backdrop-blur-xl space-y-1 ring-1 ring-black/50">
+                  <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 flex items-center justify-between border-b border-[#242731] pb-1.5 mb-1">
+                    <span className="flex items-center gap-1.5 text-zinc-300">
+                      <Box className="w-3 h-3 text-emerald-400" />
+                      <span>Quick-Start Geometry</span>
+                    </span>
+                    <span className="text-[9px] text-emerald-400 font-mono font-medium bg-emerald-500/10 px-1.5 py-0.5 rounded">1-Click</span>
+                  </div>
+
+                  {/* Blank Canvas */}
+                  <button
+                    type="button"
+                    onClick={() => handleQuickCreateTemplate('blank')}
+                    className="group/item w-full text-left p-1.5 rounded-lg flex items-center gap-2.5 text-zinc-200 hover:text-white hover:bg-[#1f232d] transition cursor-pointer"
+                  >
+                    <CadShapeThumbnail shape="blank" size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-zinc-100 group-hover/item:text-indigo-300 transition-colors">
+                          Blank Canvas
+                        </span>
+                        <span className="text-[10px] text-zinc-500 font-mono">clean</span>
+                      </div>
+                      <p className="text-[10px] text-zinc-400 truncate">
+                        Empty coordinate grid for custom design
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Box / Cube */}
+                  <button
+                    type="button"
+                    onClick={() => handleQuickCreateTemplate('box')}
+                    className="group/item w-full text-left p-1.5 rounded-lg flex items-center gap-2.5 text-zinc-200 hover:text-white hover:bg-[#1f232d] transition cursor-pointer"
+                  >
+                    <CadShapeThumbnail shape="box" size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-zinc-100 group-hover/item:text-sky-300 transition-colors">
+                          Box / Cube
+                        </span>
+                        <span className="text-[10px] text-sky-400/80 font-mono font-medium">10×10 cm</span>
+                      </div>
+                      <p className="text-[10px] text-zinc-400 truncate">
+                        Solid 3D cuboid with isometric faces
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Cylinder */}
+                  <button
+                    type="button"
+                    onClick={() => handleQuickCreateTemplate('cylinder')}
+                    className="group/item w-full text-left p-1.5 rounded-lg flex items-center gap-2.5 text-zinc-200 hover:text-white hover:bg-[#1f232d] transition cursor-pointer"
+                  >
+                    <CadShapeThumbnail shape="cylinder" size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-zinc-100 group-hover/item:text-emerald-300 transition-colors">
+                          Cylinder
+                        </span>
+                        <span className="text-[10px] text-emerald-400/80 font-mono font-medium">r5 h10 cm</span>
+                      </div>
+                      <p className="text-[10px] text-zinc-400 truncate">
+                        Turned cylindrical shaft solid
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Sphere */}
+                  <button
+                    type="button"
+                    onClick={() => handleQuickCreateTemplate('sphere')}
+                    className="group/item w-full text-left p-1.5 rounded-lg flex items-center gap-2.5 text-zinc-200 hover:text-white hover:bg-[#1f232d] transition cursor-pointer"
+                  >
+                    <CadShapeThumbnail shape="sphere" size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-zinc-100 group-hover/item:text-amber-300 transition-colors">
+                          Sphere
+                        </span>
+                        <span className="text-[10px] text-amber-400/80 font-mono font-medium">r5 cm</span>
+                      </div>
+                      <p className="text-[10px] text-zinc-400 truncate">
+                        Equator &amp; meridian wireframe solid
+                      </p>
+                    </div>
+                  </button>
+
+                  <div className="h-px bg-[#272a34] my-1" />
+
+                  <button
+                    type="button"
+                    onClick={() => setIsNewDesignModalOpen(true)}
+                    className="w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center gap-2 text-emerald-400 hover:text-emerald-300 hover:bg-[#1f232d] transition cursor-pointer font-medium"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>All Templates &amp; Custom Name...</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Design Selector with My Custom Files & Factory Presets */}
+            <div className="flex items-center gap-1.5 bg-[#14161b] border border-[#272a34] rounded-lg px-2.5 py-1 text-xs">
+              <Layers className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <span className="text-zinc-400 text-[11px] hidden sm:inline">Design:</span>
+              <select
+                aria-label="Select CAD Design or Preset"
+                value={selectedPresetId}
+                onChange={(e) => handleSelectDesign(e.target.value)}
+                className="bg-transparent font-medium text-zinc-100 focus:outline-none cursor-pointer text-xs max-w-[150px] sm:max-w-[210px] truncate"
+              >
+                {userFiles.length > 0 && (
+                  <optgroup label="── My Custom Files ──" className="bg-[#181a20] text-emerald-400 font-semibold">
+                    {userFiles.map((f) => (
+                      <option key={f.id} value={f.id} className="bg-[#181a20] text-zinc-100 font-normal">
+                        {f.name} {f.cloudSynced ? '☁' : '●'}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label="── Factory Presets ──" className="bg-[#181a20] text-sky-400 font-semibold">
+                  {presets.map((p) => (
+                    <option key={p.id} value={p.id} className="bg-[#181a20] text-zinc-100 font-normal">
+                      {p.name}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+
+              {/* If current file is custom, show quick delete icon */}
+              {userFiles.some((f) => f.id === selectedPresetId) && (
+                <button
+                  onClick={(e) => handleDeleteUserFile(selectedPresetId, e)}
+                  title="Delete this custom design"
+                  className="p-0.5 text-zinc-500 hover:text-rose-400 transition ml-0.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1020,10 +1386,25 @@ export const App: React.FC = () => {
             )}
           </button>
 
-          {/* Cloud Vault Button */}
+          {/* Quick Save Action Button */}
+          <button
+            onClick={handleQuickSaveCurrent}
+            disabled={isSavingCurrent}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#14161b] hover:bg-[#1e2028] text-zinc-200 border border-[#272a34] hover:border-emerald-600/60 transition shadow-sm cursor-pointer disabled:opacity-50"
+            title="Save changes to local storage & Cloud Vault"
+          >
+            {isSavingCurrent ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+            ) : (
+              <Save className="w-3.5 h-3.5 text-emerald-400" />
+            )}
+            <span className="hidden sm:inline">Save</span>
+          </button>
+
+          {/* Cloud Vault Button (Target of CSS Selector 2) */}
           <button
             onClick={() => setShowAuthDrawer(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#14161b] hover:bg-[#1e2028] text-emerald-300 border border-[#272a34] hover:border-emerald-700/50 transition shadow-sm"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#14161b] hover:bg-[#1e2028] text-emerald-300 border border-[#272a34] hover:border-emerald-700/50 transition shadow-sm cursor-pointer"
             title="Cloud CAD Vault"
           >
             <Bookmark className="w-3.5 h-3.5 text-emerald-400" />
@@ -1311,14 +1692,41 @@ export const App: React.FC = () => {
             ))}
           </div>
 
-          {/* Quick Prompt Suggestions */}
-          <div className="px-3 py-2 border-t border-[#272a34] bg-[#14161b] flex gap-1.5 overflow-x-auto no-scrollbar">
+          {/* Insert Basic Shape Toolbar */}
+          <div className="px-3 pt-2 pb-1.5 border-t border-[#272a34] bg-[#14161b]">
+            <div className="flex items-center justify-between text-[11px] mb-1.5">
+              <span className="font-semibold text-zinc-300 flex items-center gap-1.5">
+                <Box className="w-3 h-3 text-emerald-400" />
+                <span>Insert Basic Shape:</span>
+              </span>
+              <span className="text-[10px] text-zinc-500">Prompts Copilot to build &amp; edit</span>
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
+              {BASIC_SHAPE_INSERT_OPTIONS.map((shape) => (
+                <button
+                  key={shape.id}
+                  onClick={() => {
+                    setChatInput(shape.copilotPrompt);
+                  }}
+                  disabled={isAgentRunning}
+                  className="shrink-0 text-[10px] font-medium bg-[#181a20] hover:bg-[#1e2028] text-emerald-300 hover:text-emerald-200 border border-[#272a34] hover:border-emerald-600/50 rounded-lg px-2 py-1 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title={shape.copilotPrompt}
+                >
+                  <CadShapeThumbnail shape={shape.id} size="xs" />
+                  <span>+ {shape.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Quick Edit Suggestions */}
+          <div className="px-3 py-1.5 border-t border-[#272a34]/60 bg-[#121316] flex gap-1.5 overflow-x-auto no-scrollbar">
             {QUICK_PROMPTS.map((qp, i) => (
               <button
                 key={i}
                 onClick={() => handleSendAgentPrompt(qp)}
                 disabled={isAgentRunning}
-                className="shrink-0 text-[10px] bg-[#181a20] hover:bg-[#1e2028] text-zinc-300 border border-[#272a34] rounded-full px-2.5 py-1 transition"
+                className="shrink-0 text-[10px] bg-[#181a20] hover:bg-[#1e2028] text-zinc-400 hover:text-zinc-200 border border-[#272a34] rounded-full px-2.5 py-0.5 transition cursor-pointer disabled:opacity-50"
               >
                 {qp}
               </button>
@@ -2186,6 +2594,21 @@ export const App: React.FC = () => {
         onClose={() => setShowAmdEdaStudio(false)}
         onApply3dPackageCode={handleApplyAmdPackageCode}
       />
+
+      {/* Modal: Create New CAD Design (Template & Blank Slate Picker) */}
+      <NewDesignModal
+        isOpen={isNewDesignModalOpen}
+        onClose={() => setIsNewDesignModalOpen(false)}
+        onCreateDesign={handleCreateNewDesign}
+      />
+
+      {/* Save & Sync Notification Toast */}
+      {saveNotification && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-[#181a20]/95 border border-emerald-500/50 text-emerald-300 px-4 py-2 rounded-xl shadow-2xl backdrop-blur-md text-xs font-medium flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
+          <span>{saveNotification}</span>
+        </div>
+      )}
     </div>
   );
 };

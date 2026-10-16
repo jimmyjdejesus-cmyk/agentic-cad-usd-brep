@@ -273,6 +273,13 @@ def build_parts():
   };
 }
 
+function isValidGeminiApiKey(key?: string | null): boolean {
+  if (!key) return false;
+  const trimmed = key.trim();
+  // Valid Google Generative AI keys start with 'AIza' and are typically 39 chars long
+  return trimmed.startsWith('AIza') && trimmed.length >= 30;
+}
+
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '25mb' }));
@@ -287,7 +294,7 @@ async function startServer() {
         status: 'ok',
         ...py.data,
         docs_available: docsAvailable,
-        gemini_configured: Boolean(process.env.GEMINI_API_KEY),
+        gemini_configured: isValidGeminiApiKey(process.env.GEMINI_API_KEY),
       });
     }
 
@@ -298,7 +305,7 @@ async function startServer() {
       kernel_version: '1.0.0',
       docs_available: docsAvailable,
       preset_count: DEFAULT_PRESETS.length,
-      gemini_configured: Boolean(process.env.GEMINI_API_KEY),
+      gemini_configured: isValidGeminiApiKey(process.env.GEMINI_API_KEY),
     });
   });
 
@@ -490,7 +497,7 @@ async function startServer() {
       }
     }
 
-    if (!apiKey || harness === 'local-deterministic') {
+    if (!isValidGeminiApiKey(apiKey) || harness === 'local-deterministic') {
       // Offline/local rule synthesis fallback
       const synth = synthesizeParametricFallback(prompt, currentCode);
       let harnessAction = `${harness} • CAD Synthesis & Manifold Verification`;
@@ -592,7 +599,13 @@ async function startServer() {
           break;
         } catch (mErr) {
           lastModelError = mErr as Error;
-          console.warn(`Model ${m} attempt failed, attempting fallback candidate:`, mErr instanceof Error ? mErr.message : mErr);
+          const errMsg = mErr instanceof Error ? mErr.message : String(mErr);
+          const isKeyInvalid = errMsg.includes('API_KEY_INVALID') || errMsg.includes('API key not valid');
+          if (isKeyInvalid) {
+            // An invalid API key will not work on other fallback models either; break early
+            break;
+          }
+          console.warn(`Model ${m} attempt failed, attempting fallback candidate:`, errMsg);
         }
       }
 
@@ -627,7 +640,13 @@ async function startServer() {
         steps,
       });
     } catch (err) {
-      console.error('Gemini Agent server error:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isKeyInvalid = errMsg.includes('API_KEY_INVALID') || errMsg.includes('API key not valid');
+      if (isKeyInvalid) {
+        console.info('Gemini API key is invalid or inactive; falling back gracefully to parametric CAD engine.');
+      } else {
+        console.error('Gemini Agent server error:', err);
+      }
       const synth = synthesizeParametricFallback(prompt, currentCode);
       return res.json({
         explanation: `${synth.explanation}\n\n*(Synthesized using verified parametric CAD engine while AI agent was reconnecting).*`,
