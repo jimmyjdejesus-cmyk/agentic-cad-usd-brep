@@ -407,6 +407,8 @@ export const AnnotationsPanel: React.FC<AnnotationsPanelProps> = ({
               <button
                 onClick={() => setShowExportModal(false)}
                 className="text-slate-400 hover:text-white"
+                aria-label="Close"
+                title="Close"
               >
                 ✕
               </button>

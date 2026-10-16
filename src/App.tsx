@@ -1122,6 +1122,7 @@ export const App: React.FC = () => {
           <button
             onClick={() => setShowAiStudioModal(true)}
             title="ApexCAD Studio Architecture & Diagnostics"
+            aria-label="ApexCAD Studio Architecture & Diagnostics"
             className="p-1.5 rounded-lg border border-[#272a34] bg-[#14161b] text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition"
           >
             <Info className="w-4 h-4" />
@@ -1130,11 +1131,13 @@ export const App: React.FC = () => {
       </header>
 
       {/* Main Clean Workspace: Prompt Window (Left) + Actual Design 3D Canvas (Full Screen) */}
-      <div className="flex-1 flex min-h-0 relative">
+      <div className="flex-1 flex min-h-0 min-w-0 relative">
         {/* PROMPT WINDOW (Collapsible Sidebar) */}
         <div
+          id="prompt-copilot-window"
+          style={isPromptOpen ? undefined : { display: 'none' }}
           className={`border-r border-[#272a34] bg-[#181a20] flex flex-col transition-all duration-300 ease-in-out z-10 ${
-            isPromptOpen ? 'w-88 xl:w-96 min-w-[22rem]' : 'w-0 min-w-0 overflow-hidden border-none'
+            isPromptOpen ? 'w-88 xl:w-96 min-w-[22rem] shrink-0' : 'hidden'
           }`}
         >
           {/* Prompt Header */}
@@ -1150,6 +1153,9 @@ export const App: React.FC = () => {
                 onClick={() => setIsPromptOpen(false)}
                 className="text-zinc-400 hover:text-zinc-200 p-1 rounded hover:bg-[#1e2028] transition"
                 title="Collapse Prompt Window"
+                aria-label="Collapse Prompt Window"
+                aria-expanded={isPromptOpen}
+                aria-controls="prompt-copilot-window"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -1345,13 +1351,16 @@ export const App: React.FC = () => {
         </div>
 
         {/* THE ACTUAL DESIGN (Interactive 3D Viewport) */}
-        <div className="flex-1 relative min-h-0 bg-[#121316]">
+        <div id="viewport-canvas-container" className="flex-1 relative min-h-0 min-w-0 bg-[#121316]">
           {/* Re-open Prompt Copilot Toggle (Visible when copilot is collapsed) */}
           {!isPromptOpen && (
             <button
               onClick={() => setIsPromptOpen(true)}
               className="absolute top-4 left-4 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#181a20]/90 hover:bg-[#1e2028] border border-[#272a34] text-zinc-200 text-xs font-medium shadow-xl backdrop-blur-md transition group"
               title="Open CAD Prompt Copilot"
+              aria-label="Open CAD Prompt Copilot"
+              aria-expanded={isPromptOpen}
+              aria-controls="prompt-copilot-window"
             >
               <Sparkles className="w-3.5 h-3.5 text-emerald-400 group-hover:rotate-12 transition-transform" />
               <span>Copilot</span>
@@ -1364,6 +1373,9 @@ export const App: React.FC = () => {
               onClick={() => setIsRightSidebarOpen(true)}
               className="absolute top-4 right-4 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#181a20]/90 hover:bg-[#1e2028] border border-[#272a34] text-zinc-200 text-xs font-medium shadow-xl backdrop-blur-md transition group"
               title="Open Inspector Dock"
+              aria-label="Open Inspector Dock"
+              aria-expanded={isRightSidebarOpen}
+              aria-controls="inspector-dock"
             >
               <PanelRight className="w-3.5 h-3.5 text-sky-400" />
               <span>Inspector</span>
@@ -1385,6 +1397,7 @@ export const App: React.FC = () => {
                 onClick={() => setIsAnnotating(false)}
                 className="ml-1 text-emerald-400 hover:text-white p-0.5"
                 title="Cancel annotation mode"
+                aria-label="Cancel annotation mode"
               >
                 ✕
               </button>
@@ -1424,6 +1437,7 @@ export const App: React.FC = () => {
                     onClick={() => setDiagnosticsDismissed(true)}
                     className="text-amber-400 hover:text-white p-1"
                     title="Dismiss banner"
+                    aria-label="Dismiss banner"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -1501,6 +1515,8 @@ export const App: React.FC = () => {
               <button
                 onClick={() => setSelectedPartName(null)}
                 className="text-zinc-400 hover:text-white ml-1"
+                aria-label="Deselect part"
+                title="Deselect part"
               >
                 ✕
               </button>
@@ -1544,7 +1560,10 @@ export const App: React.FC = () => {
 
         {/* DOCKED RIGHT SIDEBAR (Engineering Inspector & Explosion Controls) */}
         {isRightSidebarOpen && (
-          <aside className="w-80 xl:w-92 border-l border-[#272a34] bg-[#181a20] flex flex-col z-10 shrink-0 select-none">
+          <aside
+            id="inspector-dock"
+            className="w-80 xl:w-92 border-l border-[#272a34] bg-[#181a20] flex flex-col z-10 shrink-0 select-none"
+          >
             {/* Right Sidebar Header: Tab Navigation Switcher & Collapse Button */}
             <div className="px-3 py-2 border-b border-[#272a34] bg-[#14161b] flex items-center justify-between shrink-0">
               <div className="flex items-center gap-1 bg-[#181a20] border border-[#272a34] p-0.5 rounded-xl text-xs">
@@ -1618,6 +1637,9 @@ export const App: React.FC = () => {
                 onClick={() => setIsRightSidebarOpen(false)}
                 className="p-1 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-[#1e2028] transition"
                 title="Collapse Inspector Dock"
+                aria-label="Collapse Inspector Dock"
+                aria-expanded={isRightSidebarOpen}
+                aria-controls="inspector-dock"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -1721,6 +1743,7 @@ export const App: React.FC = () => {
                                     onClick={() => handleConfirmRename(p.name)}
                                     className="p-1 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold transition shadow shrink-0"
                                     title="Confirm identifier rename (Enter)"
+                                    aria-label="Confirm rename"
                                   >
                                     <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                                   </button>
@@ -1728,6 +1751,7 @@ export const App: React.FC = () => {
                                     onClick={handleCancelRename}
                                     className="p-1 rounded bg-[#272a34] hover:bg-[#323642] text-zinc-300 hover:text-white transition shrink-0"
                                     title="Cancel rename (Escape)"
+                                    aria-label="Cancel rename"
                                   >
                                     <X className="w-3.5 h-3.5" />
                                   </button>
@@ -1940,6 +1964,8 @@ export const App: React.FC = () => {
                 <button
                   onClick={() => setShowDevDrawer(false)}
                   className="text-slate-400 hover:text-white p-1 rounded"
+                  title="Close dev drawer"
+                  aria-label="Close dev drawer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1975,6 +2001,8 @@ export const App: React.FC = () => {
                     <button
                       onClick={() => setGuideSearch('')}
                       className="text-slate-500 hover:text-slate-300 p-0.5"
+                      title="Clear guide search"
+                      aria-label="Clear guide search"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -2102,6 +2130,8 @@ export const App: React.FC = () => {
               <button
                 onClick={() => setShowAiStudioModal(false)}
                 className="text-zinc-400 hover:text-white text-xs"
+                title="Close AI Studio modal"
+                aria-label="Close AI Studio modal"
               >
                 ✕
               </button>

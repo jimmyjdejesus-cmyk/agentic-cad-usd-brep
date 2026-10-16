@@ -75,6 +75,8 @@ export const InAppToolsetsModal: React.FC<InAppToolsetsModalProps> = ({
 
           <button
             onClick={onClose}
+            aria-label="Close"
+            title="Close"
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
           >
             <X className="w-5 h-5" />

@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PRESETS } from '../data/presetsData';
-import { evaluateClientSideUsdBrep } from './cadRuntime';
+import { evaluateClientSideUsdBrep, executeCadScript } from './cadRuntime';
 
 describe('Client-side usd_brep fallback evaluator (Standalone Cloud Preview mode)', () => {
   it.each(DEFAULT_PRESETS.map((p) => [p.id, p] as const))(
@@ -118,4 +118,175 @@ def build_parts():
     expect(res.explosion_stages?.[0].name).toContain('Step 1');
   });
 });
+
+describe('executeCadScript remote execution and fallback routing', () => {
+  const sampleCadScript = `import usd_brep as sm
+def build_parts():
+    b = sm.create_box((0, 0, 0), 10.0, 10.0, 5.0)
+    return [("test_box", b, (0.2, 0.4, 0.8), "anchor")]
+`;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns remote execution result when backend responds with standard HTTP 200', async () => {
+    const mockRemoteResult = {
+      ok: true,
+      success: true,
+      kernel: 'NVIDIA usd-brep 1.0.0',
+      asset_name: 'TestAsset',
+      parts: [
+        {
+          name: 'test_box',
+          kind: 'anchor',
+          color: [0.2, 0.4, 0.8] as [number, number, number],
+          diagnostics: {
+            faces: 6,
+            edges: 12,
+            vertices: 8,
+            manifold: true,
+            volume: 500,
+            area: 400,
+            solid_count: 1,
+            void_count: 0,
+            bounds: [
+              [0, 0, 0],
+              [10, 10, 5],
+            ] as [[number, number, number], [number, number, number]],
+            center: [5, 5, 2.5] as [number, number, number],
+            tessellation: {
+              vertex_count: 24,
+              triangle_count: 12,
+              output_manifold: true,
+              lamina_edge_count: 0,
+              failure_count: 0,
+            },
+          },
+          mesh: {
+            points: [],
+            normals: [],
+            triangles: [],
+            face_vertex_counts: [],
+            face_vertex_indices: [],
+          },
+        },
+      ],
+    };
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(mockRemoteResult), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const res = await executeCadScript(sampleCadScript, 'TestAsset');
+    expect(res.kernel).toBe('NVIDIA usd-brep 1.0.0');
+    expect(res.success).toBe(true);
+    expect(res.parts?.[0].name).toBe('test_box');
+  });
+
+  it('falls back to client-side synthesizer when backend returns HTTP 200 with fallback: true', async () => {
+    const mockFallbackResult = {
+      ok: false,
+      success: false,
+      fallback: true,
+      kernel: 'usd-brep-stub',
+      error: 'usd_brep not installed in Python environment',
+    };
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(mockFallbackResult), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const res = await executeCadScript(sampleCadScript, 'FallbackAsset');
+    expect(res.success).toBe(true);
+    expect(res.kernel).toBe('browser-usd-brep-fallback');
+    expect(res.parts?.length).toBeGreaterThanOrEqual(1);
+    expect(res.parts?.[0].name).toBe('test_box');
+  });
+
+  it('falls back to client-side synthesizer when backend returns HTTP 503 Service Unavailable', async () => {
+    const mock503Response = {
+      ok: false,
+      success: false,
+      fallback: true,
+      error: 'Python usd-brep backend not connected on http://127.0.0.1:8000. Reverting to client-side geometric engine.',
+    };
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(mock503Response), {
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const res = await executeCadScript(sampleCadScript, '503Asset');
+    expect(res.success).toBe(true);
+    expect(res.kernel).toBe('browser-usd-brep-fallback');
+    expect(res.parts?.length).toBeGreaterThanOrEqual(1);
+    expect(res.parts?.[0].name).toBe('test_box');
+  });
+
+  it('preserves and returns remote execution error when backend returns HTTP 200 with syntax error and fallback is false', async () => {
+    const mockPythonError = {
+      ok: false,
+      success: false,
+      kernel: 'nvidia-usd-brep-1.0.0',
+      error: 'SyntaxError in CAD script: invalid syntax (<cad_script>, line 2)',
+      error_type: 'SyntaxError',
+    };
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(mockPythonError), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const res = await executeCadScript('invalid python code', 'SyntaxErrAsset');
+    expect(res.success).toBe(false);
+    expect(res.kernel).toBe('nvidia-usd-brep-1.0.0');
+    expect(res.error).toContain('SyntaxError');
+  });
+
+  it('falls back to client-side synthesizer when fetch throws network error or connection refused', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('Failed to fetch (ECONNREFUSED)'));
+
+    const res = await executeCadScript(sampleCadScript, 'NetworkErrAsset');
+    expect(res.success).toBe(true);
+    expect(res.kernel).toBe('browser-usd-brep-fallback');
+    expect(res.parts?.length).toBeGreaterThanOrEqual(1);
+    expect(res.parts?.[0].name).toBe('test_box');
+  });
+
+  it('falls back to client-side synthesizer when fetch aborts or times out', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new DOMException('The user aborted a request.', 'AbortError'));
+
+    const res = await executeCadScript(sampleCadScript, 'AbortAsset');
+    expect(res.success).toBe(true);
+    expect(res.kernel).toBe('browser-usd-brep-fallback');
+    expect(res.parts?.length).toBeGreaterThanOrEqual(1);
+    expect(res.parts?.[0].name).toBe('test_box');
+  });
+
+  it('cleans up timeout timer on both successful and rejected fetch calls', async () => {
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('Network drop'));
+    await executeCadScript(sampleCadScript, 'DropAsset');
+
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+  });
+});
+
 

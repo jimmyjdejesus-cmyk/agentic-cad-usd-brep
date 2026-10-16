@@ -141,6 +141,8 @@ export interface CadExecutionResult {
   ok: boolean;
   success: boolean;
   kernel: string;
+  // Indicates if the backend requests or performed fallback to client-side synthesizer
+  fallback?: boolean;
   asset_name?: string;
   elapsed_ms?: number;
   error?: string;

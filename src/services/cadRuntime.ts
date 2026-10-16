@@ -100,9 +100,9 @@ export async function executeCadScript(
   envelope?: [number, number, number],
   linearTolerance = 0.06
 ): Promise<CadExecutionResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
     const res = await fetch('/api/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -114,12 +114,17 @@ export async function executeCadScript(
       }),
       signal: controller.signal,
     });
-    clearTimeout(timer);
     if (res.ok) {
-      return (await res.json()) as CadExecutionResult;
+      const data = (await res.json()) as CadExecutionResult;
+      // If the backend executed successfully without requesting fallback, return remote execution data
+      if (!data.fallback) {
+        return data;
+      }
     }
   } catch {
     // Fallback to client-side usd_brep geometric evaluator for standalone preview mode
+  } finally {
+    clearTimeout(timer);
   }
   return evaluateClientSideUsdBrep(code, assetName, envelope);
 }
