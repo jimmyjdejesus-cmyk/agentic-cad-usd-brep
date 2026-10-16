@@ -75,3 +75,32 @@ we use a **Dual-Runtime Hybrid Architecture**:
 - `backend/` — Lightweight Python 3.12 FastAPI execution engine (`backend/server.py` + `backend/cad_engine.py`):
   - Executes `build_parts()` against real `usd_brep` (`_omni_solid`), computes `Brep.info()`, `material_census()`, pairwise `brep_relationship()`, NVIDIA's `sanity_checks()`, tessellates with configurable tolerances, and exports `.usda` (Mesh), `.brep.usda` (NURBS `BrepArray`), and `.stl`.
 - `docs/nvidia-usd-brep/` — Complete mirror of NVIDIA's official `usd-brep` documentation, `.agents/operations/*.md` guides, `.agents/docs/generate_asset.md` playbook, `.agents/docs/errors.md`, type stubs (`__init__.pyi`, `usd.pyi`), and reference examples.
+
+---
+
+## 3. Production Enhancements & Security Architecture
+
+### 3.1 Engineering Inspector & Workspace UX
+- **Docked Multi-Tab Sidebar (`src/App.tsx`)**: Consolidated floating overlays into a single responsive sidebar featuring:
+  - **Parts Inspector**: Visibility toggling, single-part isolation, and inline part renaming.
+  - **Mass Properties Calculator**: Dynamic mass, volume, and center-of-mass (CoM) computed across material presets.
+  - **3D Annotations Dock**: Real-time vertex/surface pin tracking, resolution state, and viewport focus triggers.
+  - **Explosion Timeline**: Eased multi-stage disassembly animation and keyframe scrubbing.
+
+### 3.2 Dynamic Shape Templates & CAD File Manager
+- **Geometric Archetypes (`src/data/cadTemplates.ts`)**: Rapid initialization from Box, Cylinder, Triangular Prism, or Blank Canvas templates.
+- **Dynamic Shape Thumbnails (`src/components/CadShapeThumbnail.tsx`)**: Vector SVG rendering of parametric dimensions and schematic silhouettes.
+- **Persistent Storage (`src/services/cadFileManager.ts`)**: Versioned design retention across browser localStorage and optional Firestore cloud vaults.
+
+### 3.3 CI/CD & Automated Verification Pipeline
+- **GitHub Actions Matrix (`.github/workflows/ci.yml`)**:
+  1. `security-audit`: Pattern scanning of tracked files for zero credential leakage.
+  2. `frontend-ci`: TypeScript typechecking (`npm run lint`), Vitest suite (`npm test`), and production bundle compilation (`npm run build`).
+  3. `backend-ci`: Python 3.12 environment setup and pytest execution for `backend/test_cad_engine.py`.
+- **Browser Automation Suite (`scripts/verify-browser.mjs`)**: Headless Chrome CDP testing across 9 DOM/ARIA and viewport interaction scenarios.
+
+### 3.4 Security & Secret Management Playbook
+- **Zero-Leaked Keys in Tracked Assets**: Configuration manifests like `firebase-applet-config.json` use empty string placeholders.
+- **Environment Resolution**: Seamless loading of `VITE_FIREBASE_API_KEY` and `GEMINI_API_KEY` across Vite client and Node server contexts.
+- **Fail-Safe Initialization**: Safe dummy fallback keys prevent module-load crashes (`auth/invalid-api-key`) in unconfigured offline environments.
+

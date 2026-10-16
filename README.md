@@ -1,106 +1,161 @@
-# NVIDIA `usd-brep` Agentic CAD Studio
+# ApexCAD Studio — NVIDIA `usd-brep` Agentic CAD Studio
 
-An **Agentic B-Rep CAD Studio** powered by **NVIDIA's `usd-brep` (`SMLib` / `_omni_solid` NURBS solid modeling kernel)**, **OpenUSD (`UsdGeom.Mesh` & `BrepArray`)**, and **Google Gemini (`@google/genai` `gemini-3.8-flash`)**.
+[![CI Matrix](https://github.com/jimmyjdejesus-cmyk/agentic-cad-usd-brep/actions/workflows/ci.yml/badge.svg)](https://github.com/jimmyjdejesus-cmyk/agentic-cad-usd-brep/actions/workflows/ci.yml)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-18.3-cyan.svg)](https://react.dev/)
+[![OpenUSD](https://img.shields.io/badge/OpenUSD-24.08-green.svg)](https://openusd.org/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-yellow.svg)](LICENSE)
 
-Designed from the ground up for **hybrid execution**:
-1. **Local Native C++ B-Rep Mode**: Connects to the local CPython 3.12 FastAPI backend running NVIDIA's `usd-brep==1.0.0` C++ solid modeling kernel (`_omni_solid`) for exact NURBS primitives, boolean operations, circular fillets, sweeps, `sm.tessellate()`, `sm.brep_relationship()`, and `sm.usd` OpenUSD stage export.
-2. **Google AI Studio Cloud Preview ("Vibe Editing") Mode**: Structured at the repository root (`metadata.json`, `package.json`, `vite.config.ts`, `tsconfig.json`, `index.html`, `src/`) so you can import the GitHub repo directly into **Google AI Studio Build Mode** with **Two-Way GitHub Sync**, complete with an in-browser `usd_brep` geometric synthesizer fallback when running in the cloud preview.
-
----
-
-## Key Features
-
-- **Autonomous Self-Healing B-Rep Copilot (`gemini-3.8-flash`)**:
-  - Generates Python `usd_brep` (`import usd_brep as sm`) scripts defining `build_parts()`.
-  - Automatically verifies every generated part with `brep.info()` (`manifold`, `volume`, `faces`, `edges`, `vertices`), `sm.brep_relationship()`, and NVIDIA's multi-part `sanity_checks()` (AABB interpenetration detection, `z >= 0` ground-plane check, and envelope bounds).
-  - Self-repairs up to 3 iterations if `SM_ERR_*` kernel exceptions, non-manifold shells, or part penetrations are detected.
-- **Interactive Z-Up OpenUSD 3D Viewport**:
-  - Three.js Z-up CAD stage (`1 unit = 1 cm`, `upAxis = "Z"`) with orbit/pan/zoom camera controls, wireframe overlay, AABB bounding boxes, part picking, and an interactive **Explode Assembly** slider.
-- **Live OpenUSD & CAD Export**:
-  - Inspect and download ASCII **OpenUSD Mesh (`.usda`)** (`UsdGeom.Mesh` with `primvars:displayColor` and `custom token asset:kind`), **Exact NURBS BrepArray (`.brep.usda`)**, and **ASCII `.stl`**.
-- **Complete Official NVIDIA `usd-brep` Reference & API Guide Explorer**:
-  - Bundles all **36 official guides, skills, `.pyi` type stubs, and example scripts** from [`NVIDIA-Omniverse/usd-brep`](https://github.com/NVIDIA-Omniverse/usd-brep) inside [`docs/nvidia-usd-brep/`](docs/nvidia-usd-brep/), searchable directly inside the studio UI.
+An **Agentic B-Rep CAD Studio** powered by **NVIDIA's `usd-brep` (`SMLib` / `_omni_solid` C++ NURBS kernel)**, **OpenUSD (`UsdGeom.Mesh` & `BrepArray`)**, and **Google Gemini (`@google/genai` `gemini-3.8-flash`)**, featuring agnostic AI harness support (Google GenAI, Nous Hermes Agent, Pi Agent, Hugging Face WebGPU, and local Ollama sockets).
 
 ---
 
-## Quick Start (Local Native NVIDIA `usd-brep` C++ Kernel + Vite UI)
+## Architecture & Hybrid Execution
 
-### 1. Start the Python 3.12 `usd-brep` Backend (Port 8000)
+ApexCAD Studio is engineered for continuous agility and resilience:
 
-`usd-brep==1.0.0` requires CPython 3.12 (`>=3.12,<3.13`). Using `uv`:
+1. **Local Native C++ B-Rep Mode**:
+   - Connects to the local Python 3.12 FastAPI backend running NVIDIA's `usd-brep==1.0.0` C++ solid modeling kernel (`_omni_solid`).
+   - Computes exact NURBS boundary representations, boolean unions/differences/intersections, circular fillets, sweeps, `sm.tessellate()`, and `sm.usd` OpenUSD stage serialization.
+2. **Client-Side Geometric Synthesizer (Zero-Crash Fallback)**:
+   - When running in browser preview, Google AI Studio Build Mode, or on host platforms without native `usd_brep` C++ wheels (e.g. macOS ARM64), the studio automatically falls back to the client-side Three.js geometric synthesizer without 404/500 stalls.
+3. **Multi-Harness Copilot Execution**:
+   - **Google GenAI (`gemini-3.8-flash`)**: Cloud-orchestrated server-side synthesis with candidate model cascading and 3x self-healing manifold repair loop.
+   - **Nous Hermes Agent**: Local/remote agent with native function calling and topology verification tool execution.
+   - **Pi Agent**: Rapid continuous reactive co-design with 60fps viewport synchronization.
+   - **Hugging Face WebGPU**: On-device in-browser inference with zero telemetry.
+   - **Ollama / vLLM Socket**: Localhost socket integration on `http://127.0.0.1:11434`.
 
-```powershell
-# Create Python 3.12 virtual environment and install NVIDIA usd-brep + FastAPI
-uv venv .venv-usd-brep --python 3.12
-uv pip install --python .venv-usd-brep\Scripts\python.exe usd-brep fastapi uvicorn pydantic numpy pytest httpx
+---
 
-# Start the FastAPI B-Rep server on http://127.0.0.1:8000
-npm run backend
+## Key Capabilities
+
+### 1. Parametric CAD & Templates
+- **Template Switcher & Creator**: Launch new designs from geometric archetypes (**Box / Enclosure**, **Cylinder / Rotor**, **Triangular Prism**, or **Blank Canvas**).
+- **Interactive SVG Shape Thumbnails**: Isometric, orthographic, and schematic previews rendered dynamically.
+- **Persistent File Management**: Save, duplicate, rename, export, and load designs across local storage and cloud vaults.
+
+### 2. Engineering Inspector & UX
+- **Docked Multi-Tab Sidebar**: Switch cleanly between **Parts Hierarchy**, **Mass Properties**, **3D Annotations**, and **Explosion Timeline**.
+- **Part Isolation & Renaming**: Single-click part isolation, hide/show toggling, and in-place part renaming that propagates synchronously across Python code, OpenUSD tags, and 3D annotations.
+- **Mass Properties Calculator**: Dynamic mass, volume, bounding box, and center-of-mass (CoM) calculated dynamically with PBR material presets (Steel, Aluminum, Titanium, Brass, ABS, PEEK, Delrin, Carbon Fiber).
+- **Explosion Timeline**: Keyframed assembly disassembly with easing curves, scrubbing slider, and part translation vectors.
+- **3D Surface & Vertex Annotations**: Place interactive 3D pins on geometric features with snap-to-vertex, leader lines, resolution toggling, and camera focus.
+
+### 3. AMD Silicon & EDA Multi-Chip Module (MCM) Studio
+- Synthesize 2.5D semiconductor packaging assemblies including organic substrate BGA, silicon interposer, logic core die, HBM3 cache stacks, and copper integrated heat spreader (IHS) from circuit netlists.
+
+### 4. Official NVIDIA `usd-brep` Guide Explorer
+- Bundles all **36 official guides, skills, `.pyi` type stubs, and example scripts** from [`NVIDIA-Omniverse/usd-brep`](https://github.com/NVIDIA-Omniverse/usd-brep) inside [`docs/nvidia-usd-brep/`](docs/nvidia-usd-brep/), searchable directly in-app.
+
+---
+
+## Quick Start
+
+### Prerequisites
+- **Node.js**: `v20.x` or higher
+- **Python**: `3.12` (recommended for native NVIDIA `usd-brep` C++ kernel)
+- **uv** (recommended) or standard `pip`
+
+---
+
+### Step 1: Clone & Configure Environment
+
+```bash
+git clone https://github.com/jimmyjdejesus-cmyk/agentic-cad-usd-brep.git
+cd agentic-cad-usd-brep
+
+# Copy example environment configuration
+cp .env.example .env
 ```
 
-### 2. Start the Vite + React Frontend (Port 3000)
+Edit `.env` to configure your API keys (credentials in `.env` are strictly gitignored):
+```bash
+# Google Gemini API Key for server-side CAD synthesis & self-healing
+GEMINI_API_KEY=your_gemini_api_key_here
 
-```powershell
+# Firebase Client Configuration (Optional - for Auth & Cloud Storage)
+VITE_FIREBASE_API_KEY=your_firebase_api_key_here
+```
+
+---
+
+### Step 2: Install Frontend Dependencies & Start Server
+
+```bash
+# Install NPM dependencies
 npm install
+
+# Start Express hybrid server & Vite dev server (Port 3000)
 npm run dev
 ```
 
-Open `http://localhost:3000` in your browser. The header badge will show **`C++ _omni_solid Kernel Active`**.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## Connecting to Google AI Studio for "Vibe Editing" (Two-Way GitHub Sync)
+### Step 3: (Optional) Start Python 3.12 B-Rep Kernel Backend (Port 8000)
 
-This repository is pre-configured for **Google AI Studio Build Mode**:
+To execute exact C++ NURBS B-Rep operations on supported platforms (Linux x86_64 or Windows x86_64):
 
-1. Open **[Google AI Studio — Build](https://aistudio.google.com/apps)**.
-2. Click **Import from GitHub** (or open the GitHub sync panel in the top toolbar) and select:
-   - **Repository**: `jimmyjdejesus-cmyk/agentic-cad-usd-brep`
-3. Google AI Studio reads `metadata.json`, `package.json`, `vite.config.ts`, `index.html`, and `src/` directly from the root of the repository and automatically injects `process.env.GEMINI_API_KEY`.
-4. Prompt Google AI Studio to vibe-edit the UI, add new parametric presets, or customize the 3D viewport, and commit/push changes back to GitHub with one click!
+```bash
+# Setup virtual environment with Python 3.12
+uv venv .venv-usd-brep --python 3.12
+
+# Install backend dependencies
+uv pip install -r backend/requirements.txt --python .venv-usd-brep
+
+# Install NVIDIA usd-brep wheel (if on supported x86_64 platform)
+uv pip install usd-brep --python .venv-usd-brep
+
+# Start FastAPI server on http://127.0.0.1:8000
+npm run backend
+```
 
 ---
 
-## Running Automated Tests
+## Testing & Verification Matrix
 
-```powershell
-# 1. Run Python backend unit & integration tests against the real NVIDIA usd-brep C++ kernel
-.\.venv-usd-brep\Scripts\python.exe -m pytest backend/test_cad_engine.py -v
+The repository features automated test coverage across frontend, backend, browser, and security dimensions:
 
-# 2. Run Frontend Vitest unit tests (client-side fallback synthesizer, USDA/STL export, edge cases)
+```bash
+# 1. Frontend Unit Tests (Vitest — 72 tests across 9 test suites)
 npm test
 
-# 3. Type-check and build production bundle
+# 2. TypeScript Static Analysis (0 errors)
+npm run lint
+
+# 3. Production Bundle Build (Vite)
 npm run build
+
+# 4. Headless Chrome CDP Verification (9 DOM/ARIA & Viewport scenarios)
+npm run test:browser
+
+# 5. Python Backend Engine Verification
+pytest backend/test_cad_engine.py -v
 ```
 
 ---
 
-## Repository Structure
+## CI/CD Automation
 
-```text
-├── metadata.json                # Google AI Studio app manifest
-├── package.json                 # Root Vite + React 18 + Three.js + @google/genai config
-├── vite.config.ts               # Vite config with /api proxy to port 8000 & GEMINI_API_KEY define
-├── index.html                   # App HTML entry
-├── ARCHITECTURE_AND_PLAN.md     # Deep research & architecture synthesis across open-source Agentic CAD repos
-├── src/
-│   ├── App.tsx                  # 3-Pane Agentic CAD Studio UI + OpenUSD Inspector + API Guide Explorer
-│   ├── components/
-│   │   └── Viewport3D.tsx       # Three.js Z-up CAD viewport (orbit/pan/zoom, wireframe, AABB, explode view)
-│   ├── services/
-│   │   ├── cadRuntime.ts        # Hybrid executor (FastAPI C++ usd-brep backend + browser fallback synthesizer)
-│   │   ├── cadRuntime.test.ts   # Vitest unit test suite
-│   │   └── geminiAgent.ts       # @google/genai (gemini-3.8-flash) copilot with 3x self-healing repair loop
-│   ├── data/
-│   │   └── presetsData.ts       # 5 verified multi-part NVIDIA usd-brep parametric CAD presets
-│   └── types/
-│       └── cad.ts               # TypeScript data contracts
-├── backend/
-│   ├── cad_engine.py            # NVIDIA usd-brep execution, manifold/census queries, sanity_checks, USD/STL export
-│   ├── presets.py               # Backend preset catalog
-│   ├── server.py                # FastAPI endpoints (/api/health, /api/presets, /api/execute, /api/guides)
-│   └── test_cad_engine.py       # Pytest suite verifying presets, OpenUSD round-trip, and edge cases
-└── docs/
-    └── nvidia-usd-brep/         # Complete official NVIDIA-Omniverse/usd-brep documentation, skills, stubs & examples
-```
+Continuous Integration is automated via GitHub Actions in [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+
+- **Job 1 (`security-audit`)**: Scans all tracked files for exposed API keys, private keys, and secrets with 0-tolerance leak enforcement.
+- **Job 2 (`frontend-ci`)**: Executes TypeScript linting (`tsc --noEmit`), Vitest suite (`npm test`), and production bundle compilation (`npm run build`).
+- **Job 3 (`backend-ci`)**: Sets up Python 3.12, installs `backend/requirements.txt`, and verifies `backend/test_cad_engine.py`.
+
+---
+
+## Security & Secrets Management
+
+- **Zero Tracked Secrets**: Configuration files (e.g. `firebase-applet-config.json`) contain zero hardcoded credentials or API keys.
+- **Dynamic Variable Injection**: Secrets are loaded exclusively from environment variables (`process.env.GEMINI_API_KEY`, `import.meta.env.VITE_FIREBASE_API_KEY`).
+- **Graceful Unconfigured Mode**: If optional services (like Firebase Auth) are not configured, the application falls back gracefully with user-friendly notices without throwing fatal initialization exceptions.
+- **Secret Scanning Auditing**: Automated in GitHub Actions and guided by the [`.gemini/skills/secret-audit-and-remediation/SKILL.md`](.gemini/skills/secret-audit-and-remediation/SKILL.md) workspace skill.
+
+---
+
+## License
+
+This project is licensed under the Apache 2.0 License. NVIDIA `usd-brep` documentation and type stubs are copyright NVIDIA Corporation.
