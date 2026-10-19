@@ -211,5 +211,23 @@ def test_fastapi_endpoints():
     if HAS_USD_BREP:
         assert payload["success"] is True
         assert len(payload["parts"]) == 4
+        assert "stl_text" in payload["parts"][0]
     else:
         assert payload["fallback"] is True
+
+
+def test_generate_part_ascii_stl_computed_normals():
+    from backend.cad_engine import generate_part_ascii_stl
+
+    mock_part = {
+        "name": "tri_plate",
+        "mesh": {
+            "points": [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 0.0]],
+            "triangles": [0, 1, 2],
+        },
+    }
+    stl = generate_part_ascii_stl(mock_part, "tri_plate")
+    assert "solid tri_plate" in stl
+    assert "facet normal 0 0 1" in stl
+    assert "vertex 0 0 0" in stl
+    assert "endsolid tri_plate" in stl

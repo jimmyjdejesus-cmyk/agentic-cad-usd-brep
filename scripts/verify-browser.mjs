@@ -205,6 +205,22 @@ async function main() {
     // Wait 1.5s for canvas to mount and initialize Three.js
     await delay(1500);
 
+    // If Onboarding Tutorial is open on fresh launch, choose starter shape and close tutorial
+    const tutorialPresent = await cdp.eval(`Boolean(document.querySelector('button[aria-label="Close Tutorial"]'))`);
+    if (tutorialPresent) {
+      console.log('   Onboarding tutorial detected, selecting starter shape...');
+      await cdp.eval(`(() => {
+        const chooseBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('Choose Starter Shape'));
+        if (chooseBtn) chooseBtn.click();
+      })()`);
+      await delay(1000);
+      await cdp.eval(`(() => {
+        const closeBtn = document.querySelector('button[aria-label="Close Tutorial"]');
+        if (closeBtn) closeBtn.click();
+      })()`);
+      await delay(800);
+    }
+
     // 6. Test Viewport Canvas Dimensions
     console.log('🧪 Test 1: Viewport Canvas & Container non-zero width at 1024px...');
     const layout = await cdp.eval(`(() => {
@@ -377,14 +393,20 @@ async function main() {
     })()`);
     await delay(400);
 
-    const partsTreeChecks = await cdp.eval(`(() => {
-      const partElements = Array.from(document.querySelectorAll('span')).filter(s => s.textContent?.startsWith('/'));
-      const count = partElements.length;
-      if (count > 0) {
-        partElements[0].click();
-      }
-      return { partCount: count };
-    })()`);
+    let partsTreeChecks = { partCount: 0 };
+    const waitPartsStart = Date.now();
+    while (Date.now() - waitPartsStart < 5000) {
+      partsTreeChecks = await cdp.eval(`(() => {
+        const partElements = Array.from(document.querySelectorAll('span')).filter(s => s.textContent?.startsWith('/'));
+        const count = partElements.length;
+        if (count > 0) {
+          partElements[0].click();
+        }
+        return { partCount: count };
+      })()`);
+      if (partsTreeChecks.partCount > 0) break;
+      await delay(500);
+    }
     console.log('   Parts tree count:', partsTreeChecks);
     if (partsTreeChecks.partCount === 0) {
       throw new Error('Assembly parts tree is empty! Fallback synthesis did not populate parts.');
