@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import Module from 'manifold-3d';
 import {
   CadExecutionResult,
   CadMeshData,
@@ -18,6 +19,47 @@ export interface BackendHealthStatus {
   engine: string;
   pythonVersion?: string;
   presetCount: number;
+}
+
+// ============================================================================
+// Manifold 3D WebAssembly Solid Kernel Initialization
+// ============================================================================
+
+let manifoldModulePromise: Promise<any> | null = null;
+let manifoldInstance: any = null;
+
+/**
+ * Initializes and retrieves the singleton Manifold WebAssembly C++ geometry kernel.
+ * Automatically resolves the WASM binary path in browser and Node/Vitest environments.
+ */
+export async function getManifold(): Promise<any> {
+  if (manifoldInstance) return manifoldInstance;
+  if (!manifoldModulePromise) {
+    manifoldModulePromise = (async () => {
+      const isBrowser = typeof window !== 'undefined';
+      const config = isBrowser
+        ? {
+            locateFile: (file: string) => {
+              if (file.endsWith('.wasm')) {
+                return '/manifold.wasm';
+              }
+              return file;
+            },
+          }
+        : undefined;
+
+      try {
+        const mod = await (Module as any)(config);
+        mod.setup();
+        return mod;
+      } catch (err) {
+        console.warn('Manifold WASM failed to initialize, falling back to Three.js synthesizer:', err);
+        return null;
+      }
+    })();
+  }
+  manifoldInstance = await manifoldModulePromise;
+  return manifoldInstance;
 }
 
 export async function checkBackendHealth(): Promise<BackendHealthStatus> {
@@ -122,19 +164,20 @@ export async function executeCadScript(
       }
     }
   } catch {
-    // Fallback to client-side usd_brep geometric evaluator for standalone preview mode
+    // Fallback to client-side geometric evaluator for standalone preview mode
   } finally {
     clearTimeout(timer);
   }
-  return evaluateClientSideUsdBrep(code, assetName, envelope);
+  return await evaluateClientSideUsdBrep(code, assetName, envelope);
 }
 
 // ============================================================================
-// Client-Side usd_brep Fallback Synthesizer for Standalone Cloud Preview
+// Client-Side Solid Synthesizer & Manifold WASM Engine
 // ============================================================================
 
 interface SynthShape {
   geometries: THREE.BufferGeometry[];
+  manifold?: any;
   nurbsFaces: number;
   nurbsEdges: number;
   nurbsVertices: number;
@@ -161,10 +204,11 @@ function bufferGeometryToCadMesh(geometries: THREE.BufferGeometry[]): {
     maxZ = -Infinity;
 
   for (const geom of geometries) {
-    geom.computeVertexNormals();
     const posAttr = geom.getAttribute('position');
     const normAttr = geom.getAttribute('normal');
     const indexAttr = geom.getIndex();
+    if (!posAttr) continue;
+
     const vertexOffset = points.length;
 
     for (let i = 0; i < posAttr.count; i++) {
@@ -239,6 +283,107 @@ function bufferGeometryToCadMesh(geometries: THREE.BufferGeometry[]): {
   };
 }
 
+/**
+ * Converts a Manifold WASM solid instance into watertight CadMeshData with smooth computed normals.
+ */
+function manifoldToCadMesh(manifold: any): {
+  mesh: CadMeshData;
+  bounds: [[number, number, number], [number, number, number]];
+  center: [number, number, number];
+  volume: number;
+  area: number;
+  genus: number;
+} {
+  // Calculate normals with standard 45-degree crease angle threshold
+  const normManifold = manifold.calculateNormals(0, 45);
+  const mMesh = normManifold.getMesh();
+  const numProp = mMesh.numProp || 3;
+  const numVert = mMesh.numVert;
+  const vertProps = mMesh.vertProperties;
+  const triVerts = mMesh.triVerts;
+
+  const points: [number, number, number][] = [];
+  const normals: [number, number, number][] = [];
+  const triangles: number[] = [];
+  const face_vertex_counts: number[] = [];
+  const face_vertex_indices: number[] = [];
+
+  let minX = Infinity,
+    minY = Infinity,
+    minZ = Infinity;
+  let maxX = -Infinity,
+    maxY = -Infinity,
+    maxZ = -Infinity;
+
+  for (let i = 0; i < numVert; i++) {
+    const offset = i * numProp;
+    const x = Number(vertProps[offset].toFixed(4));
+    const y = Number(vertProps[offset + 1].toFixed(4));
+    const z = Number(vertProps[offset + 2].toFixed(4));
+    points.push([x, y, z]);
+
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (z < minZ) minZ = z;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    if (z > maxZ) maxZ = z;
+
+    if (numProp >= 6) {
+      normals.push([
+        Number(vertProps[offset + 3].toFixed(4)),
+        Number(vertProps[offset + 4].toFixed(4)),
+        Number(vertProps[offset + 5].toFixed(4)),
+      ]);
+    } else {
+      normals.push([0, 0, 1]);
+    }
+  }
+
+  for (let i = 0; i < triVerts.length; i += 3) {
+    const i0 = triVerts[i];
+    const i1 = triVerts[i + 1];
+    const i2 = triVerts[i + 2];
+    triangles.push(i0, i1, i2);
+    face_vertex_counts.push(3);
+    face_vertex_indices.push(i0, i1, i2);
+  }
+
+  if (!Number.isFinite(minX)) {
+    minX = minY = minZ = 0;
+    maxX = maxY = maxZ = 0;
+  }
+
+  const bounds: [[number, number, number], [number, number, number]] = [
+    [Number(minX.toFixed(4)), Number(minY.toFixed(4)), Number(minZ.toFixed(4))],
+    [Number(maxX.toFixed(4)), Number(maxY.toFixed(4)), Number(maxZ.toFixed(4))],
+  ];
+  const center: [number, number, number] = [
+    Number(((minX + maxX) / 2).toFixed(4)),
+    Number(((minY + maxY) / 2).toFixed(4)),
+    Number(((minZ + maxZ) / 2).toFixed(4)),
+  ];
+
+  const volume = Number(manifold.volume().toFixed(4));
+  const area = Number(manifold.surfaceArea().toFixed(4));
+  const genus = typeof manifold.genus === 'function' ? manifold.genus() : 0;
+
+  return {
+    mesh: {
+      points,
+      normals,
+      triangles,
+      face_vertex_counts,
+      face_vertex_indices,
+    },
+    bounds,
+    center,
+    volume,
+    area,
+    genus,
+  };
+}
+
 function sanitizePrimName(name: string, index: number): string {
   const cleaned = String(name || `part_${index}`).replace(/[^A-Za-z0-9_]/g, '_');
   return /^[0-9]/.test(cleaned) || !cleaned ? `part_${cleaned}` : cleaned;
@@ -287,9 +432,66 @@ export function generateMeshUsdaClient(parts: CadPartOutput[], assetName = 'CadA
   return lines.join('\n');
 }
 
+/**
+ * Generates an ASCII STL file string for an individual part with mathematically exact
+ * outward surface normals (u x v) suitable for direct 3D printing and slicing.
+ */
+export function generatePartAsciiStl(part: CadPartOutput, solidName?: string): string {
+  const safeName = sanitizePrimName(solidName || part.name, 0);
+  const lines: string[] = [`solid ${safeName}`];
+  const pts = part.mesh.points;
+  const tris = part.mesh.triangles;
+
+  for (let i = 0; i < tris.length; i += 3) {
+    const p0 = pts[tris[i]];
+    const p1 = pts[tris[i + 1]];
+    const p2 = pts[tris[i + 2]];
+    if (!p0 || !p1 || !p2) continue;
+
+    // Calculate outward face normal via cross product: (p1 - p0) x (p2 - p0)
+    const ux = p1[0] - p0[0];
+    const uy = p1[1] - p0[1];
+    const uz = p1[2] - p0[2];
+    const vx = p2[0] - p0[0];
+    const vy = p2[1] - p0[1];
+    const vz = p2[2] - p0[2];
+
+    let nx = uy * vz - uz * vy;
+    let ny = uz * vx - ux * vz;
+    let nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz);
+
+    if (len > 1e-12) {
+      nx /= len;
+      ny /= len;
+      nz /= len;
+    } else {
+      nx = 0;
+      ny = 0;
+      nz = 1;
+    }
+
+    lines.push(`  facet normal ${nx.toFixed(6)} ${ny.toFixed(6)} ${nz.toFixed(6)}`);
+    lines.push('    outer loop');
+    lines.push(`      vertex ${p0[0].toFixed(4)} ${p0[1].toFixed(4)} ${p0[2].toFixed(4)}`);
+    lines.push(`      vertex ${p1[0].toFixed(4)} ${p1[1].toFixed(4)} ${p1[2].toFixed(4)}`);
+    lines.push(`      vertex ${p2[0].toFixed(4)} ${p2[1].toFixed(4)} ${p2[2].toFixed(4)}`);
+    lines.push('    endloop');
+    lines.push('  endfacet');
+  }
+
+  lines.push(`endsolid ${safeName}`);
+  return lines.join('\n');
+}
+
+/**
+ * Generates an ASCII STL file string for an entire multi-body assembly with mathematically
+ * exact facet normals calculated per triangle for slicer compatibility.
+ */
 export function generateAsciiStlClient(parts: CadPartOutput[], assetName = 'CadAsset'): string {
   const safeName = sanitizePrimName(assetName, 0);
   const lines: string[] = [`solid ${safeName}`];
+
   for (const part of parts) {
     const pts = part.mesh.points;
     const tris = part.mesh.triangles;
@@ -298,24 +500,105 @@ export function generateAsciiStlClient(parts: CadPartOutput[], assetName = 'CadA
       const p1 = pts[tris[i + 1]];
       const p2 = pts[tris[i + 2]];
       if (!p0 || !p1 || !p2) continue;
-      lines.push('  facet normal 0 0 1');
+
+      const ux = p1[0] - p0[0];
+      const uy = p1[1] - p0[1];
+      const uz = p1[2] - p0[2];
+      const vx = p2[0] - p0[0];
+      const vy = p2[1] - p0[1];
+      const vz = p2[2] - p0[2];
+
+      let nx = uy * vz - uz * vy;
+      let ny = uz * vx - ux * vz;
+      let nz = ux * vy - uy * vx;
+      const len = Math.hypot(nx, ny, nz);
+
+      if (len > 1e-12) {
+        nx /= len;
+        ny /= len;
+        nz /= len;
+      } else {
+        nx = 0;
+        ny = 0;
+        nz = 1;
+      }
+
+      lines.push(`  facet normal ${nx.toFixed(6)} ${ny.toFixed(6)} ${nz.toFixed(6)}`);
       lines.push('    outer loop');
-      lines.push(`      vertex ${p0[0]} ${p0[1]} ${p0[2]}`);
-      lines.push(`      vertex ${p1[0]} ${p1[1]} ${p1[2]}`);
-      lines.push(`      vertex ${p2[0]} ${p2[1]} ${p2[2]}`);
+      lines.push(`      vertex ${p0[0].toFixed(4)} ${p0[1].toFixed(4)} ${p0[2].toFixed(4)}`);
+      lines.push(`      vertex ${p1[0].toFixed(4)} ${p1[1].toFixed(4)} ${p1[2].toFixed(4)}`);
+      lines.push(`      vertex ${p2[0].toFixed(4)} ${p2[1].toFixed(4)} ${p2[2].toFixed(4)}`);
       lines.push('    endloop');
       lines.push('  endfacet');
     }
   }
+
   lines.push(`endsolid ${safeName}`);
   return lines.join('\n');
 }
 
-export function evaluateClientSideUsdBrep(
+// Hierarchical statement block representation for indented python code execution
+interface ScriptStatement {
+  type: 'line' | 'for';
+  raw: string;
+  varName?: string;
+  countExpr?: string;
+  body?: ScriptStatement[];
+}
+
+function parseScriptBlocks(code: string): ScriptStatement[] {
+  const rawLines = code.split(/\r?\n/);
+  let i = 0;
+
+  function parseBlock(minIndent: number): ScriptStatement[] {
+    const block: ScriptStatement[] = [];
+    while (i < rawLines.length) {
+      const raw = rawLines[i];
+      const trimmed = raw.replace(/#.*$/, '');
+      if (!trimmed.trim()) {
+        i++;
+        continue;
+      }
+      const indent = raw.match(/^\s*/)?.[0].length ?? 0;
+      if (indent < minIndent) {
+        break;
+      }
+
+      const line = trimmed.trim();
+      const forMatch = line.match(/^for\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+range\(([^)]+)\):$/);
+      if (forMatch) {
+        i++;
+        const body = parseBlock(indent + 1);
+        block.push({
+          type: 'for',
+          raw: line,
+          varName: forMatch[1],
+          countExpr: forMatch[2],
+          body,
+        });
+      } else {
+        block.push({
+          type: 'line',
+          raw: line,
+        });
+        i++;
+      }
+    }
+    return block;
+  }
+
+  return parseBlock(0);
+}
+
+/**
+ * Client-Side CAD synthesizer powered by Manifold WebAssembly C++ geometry kernel.
+ * Computes exact 2-manifold solid booleans, holes, watertight STL mesh, and diagnostics.
+ */
+export async function evaluateClientSideUsdBrep(
   code: string,
   assetName = 'CadAsset',
   envelope?: [number, number, number]
-): CadExecutionResult {
+): Promise<CadExecutionResult> {
   const t0 = performance.now();
   if (!code || !code.trim()) {
     return {
@@ -337,8 +620,14 @@ export function evaluateClientSideUsdBrep(
     };
   }
 
+  // Retrieve Manifold WASM singleton
+  const wasm = await getManifold();
+
   const shapes: Record<string, SynthShape> = {};
-  const scalars: Record<string, number> = {};
+  const scalars: Record<string, number> = {
+    'math.pi': Math.PI,
+    'math.e': Math.E,
+  };
 
   const evalNum = (expr: string): number => {
     const trimmed = expr.trim().replace(/^[A-Za-z_]+\s*=\s*/, '');
@@ -347,6 +636,8 @@ export function evaluateClientSideUsdBrep(
         .replace(/\bmath\.pi\b/g, String(Math.PI))
         .replace(/\bmath\.cos\b/g, 'Math.cos')
         .replace(/\bmath\.sin\b/g, 'Math.sin')
+        .replace(/\bmath\.sqrt\b/g, 'Math.sqrt')
+        .replace(/\bmath\.tan\b/g, 'Math.tan')
         .replace(/\b([A-Za-z_][A-Za-z0-9_]*)\b/g, (id) =>
           id in scalars ? String(scalars[id]) : id
         );
@@ -367,19 +658,21 @@ export function evaluateClientSideUsdBrep(
     ];
   };
 
-  const lines = code.split(/\r?\n/);
-  for (const rawLine of lines) {
-    const line = rawLine.replace(/#.*$/, '').trim();
-    if (!line) continue;
+  let executionError: { error: string; error_type: string } | null = null;
 
-    // Scalar variable assignment: e.g. side = 12.0
-    const scalarMatch = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([-+0-9.]+)$/);
-    if (scalarMatch) {
-      scalars[scalarMatch[1]] = Number.parseFloat(scalarMatch[2]);
-      continue;
+  function executeSingleLine(line: string) {
+    if (executionError) return;
+
+    // 1. Scalar variable assignment: e.g. num_teeth = 12 or bx = 13.5 * math.cos(ang)
+    const scalarMatch = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^sm\(].*)$/);
+    if (scalarMatch && !line.includes('sm.') && !line.includes('[') && !line.includes('{')) {
+      const varName = scalarMatch[1];
+      const val = evalNum(scalarMatch[2]);
+      scalars[varName] = val;
+      return;
     }
 
-    // sm.create_box((minX, minY, minZ), L, W, H)
+    // 2. sm.create_box((minX, minY, minZ), L, W, H)
     const boxMatch = line.match(
       /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.create_box\(\s*(\([^)]+\))\s*,\s*([^,]+),\s*([^,]+),\s*([^)]+)\)/
     );
@@ -390,28 +683,33 @@ export function evaluateClientSideUsdBrep(
       const W = evalNum(wStr);
       const H = evalNum(hStr);
       if (L <= 0 || W <= 0 || H <= 0) {
-        return {
-          ok: false,
-          success: false,
-          kernel: 'browser-usd-brep-fallback',
+        executionError = {
           error: 'RuntimeError: SM_ERR_INVALID_INPUT: Box dimensions must be positive',
           error_type: 'RuntimeError',
         };
+        return;
       }
       const geom = new THREE.BoxGeometry(L, W, H);
       geom.translate(ox + L / 2, oy + W / 2, oz + H / 2);
+
+      let manifoldSolid: any = null;
+      if (wasm?.Manifold) {
+        manifoldSolid = wasm.Manifold.cube([L, W, H], false).translate([ox, oy, oz]);
+      }
+
       shapes[varName] = {
         geometries: [geom],
+        manifold: manifoldSolid,
         nurbsFaces: 6,
         nurbsEdges: 12,
         nurbsVertices: 8,
         volumeEstimate: L * W * H,
         areaEstimate: 2 * (L * W + L * H + W * H),
       };
-      continue;
+      return;
     }
 
-    // sm.create_cylinder((cx, cy, z0), radius, height)
+    // 3. sm.create_cylinder((cx, cy, z0), radius, height)
     const cylMatch = line.match(
       /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.create_cylinder\(\s*(\([^)]+\))\s*,\s*([^,]+),\s*([^)]+)\)/
     );
@@ -421,29 +719,34 @@ export function evaluateClientSideUsdBrep(
       const r = evalNum(rStr);
       const h = evalNum(hStr);
       if (r <= 0 || h <= 0) {
-        return {
-          ok: false,
-          success: false,
-          kernel: 'browser-usd-brep-fallback',
+        executionError = {
           error: 'RuntimeError: SM_ERR_INVALID_INPUT: Cylinder radius and height must be positive',
           error_type: 'RuntimeError',
         };
+        return;
       }
       const geom = new THREE.CylinderGeometry(r, r, h, 32);
       geom.rotateX(Math.PI / 2); // Align along Z
       geom.translate(cx, cy, z0 + h / 2);
+
+      let manifoldSolid: any = null;
+      if (wasm?.Manifold) {
+        manifoldSolid = wasm.Manifold.cylinder(h, r, r, 32, false).translate([cx, cy, z0]);
+      }
+
       shapes[varName] = {
         geometries: [geom],
+        manifold: manifoldSolid,
         nurbsFaces: 3,
         nurbsEdges: 3,
         nurbsVertices: 2,
         volumeEstimate: Math.PI * r * r * h,
         areaEstimate: 2 * Math.PI * r * (r + h),
       };
-      continue;
+      return;
     }
 
-    // sm.create_sphere((cx, cy, cz), radius)
+    // 4. sm.create_sphere((cx, cy, cz), radius)
     const sphMatch = line.match(
       /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.create_sphere\(\s*(\([^)]+\))\s*,\s*([^)]+)\)/
     );
@@ -452,28 +755,33 @@ export function evaluateClientSideUsdBrep(
       const [cx, cy, cz] = parseVec3(origStr);
       const r = evalNum(rStr);
       if (r <= 0) {
-        return {
-          ok: false,
-          success: false,
-          kernel: 'browser-usd-brep-fallback',
+        executionError = {
           error: 'RuntimeError: SM_ERR_INVALID_INPUT: Sphere radius must be positive',
           error_type: 'RuntimeError',
         };
+        return;
       }
       const geom = new THREE.SphereGeometry(r, 28, 20);
       geom.translate(cx, cy, cz);
+
+      let manifoldSolid: any = null;
+      if (wasm?.Manifold) {
+        manifoldSolid = wasm.Manifold.sphere(r, 32).translate([cx, cy, cz]);
+      }
+
       shapes[varName] = {
         geometries: [geom],
+        manifold: manifoldSolid,
         nurbsFaces: 1,
         nurbsEdges: 3,
         nurbsVertices: 2,
         volumeEstimate: (4 / 3) * Math.PI * r * r * r,
         areaEstimate: 4 * Math.PI * r * r,
       };
-      continue;
+      return;
     }
 
-    // sm.create_torus((cx, cy, cz), r_major, r_minor)
+    // 5. sm.create_torus((cx, cy, cz), r_major, r_minor)
     const torusMatch = line.match(
       /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.create_torus\(\s*(\([^)]+\))\s*,\s*([^,]+),\s*([^)]+)\)/
     );
@@ -482,20 +790,37 @@ export function evaluateClientSideUsdBrep(
       const [cx, cy, cz] = parseVec3(origStr);
       const rMaj = evalNum(rMajStr);
       const rMin = evalNum(rMinStr);
+      if (rMaj <= 0 || rMin <= 0) {
+        executionError = {
+          error: 'RuntimeError: SM_ERR_INVALID_INPUT: Torus major and minor radii must be positive',
+          error_type: 'RuntimeError',
+        };
+        return;
+      }
       const geom = new THREE.TorusGeometry(rMaj, rMin, 20, 36);
       geom.translate(cx, cy, cz);
+
+      let manifoldSolid: any = null;
+      if (wasm?.CrossSection) {
+        manifoldSolid = wasm.CrossSection.circle(rMin, 24)
+          .translate([rMaj, 0])
+          .revolve(36)
+          .translate([cx, cy, cz]);
+      }
+
       shapes[varName] = {
         geometries: [geom],
+        manifold: manifoldSolid,
         nurbsFaces: 1,
         nurbsEdges: 2,
         nurbsVertices: 1,
         volumeEstimate: 2 * Math.PI * Math.PI * rMaj * rMin * rMin,
         areaEstimate: 4 * Math.PI * Math.PI * rMaj * rMin,
       };
-      continue;
+      return;
     }
 
-    // sm.create_cone((cx, cy, z0), r_base, r_top, height)
+    // 6. sm.create_cone((cx, cy, z0), r_base, r_top, height)
     const coneMatch = line.match(
       /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.create_cone\(\s*(\([^)]+\))\s*,\s*([^,]+),\s*([^,]+),\s*([^)]+)\)/
     );
@@ -505,21 +830,35 @@ export function evaluateClientSideUsdBrep(
       const rBase = evalNum(rBaseStr);
       const rTop = evalNum(rTopStr);
       const h = evalNum(hStr);
+      if (h <= 0) {
+        executionError = {
+          error: 'RuntimeError: SM_ERR_INVALID_INPUT: Cone height must be positive',
+          error_type: 'RuntimeError',
+        };
+        return;
+      }
       const geom = new THREE.CylinderGeometry(rTop, rBase, h, 32);
       geom.rotateX(Math.PI / 2);
       geom.translate(cx, cy, z0 + h / 2);
+
+      let manifoldSolid: any = null;
+      if (wasm?.Manifold) {
+        manifoldSolid = wasm.Manifold.cylinder(h, rBase, rTop, 32, false).translate([cx, cy, z0]);
+      }
+
       shapes[varName] = {
         geometries: [geom],
+        manifold: manifoldSolid,
         nurbsFaces: 3,
         nurbsEdges: 3,
         nurbsVertices: 2,
         volumeEstimate: (Math.PI * h * (rBase * rBase + rBase * rTop + rTop * rTop)) / 3,
         areaEstimate: Math.PI * (rBase + rTop) * Math.hypot(rBase - rTop, h),
       };
-      continue;
+      return;
     }
 
-    // sm.create_wedge((ox, oy, oz), dx, dy, dz, ltx)
+    // 7. sm.create_wedge((ox, oy, oz), dx, dy, dz, ltx)
     const wedgeMatch = line.match(
       /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.create_wedge\(\s*(\([^)]+\))\s*,\s*([^,]+),\s*([^,]+),\s*([^,]+)(?:,\s*([^)]+))?\)/
     );
@@ -531,13 +870,11 @@ export function evaluateClientSideUsdBrep(
       const dz = evalNum(dzStr);
       const ltx = ltxStr ? evalNum(ltxStr) : 0.0;
       if (dx <= 0 || dy <= 0 || dz <= 0) {
-        return {
-          ok: false,
-          success: false,
-          kernel: 'browser-usd-brep-fallback',
+        executionError = {
           error: 'RuntimeError: SM_ERR_INVALID_INPUT: Wedge dimensions must be positive',
           error_type: 'RuntimeError',
         };
+        return;
       }
 
       const shape2d = new THREE.Shape();
@@ -551,49 +888,72 @@ export function evaluateClientSideUsdBrep(
       geom.rotateX(Math.PI / 2);
       geom.translate(ox, oy + dy, oz);
       geom.computeVertexNormals();
+
+      let manifoldSolid: any = null;
+      if (wasm?.CrossSection) {
+        const poly = [[0, 0], [dx, 0], [ltx, dz]];
+        if (ltx > 0) poly.push([0, dz]);
+        const cs = wasm.CrossSection.ofPolygons([poly]);
+        manifoldSolid = cs
+          .extrude(dy)
+          .rotate([90, 0, 0])
+          .translate([ox, oy + dy, oz]);
+      }
+
       shapes[varName] = {
         geometries: [geom],
+        manifold: manifoldSolid,
         nurbsFaces: ltx > 0 ? 6 : 5,
         nurbsEdges: 9,
         nurbsVertices: 6,
         volumeEstimate: 0.5 * (dx + ltx) * dy * dz,
         areaEstimate: dx * dy + dy * dz + Math.hypot(dx - ltx, dz) * dy,
       };
-      continue;
+      return;
     }
 
-    // sm.sweep_along_planar_path fallback
-    const sweepMatch = line.match(
-      /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.sweep_along_planar_path\(/
-    );
+    // 8. sm.sweep_along_planar_path
+    const sweepMatch = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.sweep_along_planar_path\(/);
     if (sweepMatch) {
       const [, varName] = sweepMatch;
       const side = scalars.side || 12.0;
       const radius = scalars.radius || 1.4;
       const geom = new THREE.TorusGeometry(side / 2, radius, 20, 40);
       geom.translate(side / 2, side / 2, 0);
+
+      let manifoldSolid: any = null;
+      if (wasm?.CrossSection) {
+        manifoldSolid = wasm.CrossSection.circle(radius, 24)
+          .translate([side / 2, 0])
+          .revolve(36)
+          .translate([side / 2, side / 2, 0]);
+      }
+
       shapes[varName] = {
         geometries: [geom],
+        manifold: manifoldSolid,
         nurbsFaces: 8,
         nurbsEdges: 16,
         nurbsVertices: 8,
         volumeEstimate: 2 * Math.PI * Math.PI * (side / 2) * radius * radius,
         areaEstimate: 4 * Math.PI * Math.PI * (side / 2) * radius,
       };
-      continue;
+      return;
     }
 
-    // sm.translate(target, (dx, dy, dz))
-    const transMatch = line.match(
-      /^sm\.translate\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*(\([^)]+\))\s*\)/
-    );
+    // 9. sm.translate(target, (dx, dy, dz))
+    const transMatch = line.match(/^sm\.translate\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*(\([^)]+\))\s*\)/);
     if (transMatch && shapes[transMatch[1]]) {
+      const target = shapes[transMatch[1]];
       const [dx, dy, dz] = parseVec3(transMatch[2]);
-      shapes[transMatch[1]].geometries.forEach((g) => g.translate(dx, dy, dz));
-      continue;
+      target.geometries.forEach((g) => g.translate(dx, dy, dz));
+      if (target.manifold) {
+        target.manifold = target.manifold.translate([dx, dy, dz]);
+      }
+      return;
     }
 
-    // sm.rotate(target, ref_point=(...), axis=(...), angle_deg=...)
+    // 10. sm.rotate(target, ref_point=(...), axis=(...), angle_deg=...)
     const rotMatch = line.match(
       /^sm\.rotate\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*(?:ref_point=)?(\([^)]+\))\s*,\s*(?:axis=)?(\([^)]+\))\s*,\s*(?:angle_deg=)?([^)]+)\)/
     );
@@ -605,15 +965,23 @@ export function evaluateClientSideUsdBrep(
       const rad = (deg * Math.PI) / 180;
       const axisVec = new THREE.Vector3(ax, ay, az).normalize();
       const rotMat = new THREE.Matrix4().makeRotationAxis(axisVec, rad);
+
       target.geometries.forEach((g) => {
         g.translate(-rx, -ry, -rz);
         g.applyMatrix4(rotMat);
         g.translate(rx, ry, rz);
       });
-      continue;
+
+      if (target.manifold) {
+        target.manifold = target.manifold
+          .translate([-rx, -ry, -rz])
+          .transform(Array.from(rotMat.elements))
+          .translate([rx, ry, rz]);
+      }
+      return;
     }
 
-    // sm.boolean_union(a, b)
+    // 11. sm.boolean_union(a, b)
     const unionMatch = line.match(
       /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.boolean_union\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)/
     );
@@ -622,8 +990,20 @@ export function evaluateClientSideUsdBrep(
       const sa = shapes[aVar];
       const sb = shapes[bVar];
       if (sa && sb) {
+        let manifoldUnion = null;
+        if (sa.manifold && sb.manifold) {
+          try {
+            manifoldUnion = sa.manifold.add(sb.manifold);
+          } catch {
+            manifoldUnion = sa.manifold;
+          }
+        } else {
+          manifoldUnion = sa.manifold || sb.manifold || null;
+        }
+
         shapes[outVar] = {
           geometries: [...sa.geometries.map((g) => g.clone()), ...sb.geometries.map((g) => g.clone())],
+          manifold: manifoldUnion,
           nurbsFaces: sa.nurbsFaces + sb.nurbsFaces,
           nurbsEdges: sa.nurbsEdges + sb.nurbsEdges,
           nurbsVertices: sa.nurbsVertices + sb.nurbsVertices,
@@ -631,10 +1011,10 @@ export function evaluateClientSideUsdBrep(
           areaEstimate: sa.areaEstimate + sb.areaEstimate,
         };
       }
-      continue;
+      return;
     }
 
-    // sm.boolean_difference(a, b)
+    // 12. sm.boolean_difference(a, b)
     const diffMatch = line.match(
       /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.boolean_difference\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)/
     );
@@ -643,8 +1023,20 @@ export function evaluateClientSideUsdBrep(
       const sa = shapes[aVar];
       const sb = shapes[bVar];
       if (sa) {
+        let manifoldDiff = null;
+        if (sa.manifold && sb?.manifold) {
+          try {
+            manifoldDiff = sa.manifold.subtract(sb.manifold);
+          } catch {
+            manifoldDiff = sa.manifold;
+          }
+        } else {
+          manifoldDiff = sa.manifold || null;
+        }
+
         shapes[outVar] = {
           geometries: sa.geometries.map((g) => g.clone()),
+          manifold: manifoldDiff,
           nurbsFaces: sa.nurbsFaces + (sb ? 2 : 0),
           nurbsEdges: sa.nurbsEdges + (sb ? 4 : 0),
           nurbsVertices: sa.nurbsVertices + (sb ? 2 : 0),
@@ -652,8 +1044,69 @@ export function evaluateClientSideUsdBrep(
           areaEstimate: sa.areaEstimate,
         };
       }
-      continue;
+      return;
     }
+
+    // 13. sm.boolean_intersection(a, b)
+    const interMatch = line.match(
+      /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.boolean_intersection\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)/
+    );
+    if (interMatch) {
+      const [, outVar, aVar, bVar] = interMatch;
+      const sa = shapes[aVar];
+      const sb = shapes[bVar];
+      if (sa && sb) {
+        let manifoldInter = null;
+        if (sa.manifold && sb.manifold) {
+          try {
+            manifoldInter = sa.manifold.intersect(sb.manifold);
+          } catch {
+            manifoldInter = sa.manifold;
+          }
+        }
+        shapes[outVar] = {
+          geometries: sa.geometries.map((g) => g.clone()),
+          manifold: manifoldInter,
+          nurbsFaces: Math.min(sa.nurbsFaces, sb.nurbsFaces),
+          nurbsEdges: Math.min(sa.nurbsEdges, sb.nurbsEdges),
+          nurbsVertices: Math.min(sa.nurbsVertices, sb.nurbsVertices),
+          volumeEstimate: Math.min(sa.volumeEstimate, sb.volumeEstimate) * 0.5,
+          areaEstimate: Math.min(sa.areaEstimate, sb.areaEstimate),
+        };
+      }
+      return;
+    }
+  }
+
+  function executeBlockStatements(stmts: ScriptStatement[]) {
+    for (const stmt of stmts) {
+      if (executionError) return;
+      if (stmt.type === 'for') {
+        const count = Math.min(64, Math.max(0, Math.round(evalNum(stmt.countExpr || '0'))));
+        const loopVar = stmt.varName || 'i';
+        for (let idx = 0; idx < count; idx++) {
+          if (executionError) break;
+          scalars[loopVar] = idx;
+          executeBlockStatements(stmt.body || []);
+        }
+      } else if (stmt.type === 'line' && stmt.raw) {
+        executeSingleLine(stmt.raw);
+      }
+    }
+  }
+
+  // Parse and execute all script blocks and loops
+  const scriptBlocks = parseScriptBlocks(code);
+  executeBlockStatements(scriptBlocks);
+
+  if (executionError) {
+    return {
+      ok: false,
+      success: false,
+      kernel: 'browser-usd-brep-fallback',
+      error: (executionError as any).error,
+      error_type: (executionError as any).error_type,
+    };
   }
 
   // Extract return tuple list entries: ("name", varName, (r, g, b) or [r, g, b], "kind")
@@ -661,44 +1114,80 @@ export function evaluateClientSideUsdBrep(
     /\(\s*["']([^"']+)["']\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*[\(\[]\s*([^,]+),\s*([^,]+),\s*([^\]\)]+)[\)\]]\s*(?:,\s*["']([^"']+)["'])?\s*\)/g;
   const partsOutput: CadPartOutput[] = [];
   let match: RegExpExecArray | null;
+
   while ((match = tupleRegex.exec(code)) !== null) {
     const [, partName, varName, rStr, gStr, bStr, kindStr] = match;
     const shape = shapes[varName];
     if (!shape) continue;
-    const { mesh, bounds, center } = bufferGeometryToCadMesh(shape.geometries);
-    const triCount = mesh.triangles.length / 3;
-    partsOutput.push({
+
+    let partMesh: CadMeshData;
+    let partBounds: [[number, number, number], [number, number, number]];
+    let partCenter: [number, number, number];
+    let partVolume: number;
+    let partArea: number;
+
+    if (shape.manifold) {
+      try {
+        const mRes = manifoldToCadMesh(shape.manifold);
+        partMesh = mRes.mesh;
+        partBounds = mRes.bounds;
+        partCenter = mRes.center;
+        partVolume = mRes.volume;
+        partArea = mRes.area;
+      } catch {
+        const bRes = bufferGeometryToCadMesh(shape.geometries);
+        partMesh = bRes.mesh;
+        partBounds = bRes.bounds;
+        partCenter = bRes.center;
+        partVolume = Number(shape.volumeEstimate.toFixed(4));
+        partArea = Number(shape.areaEstimate.toFixed(4));
+      }
+    } else {
+      const bRes = bufferGeometryToCadMesh(shape.geometries);
+      partMesh = bRes.mesh;
+      partBounds = bRes.bounds;
+      partCenter = bRes.center;
+      partVolume = Number(shape.volumeEstimate.toFixed(4));
+      partArea = Number(shape.areaEstimate.toFixed(4));
+    }
+
+    const triCount = partMesh.triangles.length / 3;
+    const partObj: CadPartOutput = {
       name: partName,
       kind: kindStr || 'component',
       color: [evalNum(rStr), evalNum(gStr), evalNum(bStr)],
       diagnostics: {
-        faces: shape.nurbsFaces,
-        edges: shape.nurbsEdges,
-        vertices: shape.nurbsVertices,
+        faces: shape.nurbsFaces || Math.max(6, Math.round(triCount / 4)),
+        edges: shape.nurbsEdges || Math.max(12, Math.round(triCount / 2)),
+        vertices: shape.nurbsVertices || partMesh.points.length,
         manifold: true,
-        volume: Number(shape.volumeEstimate.toFixed(4)),
-        area: Number(shape.areaEstimate.toFixed(4)),
+        volume: partVolume,
+        area: partArea,
         solid_count: 1,
         void_count: 0,
-        bounds,
-        center,
+        bounds: partBounds,
+        center: partCenter,
         tessellation: {
-          vertex_count: mesh.points.length,
+          vertex_count: partMesh.points.length,
           triangle_count: triCount,
           output_manifold: true,
           lamina_edge_count: 0,
           failure_count: 0,
         },
       },
-      mesh,
-    });
+      mesh: partMesh,
+    };
+
+    // Pre-calculate per-part watertight STL text with outward surface normals
+    partObj.stl_text = generatePartAsciiStl(partObj, `${assetName}_${partName}`);
+    partsOutput.push(partObj);
   }
 
   if (partsOutput.length === 0) {
     return {
       ok: false,
       success: false,
-      kernel: 'browser-usd-brep-fallback',
+      kernel: wasm?.Manifold ? 'browser-wasm-manifold-csg' : 'browser-usd-brep-fallback',
       error: 'No valid (name, brep, color, kind) parts could be synthesized from build_parts().',
       error_type: 'NoPartsError',
     };
@@ -767,7 +1256,7 @@ export function evaluateClientSideUsdBrep(
   return {
     ok: true,
     success: true,
-    kernel: 'browser-usd-brep-fallback',
+    kernel: wasm?.Manifold ? 'browser-wasm-manifold-csg' : 'browser-usd-brep-fallback',
     asset_name: assetName,
     elapsed_ms: elapsedMs,
     sanity_warnings: sanityWarnings,

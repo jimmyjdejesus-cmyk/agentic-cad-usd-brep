@@ -82,6 +82,7 @@ import {
   executeCadScript,
   fetchGuideSummaries,
   fetchGuideDetail,
+  generatePartAsciiStl,
 } from './services/cadRuntime';
 import {
   validatePartName,
@@ -98,6 +99,7 @@ import {
 import {
   CadAnnotation,
   CadExecutionResult,
+  CadPartOutput,
   CadPreset,
   CadTemplateType,
   ChatMessage,
@@ -1035,7 +1037,14 @@ export const App: React.FC = () => {
     a.href = url;
     a.download = filename;
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadPartStl = (part: CadPartOutput) => {
+    const solidName = `${selectedPresetId}_${part.name}`;
+    const stlContent = part.stl_text || generatePartAsciiStl(part, solidName);
+    downloadFile(stlContent, `${solidName}.stl`);
   };
 
   const parts = execResult?.parts || [];
@@ -1540,9 +1549,31 @@ export const App: React.FC = () => {
                   }}
                   className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-zinc-200 hover:bg-[#14161b] disabled:opacity-40 transition"
                 >
-                  <span className="font-medium">3D Triangle Mesh</span>
+                  <span className="font-medium">3D Triangle Mesh (Assembly)</span>
                   <span className="text-[10px] text-amber-400 font-mono">.stl</span>
                 </button>
+
+                {parts.length > 0 && (
+                  <div className="pt-1 mt-1 border-t border-[#272a34]">
+                    <div className="px-2.5 py-1 text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                      Export Individual Parts (.stl)
+                    </div>
+                    {parts.map((p) => (
+                      <button
+                        key={p.name}
+                        onClick={() => {
+                          handleDownloadPartStl(p);
+                          setIsExportMenuOpen(false);
+                        }}
+                        className="w-full text-left px-2.5 py-1 rounded text-xs flex items-center justify-between text-zinc-300 hover:bg-[#14161b] hover:text-amber-300 transition"
+                        title={`Download 3D printable STL for /${p.name}`}
+                      >
+                        <span className="font-mono truncate mr-2">/{p.name}</span>
+                        <span className="text-[10px] text-amber-400/80 font-mono shrink-0">.stl</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 <div className="h-px bg-[#272a34] my-1" />
 
@@ -2381,6 +2412,16 @@ export const App: React.FC = () => {
                                   >
                                     <Target className={`w-3 h-3 ${isIsolated ? 'text-amber-400' : 'text-zinc-400'}`} />
                                     <span>{isIsolated ? 'Isolated' : 'Isolate'}</span>
+                                  </button>
+
+                                  {/* Download Part STL Button */}
+                                  <button
+                                    onClick={() => handleDownloadPartStl(p)}
+                                    className="p-1 rounded bg-[#1e212b] hover:bg-amber-500/20 text-zinc-400 hover:text-amber-300 border border-[#2d3242] transition"
+                                    title={`Download 3D printable STL for /${p.name}`}
+                                    aria-label={`Download STL for ${p.name}`}
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
                                   </button>
 
                                   <button

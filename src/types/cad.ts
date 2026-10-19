@@ -32,6 +32,7 @@ export interface CadPartOutput {
   color: [number, number, number];
   diagnostics: CadPartDiagnostics;
   mesh: CadMeshData;
+  stl_text?: string;
 }
 
 export interface CadPartRelationship {

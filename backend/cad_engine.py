@@ -214,6 +214,37 @@ def generate_ascii_stl(parts_data: list[dict[str, Any]], asset_name: str = "CadA
     return "\n".join(lines)
 
 
+def generate_part_ascii_stl(part_data: dict[str, Any], solid_name: str = "Part") -> str:
+    """Export an individual tessellated part to an ASCII STL string with exact facet normals."""
+    safe_name = _sanitize_prim_name(solid_name, 0)
+    lines = [f"solid {safe_name}"]
+    pts = part_data["mesh"]["points"]
+    tris = part_data["mesh"]["triangles"]
+    for i in range(0, len(tris), 3):
+        p0 = pts[tris[i]]
+        p1 = pts[tris[i + 1]]
+        p2 = pts[tris[i + 2]]
+        ux, uy, uz = p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]
+        vx, vy, vz = p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]
+        nx = uy * vz - uz * vy
+        ny = uz * vx - ux * vz
+        nz = ux * vy - uy * vx
+        length = math.sqrt(nx * nx + ny * ny + nz * nz)
+        if length > 1e-12:
+            nx, ny, nz = nx / length, ny / length, nz / length
+        else:
+            nx, ny, nz = 0.0, 0.0, 1.0
+        lines.append(f"  facet normal {nx:.6g} {ny:.6g} {nz:.6g}")
+        lines.append("    outer loop")
+        lines.append(f"      vertex {p0[0]:.6g} {p0[1]:.6g} {p0[2]:.6g}")
+        lines.append(f"      vertex {p1[0]:.6g} {p1[1]:.6g} {p1[2]:.6g}")
+        lines.append(f"      vertex {p2[0]:.6g} {p2[1]:.6g} {p2[2]:.6g}")
+        lines.append("    endloop")
+        lines.append("  endfacet")
+    lines.append(f"endsolid {safe_name}")
+    return "\n".join(lines)
+
+
 def get_engine_status() -> dict[str, Any]:
     """Return runtime status of the NVIDIA usd_brep C++ kernel."""
     import sys
@@ -402,42 +433,43 @@ def execute_cad_script(
             parts_points_for_sanity.append((name, mesh_dict["points"]))
             breps_by_name.append((name, brep))
 
-            parts_output.append(
-                {
-                    "name": name,
-                    "kind": kind,
-                    "color": color,
-                    "diagnostics": {
-                        "faces": int(info["faces"]),
-                        "edges": int(info["edges"]),
-                        "vertices": int(info["vertices"]),
-                        "manifold": is_manifold,
-                        "volume": round(vol, 4),
-                        "area": round(area, 4),
-                        "solid_count": int(census.get("solid_count", 1)),
-                        "void_count": int(census.get("void_count", 0)),
-                        "bounds": [
-                            [round(float(x), 4) for x in bounds[0]],
-                            [round(float(x), 4) for x in bounds[1]],
-                        ],
-                        "center": [round(float(x), 4) for x in center],
-                        "tessellation": {
-                            "vertex_count": len(pts),
-                            "triangle_count": len(triangles) // 3,
-                            "output_manifold": bool(tess_report.get("output_manifold", True)),
-                            "lamina_edge_count": int(tess_report.get("lamina_edge_count", 0)),
-                            "failure_count": len(tess_report.get("failures", [])),
-                        },
+            part_dict = {
+                "name": name,
+                "kind": kind,
+                "color": color,
+                "diagnostics": {
+                    "faces": int(info["faces"]),
+                    "edges": int(info["edges"]),
+                    "vertices": int(info["vertices"]),
+                    "manifold": is_manifold,
+                    "volume": round(vol, 4),
+                    "area": round(area, 4),
+                    "solid_count": int(census.get("solid_count", 1)),
+                    "void_count": int(census.get("void_count", 0)),
+                    "bounds": [
+                        [round(float(x), 4) for x in bounds[0]],
+                        [round(float(x), 4) for x in bounds[1]],
+                    ],
+                    "center": [round(float(x), 4) for x in center],
+                    "tessellation": {
+                        "vertex_count": len(pts),
+                        "triangle_count": len(triangles) // 3,
+                        "output_manifold": bool(tess_report.get("output_manifold", True)),
+                        "lamina_edge_count": int(tess_report.get("lamina_edge_count", 0)),
+                        "failure_count": len(tess_report.get("failures", [])),
                     },
-                    "mesh": {
-                        "points": pts,
-                        "normals": norms,
-                        "triangles": triangles,
-                        "face_vertex_counts": counts,
-                        "face_vertex_indices": indices,
-                    },
-                }
-            )
+                },
+                "mesh": {
+                    "points": pts,
+                    "normals": norms,
+                    "triangles": triangles,
+                    "face_vertex_counts": counts,
+                    "face_vertex_indices": indices,
+                },
+            }
+            part_dict["stl_text"] = generate_part_ascii_stl(part_dict, f"{asset_name}_{name}")
+            parts_output.append(part_dict)
+
     except Exception as exc:
         return {
             "ok": False,
