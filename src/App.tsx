@@ -14,6 +14,7 @@ import {
   Circle,
   CircleDot,
   Code2,
+  Compass,
   Cpu,
   Download,
   Eye,
@@ -53,10 +54,9 @@ import { AmdEdaSiliconStudio } from './components/AmdEdaSiliconStudio';
 import { InAppToolsetsModal } from './components/InAppToolsetsModal';
 import { AiHarnessModal } from './components/AiHarnessModal';
 import { NewDesignModal } from './components/NewDesignModal';
+import { OnboardingTutorial } from './components/OnboardingTutorial';
 import { CadShapeThumbnail } from './components/CadShapeThumbnail';
 import { BASIC_SHAPE_INSERT_OPTIONS, CAD_TEMPLATES, BasicShapeInsertOption } from './data/cadTemplates';
-import { DEFAULT_PRESETS } from './data/presetsData';
-import { DEFAULT_ANNOTATIONS_MAP } from './data/defaultAnnotations';
 import {
   auth,
   testConnection,
@@ -80,7 +80,6 @@ import {
   BackendHealthStatus,
   checkBackendHealth,
   executeCadScript,
-  fetchPresets,
   fetchGuideSummaries,
   fetchGuideDetail,
 } from './services/cadRuntime';
@@ -119,14 +118,20 @@ const QUICK_PROMPTS = [
 ];
 
 export const App: React.FC = () => {
-  const [presets, setPresets] = useState<CadPreset[]>(DEFAULT_PRESETS);
   const [userFiles, setUserFiles] = useState<UserCadFile[]>([]);
   const [isNewDesignModalOpen, setIsNewDesignModalOpen] = useState<boolean>(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('apexcad_onboarding_completed') !== 'true';
+    } catch {
+      return false;
+    }
+  });
   const [saveNotification, setSaveNotification] = useState<string | null>(null);
   const [isSavingCurrent, setIsSavingCurrent] = useState<boolean>(false);
-  const [selectedPresetId, setSelectedPresetId] = useState<string>(DEFAULT_PRESETS[0].id);
-  const [code, setCode] = useState<string>(DEFAULT_PRESETS[0].code);
-  const [envelope, setEnvelope] = useState<[number, number, number]>(DEFAULT_PRESETS[0].envelope);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('');
+  const [code, setCode] = useState<string>('');
+  const [envelope, setEnvelope] = useState<[number, number, number]>([20, 20, 20]);
 
   // Agnostic AI Harness & Model Selection
   const [selectedHarness, setSelectedHarness] = useState<HarnessTypeId>('google-genai');
@@ -153,7 +158,7 @@ export const App: React.FC = () => {
   const [health, setHealth] = useState<BackendHealthStatus>({
     connected: false,
     engine: 'Connecting to NVIDIA usd-brep...',
-    presetCount: DEFAULT_PRESETS.length,
+    presetCount: 0,
   });
 
   // CAD State
@@ -220,15 +225,7 @@ export const App: React.FC = () => {
   );
 
   // 3D Annotations State (synced to CAD assembly & localStorage)
-  const [annotations, setAnnotations] = useState<CadAnnotation[]>(() => {
-    try {
-      const saved = localStorage.getItem(`cad_annotations_${DEFAULT_PRESETS[0].id}`);
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // ignore
-    }
-    return DEFAULT_ANNOTATIONS_MAP[DEFAULT_PRESETS[0].id] || [];
-  });
+  const [annotations, setAnnotations] = useState<CadAnnotation[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [isAnnotating, setIsAnnotating] = useState<boolean>(false);
   const [snapToVertex, setSnapToVertex] = useState<boolean>(true);
@@ -327,13 +324,7 @@ export const App: React.FC = () => {
   }, [execResult?.parts, hiddenPartNames]);
 
   // Persistent Part Renaming State & Handlers
-  const [partRenames, setPartRenames] = useState<Record<string, string>>(() => {
-    try {
-      const saved = localStorage.getItem(`cad_renames_${DEFAULT_PRESETS[0].id}`);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return {};
-  });
+  const [partRenames, setPartRenames] = useState<Record<string, string>>({});
   const [editingPartName, setEditingPartName] = useState<string | null>(null);
   const [editPartNameDraft, setEditPartNameDraft] = useState<string>('');
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -532,40 +523,48 @@ export const App: React.FC = () => {
       const loadedUserFiles = loadUserFiles();
       setUserFiles(loadedUserFiles);
 
-      const [h, loadedPresets] = await Promise.all([
-        checkBackendHealth(),
-        fetchPresets(),
-      ]);
+      const h = await checkBackendHealth();
       setHealth(h);
-      setPresets(loadedPresets);
 
       // Check if user previously had an active file
       const lastActiveId = localStorage.getItem('cad_last_active_id');
       const activeCustom = loadedUserFiles.find((f) => f.id === lastActiveId);
-      const activePreset = loadedPresets.find((p) => p.id === lastActiveId);
 
       const targetToLoad =
         activeCustom ||
-        activePreset ||
-        (loadedUserFiles.length > 0 ? loadedUserFiles[0] : loadedPresets[0] || DEFAULT_PRESETS[0]);
+        (loadedUserFiles.length > 0 ? loadedUserFiles[0] : null);
 
-      setSelectedPresetId(targetToLoad.id);
-      setCode(targetToLoad.code);
-      setEnvelope(targetToLoad.envelope);
+      if (targetToLoad) {
+        setSelectedPresetId(targetToLoad.id);
+        setCode(targetToLoad.code);
+        setEnvelope(targetToLoad.envelope);
 
-      // Initialize annotations for initial design
-      try {
-        const saved = localStorage.getItem(`cad_annotations_${targetToLoad.id}`);
-        if (saved) {
-          setAnnotations(JSON.parse(saved));
-        } else {
-          setAnnotations(DEFAULT_ANNOTATIONS_MAP[targetToLoad.id] || []);
+        let customRenames: Record<string, string> = {};
+        try {
+          const savedRenames = localStorage.getItem(`cad_renames_${targetToLoad.id}`);
+          if (savedRenames) customRenames = JSON.parse(savedRenames);
+        } catch {}
+        setPartRenames(customRenames);
+
+        // Initialize annotations for initial design
+        try {
+          const saved = localStorage.getItem(`cad_annotations_${targetToLoad.id}`);
+          if (saved) {
+            setAnnotations(JSON.parse(saved));
+          } else {
+            setAnnotations([]);
+          }
+        } catch {
+          setAnnotations([]);
         }
-      } catch {
-        setAnnotations(DEFAULT_ANNOTATIONS_MAP[targetToLoad.id] || []);
-      }
 
-      await handleExecuteCode(targetToLoad.code, targetToLoad.name, targetToLoad.envelope);
+        await handleExecuteCode(targetToLoad.code, targetToLoad.name, targetToLoad.envelope, customRenames);
+      } else {
+        // Clean zero-state: start empty
+        setSelectedPresetId('');
+        setCode('');
+        setExecResult(null);
+      }
 
       // Query host hardware telemetry
       fetchSystemHardwareResources().then((specs) => {
@@ -583,6 +582,10 @@ export const App: React.FC = () => {
     targetEnvelope = envelope,
     renamesOverride?: Record<string, string>
   ) => {
+    if (!scriptCode || !scriptCode.trim()) {
+      setExecResult(null);
+      return;
+    }
     setIsExecuting(true);
     setDiagnosticsDismissed(false);
     try {
@@ -598,9 +601,16 @@ export const App: React.FC = () => {
   };
 
   const handleSelectDesign = async (designId: string) => {
+    if (!designId) {
+      setSelectedPresetId('');
+      setCode('');
+      setExecResult(null);
+      localStorage.removeItem('cad_last_active_id');
+      return;
+    }
     localStorage.setItem('cad_last_active_id', designId);
 
-    // 1. Check if it's one of user's custom files
+    // Check if it's one of user's custom files
     const custom = userFiles.find((f) => f.id === designId);
     if (custom) {
       setSelectedPresetId(custom.id);
@@ -636,52 +646,7 @@ export const App: React.FC = () => {
       setIsAnnotating(false);
 
       await handleExecuteCode(custom.code, custom.name, custom.envelope, customRenames);
-      return;
     }
-
-    // 2. Otherwise handle factory preset
-    await handleSelectPreset(designId);
-  };
-
-  const handleSelectPreset = async (presetId: string) => {
-    const found = presets.find((p) => p.id === presetId);
-    if (!found) return;
-    localStorage.setItem('cad_last_active_id', found.id);
-    setSelectedPresetId(found.id);
-    setCode(found.code);
-    setEnvelope(found.envelope);
-    setSelectedPartName(null);
-    setHiddenPartNames([]);
-    setExplodeFactor(0);
-    setPartOffsets({});
-    setEditingPartName(null);
-    setRenameError(null);
-
-    // Restore persistent renames for this preset
-    let presetRenames: Record<string, string> = {};
-    try {
-      const savedRenames = localStorage.getItem(`cad_renames_${found.id}`);
-      if (savedRenames) {
-        presetRenames = JSON.parse(savedRenames);
-      }
-    } catch {}
-    setPartRenames(presetRenames);
-
-    // Restore annotations for this preset
-    try {
-      const saved = localStorage.getItem(`cad_annotations_${found.id}`);
-      if (saved) {
-        setAnnotations(JSON.parse(saved));
-      } else {
-        setAnnotations(DEFAULT_ANNOTATIONS_MAP[found.id] || []);
-      }
-    } catch {
-      setAnnotations(DEFAULT_ANNOTATIONS_MAP[found.id] || []);
-    }
-    setSelectedAnnotationId(null);
-    setIsAnnotating(false);
-
-    await handleExecuteCode(found.code, found.id, found.envelope, presetRenames);
   };
 
   const handleCreateNewDesign = async (newFile: UserCadFile) => {
@@ -874,7 +839,10 @@ export const App: React.FC = () => {
       if (nextFiles.length > 0) {
         await handleSelectDesign(nextFiles[0].id);
       } else {
-        await handleSelectPreset(presets[0]?.id || DEFAULT_PRESETS[0].id);
+        setSelectedPresetId('');
+        setCode('');
+        setExecResult(null);
+        localStorage.removeItem('cad_last_active_id');
       }
     }
     setSaveNotification(`Deleted "${target.name}".`);
@@ -1229,27 +1197,22 @@ export const App: React.FC = () => {
               <Layers className="w-3.5 h-3.5 text-sky-400 shrink-0" />
               <span className="text-zinc-400 text-[11px] hidden sm:inline">Design:</span>
               <select
-                aria-label="Select CAD Design or Preset"
+                aria-label="Select CAD Design"
                 value={selectedPresetId}
                 onChange={(e) => handleSelectDesign(e.target.value)}
                 className="bg-transparent font-medium text-zinc-100 focus:outline-none cursor-pointer text-xs max-w-[150px] sm:max-w-[210px] truncate"
               >
-                {userFiles.length > 0 && (
-                  <optgroup label="── My Custom Files ──" className="bg-[#181a20] text-emerald-400 font-semibold">
-                    {userFiles.map((f) => (
-                      <option key={f.id} value={f.id} className="bg-[#181a20] text-zinc-100 font-normal">
-                        {f.name} {f.cloudSynced ? '☁' : '●'}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                <optgroup label="── Factory Presets ──" className="bg-[#181a20] text-sky-400 font-semibold">
-                  {presets.map((p) => (
-                    <option key={p.id} value={p.id} className="bg-[#181a20] text-zinc-100 font-normal">
-                      {p.name}
+                {userFiles.length === 0 ? (
+                  <option value="" className="bg-[#181a20] text-zinc-400 italic">
+                    (No Saved Designs)
+                  </option>
+                ) : (
+                  userFiles.map((f) => (
+                    <option key={f.id} value={f.id} className="bg-[#181a20] text-zinc-100 font-normal">
+                      {f.name} {f.cloudSynced ? '☁' : '●'}
                     </option>
-                  ))}
-                </optgroup>
+                  ))
+                )}
               </select>
 
               {/* If current file is custom, show quick delete icon */}
@@ -1509,6 +1472,20 @@ export const App: React.FC = () => {
           >
             <Bookmark className="w-3.5 h-3.5 text-emerald-400" />
             <span>{user ? `Vault (${savedAssemblies.length})` : 'Vault'}</span>
+          </button>
+
+          {/* Interactive Tutorial Walkthrough Button */}
+          <button
+            onClick={() => setIsOnboardingOpen(true)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer ${
+              isOnboardingOpen
+                ? 'bg-sky-600 text-white border-sky-500 shadow-sm shadow-sky-500/20'
+                : 'bg-[#14161b] border-[#272a34] text-zinc-300 hover:text-white hover:bg-[#1e2028]'
+            }`}
+            title="Launch Interactive Hands-On Tutorial"
+          >
+            <Compass className="w-3.5 h-3.5 text-sky-400" />
+            <span className="hidden sm:inline">Tutorial</span>
           </button>
 
           {/* Unified Export Split/Dropdown */}
@@ -2062,6 +2039,70 @@ export const App: React.FC = () => {
             onRequestPlaceAnnotation={handleRequestPlaceAnnotation}
             focusAnnotationTrigger={focusAnnotationTrigger}
           />
+
+          {/* Zero-State Blank Launchpad */}
+          {(!execResult || userFiles.length === 0 || !selectedPresetId) && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
+              <div className="pointer-events-auto max-w-md w-full bg-[#131722]/95 backdrop-blur-md border border-[#272a34] rounded-2xl p-6 shadow-2xl text-center space-y-5">
+                <div className="flex flex-col items-center gap-2">
+                  <div className="w-12 h-12 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 shadow-inner">
+                    <Box className="w-6 h-6" />
+                  </div>
+                  <h2 className="text-lg font-bold text-white tracking-tight">
+                    ApexCAD Studio
+                  </h2>
+                  <p className="text-xs text-zinc-400 max-w-sm leading-relaxed">
+                    Exact NURBS B-Rep solid modeling &amp; silicon package authoring powered by NVIDIA usd-brep.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2.5 text-left">
+                  <button
+                    onClick={() => setIsOnboardingOpen(true)}
+                    className="p-3.5 rounded-xl bg-gradient-to-r from-sky-600/20 to-indigo-600/20 border border-sky-500/40 hover:border-sky-400 transition text-left group flex items-start gap-3 cursor-pointer"
+                  >
+                    <div className="p-2 rounded-lg bg-sky-500 text-white shrink-0 shadow-md">
+                      <Compass className="w-5 h-5" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5 font-semibold text-xs text-white">
+                        <span>Interactive Hands-On Tutorial</span>
+                        <span className="text-[10px] text-sky-300 font-mono">Recommended</span>
+                      </div>
+                      <p className="text-[11px] text-zinc-300">
+                        Build your first solid part step-by-step, master 3D viewport navigation, and calculate live mass.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => setIsNewDesignModalOpen(true)}
+                    className="p-3.5 rounded-xl bg-[#181a20] border border-[#272a34] hover:border-zinc-500 transition text-left group flex items-start gap-3 cursor-pointer"
+                  >
+                    <div className="p-2 rounded-lg bg-zinc-800 text-emerald-400 shrink-0 border border-zinc-700">
+                      <FilePlus className="w-5 h-5" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5 font-semibold text-xs text-zinc-200">
+                        <span>Create New CAD Design</span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400">
+                        Choose from basic geometric templates (box, cylinder, sphere, cone, torus) or write raw Python B-Rep code.
+                      </p>
+                    </div>
+                  </button>
+                </div>
+
+                <div className="pt-2 border-t border-[#272a34] flex items-center justify-center gap-3 text-[10.5px] text-zinc-500 font-mono">
+                  <span>Orbit: Left-Drag</span>
+                  <span>·</span>
+                  <span>Pan: Right-Drag</span>
+                  <span>·</span>
+                  <span>Zoom: Scroll</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* DOCKED RIGHT SIDEBAR (Engineering Inspector & Explosion Controls) */}
@@ -2698,6 +2739,27 @@ export const App: React.FC = () => {
         isOpen={isNewDesignModalOpen}
         onClose={() => setIsNewDesignModalOpen(false)}
         onCreateDesign={handleCreateNewDesign}
+      />
+
+      {/* Interactive Hands-On Onboarding Tutorial */}
+      <OnboardingTutorial
+        isOpen={isOnboardingOpen}
+        onClose={() => setIsOnboardingOpen(false)}
+        onComplete={(newFile) => {
+          handleCreateNewDesign(newFile);
+          setIsOnboardingOpen(false);
+        }}
+        onExecuteCodeSample={async (sampleCode, sampleName, sampleEnvelope) => {
+          setCode(sampleCode);
+          setEnvelope(sampleEnvelope);
+          await handleExecuteCode(sampleCode, sampleName, sampleEnvelope);
+        }}
+        selectedMaterial={selectedMaterial}
+        onSelectMaterial={(mat) => {
+          setSelectedMaterial(mat);
+          setCustomDensity(null);
+        }}
+        isExecuting={isExecuting}
       />
 
       {/* Save & Sync Notification Toast */}

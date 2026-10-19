@@ -1,35 +1,31 @@
-# ApexCAD Studio Custom File Creation & Dynamic Geometry Templates
+# ApexCAD Studio: Factory Preset Removal & Hands-on Onboarding Engine
 
-A complete architectural overhaul to unlock custom file creation without being locked into hardcoded presets. Introduces a dedicated "New Design" header action, an interactive geometry starter template modal (Box/Enclosure, Cylinder/Shaft, Prism/Bracket, and Blank Script), and unified dual-tier persistence across browser local storage and Cloud Vault.
+A streamlined architectural overhaul that completely removes static factory presets, establishes a pristine zero-state workspace with the New Design dialog, and introduces a rich, interactive hands-on tutorial guiding users through building their very first 3D B-Rep part.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
 > The following architectural and UX decisions were confirmed during the Phase 1 clarification interview:
-
-- **Confirmed Header Flow**: A dedicated `+ New` button placed immediately adjacent to the Design dropdown in the header, giving users instant access to create custom designs without navigating away.
-- **Confirmed Starter Templates Modal**: When clicking `+ New`, a modal opens presenting 4 curated starter templates:
-  1. **Box / Enclosure**: Parametric solid cuboid with filleted baseplate, wall shell, and mounting bosses.
-  2. **Cylinder / Stepped Shaft**: Precision rotational cylinder with concentric stepped shoulder and center bore.
-  3. **Prism / Angle Bracket**: Structural L-bracket with rib gussets and circular weight-relief cutouts.
-  4. **Blank Clean Slate**: Minimal, syntax-valid Python `usd_brep` script with required SmLib and USD stage boilerplate.
-- **Confirmed Dual-Tier Storage**: Custom designs are saved seamlessly to browser `localStorage` (accessible offline without login) and automatically syncable to Firebase Cloud Vault when signed in.
-- **Dynamic Design Selector**: Replaces the rigid preset-only dropdown with an organized two-section menu separating **Presets** from **My Custom Files**, complete with quick Save, Rename, and Delete actions.
+>
+> - **Confirmed Initial Workspace State**: The application will start in a clean blank workspace rather than auto-loading an arbitrary factory preset. If no custom files exist, the user is greeted by an inviting zero-state launchpad with the New Design modal and an option to launch the hands-on onboarding tutorial.
+> - **Confirmed Onboarding Style**: An **interactive hands-on tutorial** that walks the user step-by-step through configuring and building their first 3D solid part, navigating the 3D viewport, executing code/prompts, inspecting mass properties, and saving to Cloud Vault.
+> - **Confirmed Template Strategy**: Basic geometric starter templates (Parametric Enclosure Box, Concentric Cylinder Shaft, Bearing Sphere, Conical Nozzle, Seal Torus, and Clean Blank Slate) are preserved inside the `New Design` dialog, ensuring users never face blank-canvas paralysis.
+> - **Cleaned Preset Dropdown**: The header dropdown is decluttered to exclusively manage user-created designs ("My Designs"), with quick Rename, Delete, and Cloud Sync actions.
 
 ---
 
 ## 1. Overview & Core Concept
 
 ### What It Does
-Empowers engineers and modelers to break free from hardcoded demo presets by creating, authoring, executing, and persisting new custom 3D CAD parts and silicon assemblies from scratch or from standardized mechanical starter templates.
+Transforms ApexCAD Studio from a preset-showcase into a genuine personal CAD authoring tool. Users start with their own clean workspace, configure real parts from geometry primitives or blank Python B-Rep code, and learn all CAD capabilities through a guided, step-by-step interactive onboarding experience.
 
 ### Target Audience / Persona
-CAD engineers, silicon package designers, and hobbyists who want a flexible 3D modeling and USD B-Rep authoring environment where their work is saved, organized, and editable without being overwritten by factory presets.
+Mechanical engineers, silicon package designers, and CAD makers who need a clutter-free, production-ready modeling suite where only their own projects and custom files are stored and displayed.
 
 ### Key Value
-- **Zero Preset Lock-In**: Create limitless new CAD scripts with custom names, custom bounding envelopes, and custom material settings.
-- **Rapid Prototyping Templates**: Jumpstart modeling with industry-standard parametric primitives (enclosures, shafts, brackets) rather than starting from an intimidating blank text buffer.
-- **Seamless Local & Cloud Continuity**: Work locally right away, with instant one-click syncing to the user's cloud account.
+- **Zero Factory Clutter**: No unwanted hardcoded presets competing with personal files in the design selector or cluttering memory.
+- **Immediate Hands-on Mastery**: New users are guided through real interactive actions (selecting a primitive, rotating in 3D, running the B-Rep engine, analyzing physical mass).
+- **Graceful Zero-State Experience**: When launching without previous files, the app displays a focused welcome launchpad rather than an error or an arbitrary pre-baked model.
 
 ---
 
@@ -37,134 +33,95 @@ CAD engineers, silicon package designers, and hobbyists who want a flexible 3D m
 
 ### Key User Flows
 
-1. **Creating a New File (`+ New` Header Trigger)**:
-   - User clicks the high-contrast `+ New` button adjacent to the Design selector in the header.
-   - The **Create New CAD Design** modal appears over a darkened backdrop.
-   - User inputs a descriptive design name (e.g. `SensorHousing_V1` or `MotorMount_Plate`).
-   - User clicks one of the 4 visual template cards (Box Enclosure, Stepped Cylinder, Structural Bracket, or Blank Script), which highlights with an emerald border and checkmark.
-   - User clicks **Create Design**.
-   - The modal closes, the new file is immediately stored in `localStorage`, set as active in the header, and executed in the 3D viewport.
+1. **First-Time User Experience (Zero-State & Onboarding)**:
+   - On first launch (when no saved user files exist), the 3D viewport displays a subtle coordinate grid with a sleek, non-intrusive **Welcome Launchpad**.
+   - The user is offered two primary pathways:
+     - **"Start Hands-On Tutorial"** (Recommended): Initiates the guided 6-step tutorial that builds an actual part right before their eyes.
+     - **"Create New Design"**: Directly opens the geometric template modal (Box, Cylinder, Sphere, Cone, Torus, Blank).
+   - A persistent **"Tutorial / Tour"** button in the header utility bar allows reopening the guide at any time.
 
-2. **Managing Files in the Design Dropdown**:
-   - The header dropdown displays an organized list:
-     - `My Files (N)`: User-created custom designs, tagged with an edit badge and delete icon.
-     - `Factory Presets`: The original 13 USD B-Rep presets (Heat Sink, Turbine Blade, etc.).
-   - Switching between files preserves individual code, material selection, mass calculation, and 3D annotations.
+2. **The 6-Step Interactive Hands-on Tutorial Flow**:
+   - **Step 1: Welcome & Mission Briefing**: Introduces ApexCAD Studio's core philosophy—exact NURBS boundary representation (B-Rep) with real-time USD generation.
+   - **Step 2: Choose Starter Geometry**: User interacts directly with the starter selector (Box, Cylinder, or Blank) to pick their target part foundation.
+   - **Step 3: 3D Viewport Mastery**: Teaches camera controls: Left-click drag to Orbit, Right-click / Shift-drag to Pan, Wheel to Zoom, and projection presets (ISO, Front, Top, Wireframe).
+   - **Step 4: AI & Code Generation Harness**: Demonstrates how Python code drives exact geometry and how natural language prompts update the solid model.
+   - **Step 5: Physical Material & Mass Analysis**: Demonstrates assigning materials (Aluminum 6061-T6, Grade 5 Titanium, 316L Stainless Steel) and calculating live volume, center of gravity, and mass.
+   - **Step 6: Completion & Workspace Hand-off**: Saves their newly crafted first part directly to their workspace with local storage and Firebase Cloud Vault syncing, leaving the viewport in live edit mode.
 
-3. **Saving & Syncing Custom Files**:
-   - A dedicated `Save` button appears in the header toolbar when working on a custom file or modified preset.
-   - When signed in with Google, clicking `Save` updates both local storage and the user's Firestore Cloud Vault with a single click.
-   - An intuitive status toast provides tactile feedback (`Saved locally and synced to Cloud Vault`).
+3. **Returning User Experience**:
+   - The app immediately loads the user's most recent active project from `localStorage` or Cloud Vault.
+   - The header design dropdown displays exclusively the user's projects (`My Designs (N)`), complete with last-modified timestamps, quick delete, and rename actions.
 
 ### Visual Identity & Theme Tokens
-
-- **Canvas Background (60%)**: `#121316` (Deep matte charcoal zinc).
-- **Structural Surfaces (30%)**: `#181a20` (Header and modals), `#1e2028` (Template card tiles), hairline borders `#272a34`.
-- **Accent Budget (10%)**:
-  - Emerald (`#10b981` / `#059669`) for positive actions (`+ New`, `Create Design`, active template selection).
-  - Sky Blue (`#0284c7` / `#38bdf8`) for active viewport elements and focused inputs.
-  - Rose (`#f43f5e`) for delete actions with confirmation safeguard.
-- **Typography**: Clean display sans paired with `font-mono tabular-nums` for dimensions, part counts, and volumes.
-- **Anti-Slop Discipline**: No generic pills or fake metadata badges; clean unboxed labels with `·` separators; single-line truncated file labels.
+- **Background**: Deep matte zinc (`#090a0f` / `bg-slate-950`).
+- **Surfaces**: Dark slate cards (`#131722` / `bg-slate-900/90`) with crisp borders (`border-slate-800`).
+- **Accents**:
+  - Indigo/Sky (`#6366f1` / `#0ea5e9`) for active highlights and tutorial step indicators.
+  - Emerald (`#10b981`) for positive actions ("Create Design", "Finish Tutorial", "Saved").
+  - Amber (`#f59e0b`) for active viewport indicators.
+- **Anti-Slop Discipline**: Zero static pills or candy badges. Clean unboxed typographic metadata separated by `·`. Clear, single-line action buttons with proper horizontal padding.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Interactive Template Modal vs. Immediate Blank File**
-  - *Chosen Approach*: Open an interactive template modal providing Box, Cylinder, Bracket, and Blank options.
-  - *Why*: Solves the "blank canvas paralysis" for mechanical engineers while still offering a 1-click Blank Script for advanced users who write raw Python B-Rep scripts.
-  - *Alternatives Considered*: Always opening a blank script (rejected: users would need to manually remember and re-type complex SmPyLib imports and stage initialization).
+- **Decision 1: Complete Removal of Factory Presets from Startup and UI**
+  - *Chosen Approach*: Remove `DEFAULT_PRESETS` from default dropdown listings and startup logic. The application only lists user-created files (`userFiles`).
+  - *Why*: Direct compliance with user intent. Eliminates the cognitive burden of navigating past 5 pre-made factory assets to find personal designs.
+  - *Fallback Safeguard*: The underlying NVIDIA usd-brep example scripts remain available in the "Guides" and documentation tabs for developer reference without polluting the design switcher.
 
-- **Decision 2: Dual Storage (Local Storage + Cloud Vault)**
-  - *Chosen Approach*: Store custom files in `localStorage` by default, and seamlessly mirror them to Firebase Firestore whenever the user is logged in.
-  - *Why*: Allows zero-friction usage without requiring an upfront Google login, while guaranteeing cloud persistence across devices for authenticated engineers.
-  - *Alternatives Considered*: Cloud-only storage (rejected: forces login walls on first-time visitors).
+- **Decision 2: Interactive Hands-On Tutorial Modal vs. Passive Video/Tooltip Walkthrough**
+  - *Chosen Approach*: An interactive step-by-step modal with live viewport interaction, step progression, and automatic creation of a real working part upon completion.
+  - *Why*: Hands-on learning ensures muscle memory for 3D navigation and CAD code execution. The user finishes onboarding with an actual 3D model in their workspace.
 
-- **Decision 3: Dedicated Header "+ New" Button Alongside Design Selector**
-  - *Chosen Approach*: Add a compact, high-contrast `+ New` button right next to the Design selector in Zone 1.
-  - *Why*: Directly targets the user's focus area (CSS selector 1 & 2), making file creation obvious without crowding the center workspace switcher or right viewport flyouts.
+- **Decision 3: Zero-State Launchpad vs. Auto-creating a Blank File on Load**
+  - *Chosen Approach*: Display a clean zero-state launchpad that lets the user choose between the Hands-on Tutorial and the New Design dialog.
+  - *Why*: Prevents creating phantom "Untitled_123" files in the user's library without their consent.
 
 ---
 
 ## 4. Technical Architecture & Data Strategy
 
-### System Architecture Diagram
+### System Component Architecture
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                                 ApexCAD Studio Header                                  │
-│  [Logo · ApexCAD]  ──  [+ New File] [Design: My Files ▼]  ──  [3D CAD | EDA | Code]   │
-│  [Display · Save · Vault · Export]                                                     │
+│  [Logo · ApexCAD]  ──  [+ New Design] [My Designs (N) ▼]  ──  [Tutorial] [Vault Sync]  │
 └──────────────────────────────────────────┬─────────────────────────────────────────────┘
                                            │
-                    ┌──────────────────────┴──────────────────────┐
-                    ▼                                             ▼
-     ┌───────────────────────────────┐             ┌───────────────────────────────┐
-     │   Create New Design Modal     │             │    Design Selector Dropdown   │
-     │  • Design Name Input          │             │  • Section: My Files          │
-     │  • 4 Template Cards           │             │    - CustomBracket_01 (Local) │
-     │    - Box / Enclosure          │             │    - Enclosure_Base (Cloud)   │
-     │    - Cylinder / Shaft         │             │  • Section: Factory Presets   │
-     │    - Prism / Bracket          │             │    - Round Corner Pipe        │
-     │    - Blank Script             │             │    - Heat Sink                │
-     │  • [Cancel] [Create Design]   │             │    - Turbine Blade...         │
-     └──────────────┬────────────────┘             └───────────────┬───────────────┘
-                    │                                              │
-                    ▼                                              ▼
-     ┌─────────────────────────────────────────────────────────────────────────────┐
-     │                     Unified File State Manager                              │
-     │  • Current File ID & Name                                                   │
-     │  • Python Script & Envelope                                                 │
-     │  • Material Preset & Density Override                                       │
-     │  • 3D Annotations & Custom Part Renames                                     │
-     ├─────────────────────────────────────────────┬───────────────────────────────┤
-     │ Local Storage Tier (`cad_user_files`)       │ Cloud Tier (`users/{uid}/...`)│
-     │ • Instant offline save                      │ • Firestore Cloud Vault Sync  │
-     │ • JSON serializable records                 │ • Multi-device access         │
-     └─────────────────────────────────────────────┴───────────────────────────────┘
+         ┌─────────────────────────────────┴─────────────────────────────────┐
+         ▼                                                                   ▼
+┌───────────────────────────────────┐               ┌────────────────────────────────────┐
+│      Zero-State Launchpad         │               │     OnboardingTutorial Modal       │
+│  - "Start Hands-on Tutorial"      │ ────────────> │  - Step 1: Welcome & Mission       │
+│  - "Create New Design" (+ New)    │               │  - Step 2: Choose Starter Shape    │
+│  - Quick tips for navigation      │               │  - Step 3: Viewport Orbit/Pan/Zoom │
+└───────────────────────────────────┘               │  - Step 4: Code & AI Generation    │
+                                                    │  - Step 5: Material & Mass Physics │
+                                                    │  - Step 6: Finalize First Part     │
+                                                    └─────────────────┬──────────────────┘
+                                                                      │
+                                                                      ▼
+                                                    ┌────────────────────────────────────┐
+                                                    │        User Design Library         │
+                                                    │  - localStorage ('apexcad_files')  │
+                                                    │  - Firestore Cloud Vault           │
+                                                    │  - Active 3D CAD Viewport          │
+                                                    └────────────────────────────────────┘
 ```
 
-### Data Models & Schemas
+### State Management & Persistence Mapping
 
-```typescript
-export interface UserCadFile {
-  id: string;                    // Unique identifier e.g. 'file_1742081234567'
-  name: string;                  // User-facing name e.g. 'Custom Sensor Bracket'
-  code: string;                  // Full Python usd-brep script
-  envelope: [number, number, number]; // [width, depth, height] in cm
-  materialName: string;          // Default 'Aluminum 6061-T6'
-  materialDensity?: number;      // Density in g/cm3
-  createdAt: string;             // ISO Timestamp
-  updatedAt: string;             // ISO Timestamp
-  isCustom: true;                // Distinguishes from factory presets
-  cloudSynced?: boolean;         // True if saved to Firestore
-}
+1. **Onboarding State (`apexcad_onboarding_completed`)**:
+   - Boolean flag in `localStorage`. If `false` or absent, the Zero-State launchpad highlights the tutorial prompt.
+   - Users can trigger the tutorial anytime via the header `Tutorial` button, resetting step index to 0.
 
-export interface CadTemplate {
-  id: 'box' | 'cylinder' | 'bracket' | 'blank';
-  name: string;
-  description: string;
-  icon: string;
-  defaultName: string;
-  envelope: [number, number, number];
-  starterCode: string;
-}
-```
+2. **File Library (`userFiles`)**:
+   - `loadUserFiles()`: Loads custom designs from `localStorage`.
+   - When empty, `activeFile` is set to `null`, activating the clean Zero-State Launchpad.
+   - When a design is created (via New Design modal or Onboarding completion), it becomes `activeFile`, executes in the viewport, and auto-saves.
 
-### Component & File Implementation Plan
-
-1. **`src/types/cad.ts`**:
-   - Add `UserCadFile` interface and `CadTemplate` definition.
-2. **`src/data/cadTemplates.ts`**:
-   - Create 4 validated, watertight Python starter scripts using SmPyLib primitives (`make_box`, `make_cylinder`, swept fillets, boolean unions).
-3. **`src/services/cadFileManager.ts`**:
-   - Implement helper functions for `loadUserFiles()`, `saveUserFile()`, `deleteUserFile()`, `exportUserFile()`.
-   - Implement synchronization between local storage and Firestore `saveUserAssembly()`.
-4. **`src/components/NewDesignModal.tsx`**:
-   - Modern, sleek modal with 4 interactive template cards, thumbnail preview outlines, name validation, and keyboard shortcuts (`Enter` to submit, `Esc` to close).
-5. **`src/App.tsx` Integration**:
-   - Add `+ New` button next to the Design dropdown in the header.
-   - Update Design selector to render `<optgroup label="My Custom Files">` and `<optgroup label="Factory Presets">`.
-   - Add a quick `Save` / `Sync` button in the header toolbar with visual confirmation feedback.
-   - Support smooth switching, editing, creating, and deleting of custom files without resetting factory presets.
+3. **Factory Presets Cleared**:
+   - `presets` state in `App.tsx` replaced by `userFiles`.
+   - The design dropdown displays exclusively user files with clean unboxed metadata (updated timestamp, template type, delete/rename controls).

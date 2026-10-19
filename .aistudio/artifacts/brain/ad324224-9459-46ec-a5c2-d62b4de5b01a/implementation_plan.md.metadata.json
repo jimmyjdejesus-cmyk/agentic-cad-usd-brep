@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for unlocking custom CAD file creation, starter geometry templates (Box, Cylinder, Prism, Blank), unified local storage and Cloud Vault persistence, and streamlined header file controls.",
-  "updatedAt": "2026-10-16T19:11:36.812218984Z",
+  "summary": "Implementation plan to remove factory presets, start with a clean workspace and New Design dialog, and build an interactive hands-on onboarding tutorial for first-time CAD users.",
+  "updatedAt": "2026-10-19T21:52:12.532557344Z",
   "requestFeedback": true,
   "userFacing": true
 }
