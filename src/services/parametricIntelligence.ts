@@ -836,41 +836,75 @@ export function attemptAutoRepair(
 
   let repairedCode = code;
 
-  // 1. Repair Penetration Warnings (increase vertical separation between stacked parts)
+  // 1. Repair Penetration Warnings (increase vertical separation between stacked parts while preserving ground plane z=0)
   if (execResult.sanity_warnings && execResult.sanity_warnings.length > 0) {
-    // Check if warning mentions penetration
-    const hasPenetration = execResult.sanity_warnings.some((w) => w.toLowerCase().includes('penetration') || w.toLowerCase().includes('overlap'));
+    const hasPenetration = execResult.sanity_warnings.some(
+      (w) => w.toLowerCase().includes('penetration') || w.toLowerCase().includes('overlap')
+    );
     if (hasPenetration) {
-      // Find z0 coordinates and bump them upward by 0.3 cm clearance
-      repairedCode = repairedCode.replace(
-        /(sm\.create_(?:cylinder|box|cone)\(\s*\([^,]+,\s*[^,]+,\s*)([0-9]+(?:\.[0-9]+)?)(\))/g,
-        (match, prefix, z0, suffix) => {
-          const elevatedZ = (parseFloat(z0) + 0.3).toFixed(2);
-          return `${prefix}${elevatedZ}${suffix}`;
-        }
-      );
-      return {
-        success: true,
-        code: repairedCode,
-        reason: 'Adjusted part vertical clearances by +0.3 cm to eliminate bounding-box interpenetration.',
-      };
+      // Find all coordinate tuples in primitive definitions: sm.create_<type>((cx, cy, cz), ...)
+      const primCoordRegex = /(sm\.create_(?:cylinder|box|cone|sphere|torus|wedge)\(\s*\(\s*[^,]+\s*,\s*[^,]+\s*,\s*)([0-9.-]+)(\s*\))/g;
+      const matches = Array.from(code.matchAll(primCoordRegex));
+
+      if (matches.length > 0) {
+        let partIndex = 0;
+        repairedCode = repairedCode.replace(primCoordRegex, (match, prefix, z0Str, suffix) => {
+          const z0 = parseFloat(z0Str);
+          const currentIdx = partIndex++;
+
+          // For multi-part assemblies, keep the base anchor part firmly at z=0 (or z0 <= 0.05).
+          // Elevate upper stacked components (currentIdx > 0 or z0 > 0.05) by +0.3 cm to eliminate interpenetration.
+          // If only a single part is defined in the script, elevate it by +0.3 cm for general clearance.
+          if (matches.length === 1) {
+            const elevatedZ = (z0 + 0.3).toFixed(2);
+            return `${prefix}${elevatedZ}${suffix}`;
+          }
+
+          if (currentIdx > 0 || z0 > 0.05) {
+            const elevatedZ = (z0 + 0.3 * Math.max(1, currentIdx)).toFixed(2);
+            return `${prefix}${elevatedZ}${suffix}`;
+          }
+
+          return match;
+        });
+
+        return {
+          success: true,
+          code: repairedCode,
+          reason: 'Adjusted part vertical clearances by +0.3 cm to eliminate bounding-box interpenetration while preserving z=0 ground alignment.',
+        };
+      }
     }
   }
 
-  // 2. Repair Invalid Input Dimensions (clamp negative or zero dimensions to minimum 1.0 cm)
+  // 2. Repair Invalid Input Dimensions (clamp negative or zero dimensional extents to minimum 1.0 cm)
+  // Ensure coordinate tuples (cx, cy, cz) like (0.0, 0.0, 0.0) or (-5.0, -5.0, 0.0) are preserved.
   if (execResult.error && execResult.error.includes('SM_ERR_INVALID_INPUT')) {
-    repairedCode = repairedCode.replace(/,\s*(-?[0-9]+(?:\.[0-9]+)?)\s*([,\)])/g, (match, valStr, term) => {
-      const val = parseFloat(valStr);
-      if (val <= 0) {
-        return `, 1.0${term}`;
-      }
-      return match;
+    // Match the primitive call: Group 1 = call up to coordinate tuple ending comma; Group 2 = dimensional argument list; Group 3 = closing parenthesis
+    const primCallRegex = /(sm\.create_(?:cylinder|box|sphere|cone|torus|wedge)\(\s*\([^)]+\)\s*,)([^)]*)(\))/g;
+
+    let modified = false;
+    repairedCode = repairedCode.replace(primCallRegex, (match, coordPrefix, dimArgs, suffix) => {
+      // Inside dimArgs, clamp any dimension number <= 0 to 1.0
+      const clampedDimArgs = dimArgs.replace(/(^|[,=\s])(-?[0-9]+(?:\.[0-9]+)?)([,=\s]|$)/g, (dMatch: string, pre: string, numStr: string, post: string) => {
+        const val = parseFloat(numStr);
+        if (val <= 0) {
+          modified = true;
+          return `${pre}1.0${post}`;
+        }
+        return dMatch;
+      });
+
+      return `${coordPrefix}${clampedDimArgs}${suffix}`;
     });
-    return {
-      success: true,
-      code: repairedCode,
-      reason: 'Clamped non-positive geometric extents to minimum valid manifold dimension (1.0 cm).',
-    };
+
+    if (modified) {
+      return {
+        success: true,
+        code: repairedCode,
+        reason: 'Clamped non-positive geometric extents to minimum valid manifold dimension (1.0 cm) while preserving origin coordinates.',
+      };
+    }
   }
 
   return null;

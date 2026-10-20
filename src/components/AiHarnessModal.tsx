@@ -299,15 +299,23 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
           model: selectedModel || 'gpt-4o-mini',
           providerBaseUrl: providerUrl,
           providerApiKey: providerKey,
+          testOnly: true,
         }),
       });
 
       if (res.ok) {
         const data = await res.json();
-        setProviderTestResult({
-          success: true,
-          message: `Endpoint verified successfully! Provider responded via model: ${data.modelUsed || selectedModel}`,
-        });
+        if (data.fallbackEngaged) {
+          setProviderTestResult({
+            success: false,
+            message: 'Endpoint failed connection; server reverted to local fallback.',
+          });
+        } else {
+          setProviderTestResult({
+            success: true,
+            message: data.message || `Endpoint verified successfully! Provider responded via model: ${data.model || selectedModel}`,
+          });
+        }
       } else {
         const err = await res.json().catch(() => ({ error: 'Connection test failed' }));
         setProviderTestResult({

@@ -696,7 +696,7 @@ export function canRunOnSystem(
     };
   }
 
-  // 4. Tight fit condition: Warn user but allow with confirmation
+  // 4. Tight fit condition: Model fits memory with reduced headroom (allowed without blocking modal)
   if (estimate.fitStatus === 'tight') {
     return {
       allowed: true,

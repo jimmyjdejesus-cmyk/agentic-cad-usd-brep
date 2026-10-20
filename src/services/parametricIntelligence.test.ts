@@ -146,7 +146,22 @@ def build_parts():
       expect(repair?.reason).toContain('clearance');
     });
 
-    it('repairs non-positive invalid dimensions', () => {
+    it('repairs multi-part penetration by elevating upper parts while keeping ground base at z=0', () => {
+      const fakePenetrationResult: any = {
+        success: true,
+        sanity_warnings: ['Penetration detected: overlap volume 2.1 between base and shaft'],
+      };
+      const repair = attemptAutoRepair(multiPartCode, fakePenetrationResult);
+      expect(repair).not.toBeNull();
+      expect(repair?.success).toBe(true);
+      // Base plate coordinate tuple at z=0 must be preserved
+      expect(repair?.code).toContain('sm.create_box((-5.0, -5.0, 0.0)');
+      // Upper stacked parts must be elevated
+      expect(repair?.code).toContain('sm.create_cylinder((0.0, 0.0, 4.30)');
+      expect(repair?.reason).toContain('ground alignment');
+    });
+
+    it('repairs non-positive invalid dimensions while preserving origin coordinates', () => {
       const badCode = `cylinder = sm.create_cylinder((0.0, 0.0, 0.0), -5.0, 0.0)`;
       const fakeErrorResult: any = {
         success: false,
@@ -155,6 +170,23 @@ def build_parts():
       const repair = attemptAutoRepair(badCode, fakeErrorResult);
       expect(repair).not.toBeNull();
       expect(repair?.success).toBe(true);
+      expect(repair?.code).toContain('1.0');
+      // Coordinate tuple must be preserved exactly
+      expect(repair?.code).toContain('(0.0, 0.0, 0.0)');
+    });
+
+    it('preserves centered negative origin coordinates when repairing non-positive dimensions', () => {
+      const badBoxCode = `box = sm.create_box((-5.0, -5.0, 0.0), -10.0, 0.0, 4.0)`;
+      const fakeErrorResult: any = {
+        success: false,
+        error: 'SM_ERR_INVALID_INPUT: dimension <= 0',
+      };
+      const repair = attemptAutoRepair(badBoxCode, fakeErrorResult);
+      expect(repair).not.toBeNull();
+      expect(repair?.success).toBe(true);
+      // Coordinate tuple must be preserved exactly
+      expect(repair?.code).toContain('(-5.0, -5.0, 0.0)');
+      // Negative/zero dimensions must be clamped to 1.0
       expect(repair?.code).toContain('1.0');
     });
   });

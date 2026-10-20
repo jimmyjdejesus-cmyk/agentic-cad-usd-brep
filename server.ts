@@ -188,6 +188,9 @@ async function callOpenAICompatible(params: {
           provider: 'OpenAI-Compatible Gateway',
         };
       }
+    } else {
+      const errText = await res.text().catch(() => '');
+      console.warn(`OpenAI-compatible call to ${endpoint} returned HTTP ${res.status}: ${errText}`);
     }
   } catch (err) {
     console.warn(`OpenAI-compatible call to ${endpoint} failed:`, err);
@@ -487,6 +490,7 @@ async function startServer() {
       model = 'gemini-3.8-flash',
       providerBaseUrl,
       providerApiKey,
+      testOnly = false,
     } = req.body;
 
     const userPrompt = `USER REQUEST:\n${prompt}\n\nCURRENT USD_BREP PYTHON SCRIPT:\n\`\`\`python\n${currentCode}\n\`\`\`\n\nGenerate the complete updated Python script defining \`build_parts()\` using \`import usd_brep as sm\`. Output JSON with "explanation" and "code".`;
@@ -553,6 +557,25 @@ async function startServer() {
         userPrompt,
         systemPrompt: NVIDIA_USD_BREP_SYSTEM_PROMPT,
       });
+    }
+
+    // If connection testing was requested, return immediate status without fallback
+    if (testOnly) {
+      if (providerResult) {
+        return res.json({
+          ok: true,
+          success: true,
+          message: `Endpoint verified successfully! Provider responded via model: ${providerResult.model}`,
+          model: providerResult.model,
+          provider: providerResult.provider,
+        });
+      } else {
+        return res.status(502).json({
+          ok: false,
+          success: false,
+          error: `Failed to connect to provider endpoint at ${providerBaseUrl || 'default host'}. Please verify URL and credentials.`,
+        });
+      }
     }
 
     // If an external provider successfully responded, return clean structured turn
@@ -678,6 +701,7 @@ async function startServer() {
 
     // 6. Resilient Fallback: Intelligent Parametric Synthesis & Auto-Repair
     const synth = synthesizeParametricFallback(prompt, currentCode);
+    const isFallbackEngaged = harness !== 'local-deterministic';
     let harnessAction = `${harness} • Intelligent Geometry Synthesis`;
     let harnessDetails = `Synthesized parametric manifold solid geometry using in-app NLU geometric heuristics.`;
 
@@ -695,17 +719,22 @@ async function startServer() {
       harnessDetails = `Zero-latency local socket execution evaluated in-app CAD toolsets.`;
     }
 
+    const explanationNotice = isFallbackEngaged
+      ? `\n\n*(Note: External provider **${harness}** was unreachable; synthesized using ApexCAD deterministic parametric engine).*`
+      : `\n\n*(Synthesized using ApexCAD deterministic parametric engine).*`;
+
     return res.json({
-      explanation: `${synth.explanation}\n\n*(Synthesized using **${harness}** with **${model}**. In-app tools executed locally).*`,
+      explanation: `${synth.explanation}${explanationNotice}`,
       finalCode: synth.code,
-      harness,
+      harness: isFallbackEngaged ? 'local-deterministic' : harness,
       model,
+      fallbackEngaged: isFallbackEngaged,
       steps: [
         {
           attempt: 1,
           action: harnessAction,
-          status: 'success',
-          details: harnessDetails,
+          status: isFallbackEngaged ? 'warning' : 'success',
+          details: isFallbackEngaged ? `Provider connection failed; ${harnessDetails}` : harnessDetails,
           code: synth.code,
           toolCalls: [
             {
