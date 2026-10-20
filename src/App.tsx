@@ -53,6 +53,7 @@ import { UserAuthDrawer } from './components/UserAuthDrawer';
 import { AmdEdaSiliconStudio } from './components/AmdEdaSiliconStudio';
 import { InAppToolsetsModal } from './components/InAppToolsetsModal';
 import { AiHarnessModal } from './components/AiHarnessModal';
+import { CamCncModal } from './components/CamCncModal';
 import { NewDesignModal } from './components/NewDesignModal';
 import { OnboardingTutorial } from './components/OnboardingTutorial';
 import { CadShapeThumbnail } from './components/CadShapeThumbnail';
@@ -151,6 +152,7 @@ export const App: React.FC = () => {
   const [showToolsetsModal, setShowToolsetsModal] = useState<boolean>(false);
   const [showAmdEdaStudio, setShowAmdEdaStudio] = useState<boolean>(false);
   const [showAiStudioModal, setShowAiStudioModal] = useState<boolean>(false);
+  const [showCamCncModal, setShowCamCncModal] = useState<boolean>(false);
 
   // Material Density & Mass Properties
   const [selectedMaterial, setSelectedMaterial] = useState<MaterialPreset>(DEFAULT_MATERIAL);
@@ -1504,6 +1506,17 @@ export const App: React.FC = () => {
             <span className="hidden sm:inline">Tutorial</span>
           </button>
 
+          {/* CAM / CNC & 3D Printing Modal Trigger */}
+          <button
+            onClick={() => setShowCamCncModal(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 hover:border-amber-400 transition shadow-sm cursor-pointer"
+            title="Open CNC G-Code, 2D DXF Cutting & 3D Printing Preflight"
+          >
+            <Wrench className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">CAM / CNC & 3D Print</span>
+            <span className="sm:hidden">CAM</span>
+          </button>
+
           {/* Unified Export Split/Dropdown */}
           <div className="relative" ref={exportMenuRef}>
             <button
@@ -1517,7 +1530,23 @@ export const App: React.FC = () => {
             </button>
 
             {isExportMenuOpen && (
-              <div className="absolute right-0 mt-1.5 w-52 bg-[#181a20] border border-[#272a34] rounded-xl shadow-2xl p-1.5 z-30 space-y-1 backdrop-blur-xl">
+              <div className="absolute right-0 mt-1.5 w-56 bg-[#181a20] border border-[#272a34] rounded-xl shadow-2xl p-1.5 z-30 space-y-1 backdrop-blur-xl">
+                <button
+                  onClick={() => {
+                    setShowCamCncModal(true);
+                    setIsExportMenuOpen(false);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-amber-300 hover:bg-[#14161b] transition font-semibold"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Wrench className="w-3.5 h-3.5 text-amber-400" />
+                    <span>CNC G-Code & 2D DXF</span>
+                  </span>
+                  <span className="text-[10px] text-amber-400/80 font-mono">.nc / .dxf</span>
+                </button>
+
+                <div className="h-px bg-[#272a34] my-1" />
+
                 <button
                   disabled={!execResult?.usda_mesh_text}
                   onClick={() => {
@@ -2431,6 +2460,19 @@ export const App: React.FC = () => {
                                     <Download className="w-3.5 h-3.5" />
                                   </button>
 
+                                  {/* CAM / CNC G-Code & DXF Toolpath Generator Button */}
+                                  <button
+                                    onClick={() => {
+                                      setSelectedPartName(p.name);
+                                      setShowCamCncModal(true);
+                                    }}
+                                    className="p-1 rounded bg-[#1e212b] hover:bg-amber-500/20 text-zinc-400 hover:text-amber-300 border border-[#2d3242] transition"
+                                    title={`Generate CNC G-Code & 2D DXF for /${p.name}`}
+                                    aria-label={`CNC CAM toolpath for ${p.name}`}
+                                  >
+                                    <Wrench className="w-3.5 h-3.5" />
+                                  </button>
+
                                   <button
                                     onClick={() => handleTogglePartVisibility(p.name)}
                                     className={`p-1 rounded hover:bg-[#20232c] transition ${
@@ -2773,6 +2815,16 @@ export const App: React.FC = () => {
             if (newConfig.apiKey) localStorage.setItem('apexcad_provider_key', newConfig.apiKey);
           }
         }}
+      />
+
+      {/* Modal: CAM, CNC G-Code & 3D Printing Preflight Suite */}
+      <CamCncModal
+        isOpen={showCamCncModal}
+        onClose={() => setShowCamCncModal(false)}
+        parts={parts}
+        selectedPartName={selectedPartName}
+        onSelectPart={setSelectedPartName}
+        onDownloadFile={downloadFile}
       />
 
       {/* Modal: In-App Toolsets & Skills Registry */}

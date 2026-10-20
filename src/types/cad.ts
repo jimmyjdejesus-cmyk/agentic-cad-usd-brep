@@ -354,6 +354,40 @@ export interface AgnosticProviderConfig {
   modelOverride?: string;
 }
 
+// CNC & CAM Machining Configuration
+export interface CncCamConfig {
+  machineDialect: 'grbl' | 'marlin' | 'linuxcnc' | 'haas' | 'generic';
+  toolDiameterMm: number;        // e.g. 3.175 (1/8"), 6.35 (1/4"), 4.0
+  toolType: 'flat_endmill' | 'ball_nose' | 'v_bit';
+  feedRateMmMin: number;         // Cutting XY feed rate (mm/min)
+  plungeRateMmMin: number;       // Z plunge feed rate (mm/min)
+  spindleRpm: number;            // Spindle speed (RPM)
+  stepDownMm: number;            // Depth per pass (mm)
+  safeZMm: number;               // Retract height above workpiece (mm)
+  cutOperation: 'outside_contour' | 'inside_pocket' | 'engrave' | 'facing';
+  addHoldingTabs?: boolean;      // Whether to insert holding tabs on final pass
+  tabWidthMm?: number;           // Holding tab width (mm)
+  tabHeightMm?: number;          // Holding tab height (mm)
+  tabCount?: number;             // Number of tabs per perimeter loop
+  stockThicknessMm?: number;     // Optional stock thickness (mm)
+}
+
+// 3D Printing Preflight Diagnostics & Slicing Helper
+export interface PrintPreflightInfo {
+  partName: string;
+  isWatertight: boolean;
+  boundingBoxMm: { width: number; depth: number; height: number };
+  volumeCm3: number;
+  surfaceAreaCm2: number;
+  estimatedMassG: Record<string, number>; // e.g. { PLA: 45.2, PETG: 46.3, ABS: 38.0 }
+  estimatedPrintTimeMin: number;
+  recommendedOrientation: string;
+  adhesionRisk: 'low' | 'medium' | 'high';
+  firstLayerContactAreaMm2: number;
+  recommendedNozzleTempC: number;
+  recommendedBedTempC: number;
+}
+
 export interface AiModelOption {
   id: string;
   name: string;
