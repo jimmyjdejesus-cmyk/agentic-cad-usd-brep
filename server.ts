@@ -7,6 +7,7 @@ import os from 'os';
 import { GoogleGenAI, Type } from '@google/genai';
 import { DEFAULT_PRESETS } from './src/data/presetsData';
 import { intelligentParametricSynthesize, attemptAutoRepair } from './src/services/parametricIntelligence';
+import { executeInAppTool } from './src/services/appToolsAndSkills';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -263,7 +264,7 @@ function isValidGeminiApiKey(key?: string | null): boolean {
   return trimmed.startsWith('AIza') && trimmed.length >= 30;
 }
 
-async function startServer() {
+export async function createExpressApp(options?: { withVite?: boolean }): Promise<express.Express> {
   const app = express();
   app.use(express.json({ limit: '25mb' }));
 
@@ -748,35 +749,52 @@ async function startServer() {
     });
   });
 
-  // POST /api/tools/execute
-  app.post('/api/tools/execute', (req: Request, res: Response) => {
-    const { toolName, args } = req.body;
+  // POST /api/tools/execute (Dispatches agent in-app tool execution)
+  app.post('/api/tools/execute', async (req: Request, res: Response) => {
+    const { toolName, toolId, args, context } = req.body;
+    const targetTool = toolId || toolName;
+    if (!targetTool) {
+      return res.status(400).json({ error: 'Missing toolName or toolId parameter' });
+    }
+    const result = await executeInAppTool(targetTool, args || {}, context);
     res.json({
       status: 'ok',
-      tool: toolName,
+      tool: targetTool,
       executedInApp: true,
       timestamp: new Date().toISOString(),
-      result: { success: true, toolName, args },
+      result,
     });
   });
 
-  // Vite integration
-  if (process.env.NODE_ENV === 'production' && fs.existsSync(path.resolve(__dirname, 'dist'))) {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (_req: Request, res: Response) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
-    });
-  } else {
-    const vite = await createViteServer({
-      server: { middlewareMode: true, host: HOST, port: PORT },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+  // Vite integration: mounted for interactive web studio & browser CDP tests
+  const shouldMountVite = options?.withVite ?? (process.env.VITEST !== 'true');
+  if (shouldMountVite) {
+    if (process.env.NODE_ENV === 'production' && fs.existsSync(path.resolve(__dirname, 'dist'))) {
+      app.use(express.static(path.resolve(__dirname, 'dist')));
+      app.get('*', (_req: Request, res: Response) => {
+        res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+      });
+    } else {
+      const vite = await createViteServer({
+        server: { middlewareMode: true, host: HOST, port: PORT },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    }
   }
 
-  app.listen(PORT, HOST, () => {
-    console.log(`CAD Studio Server listening at http://${HOST}:${PORT}`);
-  });
+  return app;
 }
 
-startServer();
+export async function startServer() {
+  const app = await createExpressApp();
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`CAD Studio Server listening at http://${HOST}:${PORT}`);
+  });
+  return server;
+}
+
+// Automatically start server when executed directly via tsx / node (not in Vitest test runner)
+if (process.env.VITEST !== 'true') {
+  startServer();
+}

@@ -416,7 +416,12 @@ export interface InAppTool {
   id: string;
   name: string;
   toolsetId: string;
-  category: 'CAD Kernel' | 'Physical Analysis' | 'Kinematics & Annotations' | 'AMD Silicon & EDA';
+  category:
+    | 'CAD Kernel'
+    | 'Physical Analysis'
+    | 'Kinematics & Annotations'
+    | 'AMD Silicon & EDA'
+    | 'Digital Fabrication';
   skillName: string;
   description: string;
   parameters: InAppToolParameter[];
