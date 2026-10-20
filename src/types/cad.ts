@@ -338,6 +338,22 @@ export interface ResourceEstimate {
   offloadStrategy: '100% GPU / Unified Memory' | 'Partial GPU + CPU Offload' | 'CPU Only';
 }
 
+// Result of true-to-system hardware gating check to prevent system crashes or unusable slowdowns
+export interface SystemGateResult {
+  allowed: boolean;
+  reason: string;
+  estimate: ResourceEstimate;
+  requiresConfirmation?: boolean;
+}
+
+// User-configurable agnostic provider endpoint settings (OpenAI-compatible, Anthropic proxy, Ollama, Groq, etc.)
+export interface AgnosticProviderConfig {
+  baseUrl: string;
+  apiKey: string;
+  customHeaders?: Record<string, string>;
+  modelOverride?: string;
+}
+
 export interface AiModelOption {
   id: string;
   name: string;

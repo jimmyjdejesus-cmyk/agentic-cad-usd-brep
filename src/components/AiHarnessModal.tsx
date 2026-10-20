@@ -39,6 +39,7 @@ import {
   detectSystemHardwareResources,
   fetchSystemHardwareResources,
   calculateModelResourceFootprint,
+  canRunOnSystem,
 } from '../services/appToolsAndSkills';
 import {
   HarnessTypeId,
@@ -46,6 +47,8 @@ import {
   SystemHardwareResources,
   HuggingFaceModel,
   CognitiveFilterMode,
+  AgnosticProviderConfig,
+  ResourceEstimate,
 } from '../types/cad';
 import {
   searchHuggingFaceModels,
@@ -63,6 +66,8 @@ interface AiHarnessModalProps {
   onSelectHarness: (harness: HarnessTypeId) => void;
   selectedModel: string;
   onSelectModel: (model: string) => void;
+  providerConfig?: AgnosticProviderConfig;
+  onUpdateProviderConfig?: (config: AgnosticProviderConfig) => void;
 }
 
 type ModalTab = 'huggingface-hub' | 'harness' | 'cloud-models' | 'system-resources';
@@ -74,6 +79,8 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
   onSelectHarness,
   selectedModel,
   onSelectModel,
+  providerConfig,
+  onUpdateProviderConfig,
 }) => {
   const [activeTab, setActiveTab] = useState<ModalTab>('huggingface-hub');
 
@@ -102,6 +109,26 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
   const [hardwareSpecs, setHardwareSpecs] = useState<SystemHardwareResources>(() =>
     detectSystemHardwareResources()
   );
+
+  // System Hardware Gating State (true-to-system hardware checker)
+  const [blockedModelNotice, setBlockedModelNotice] = useState<{
+    model: HuggingFaceModel;
+    reason: string;
+    estimate: ResourceEstimate;
+  } | null>(null);
+
+  // Agnostic Provider Endpoint State
+  const [providerUrl, setProviderUrl] = useState(() =>
+    providerConfig?.baseUrl || (typeof window !== 'undefined' ? localStorage.getItem('apexcad_provider_url') || '' : '')
+  );
+  const [providerKey, setProviderKey] = useState(() =>
+    providerConfig?.apiKey || (typeof window !== 'undefined' ? localStorage.getItem('apexcad_provider_key') || '' : '')
+  );
+  const [isTestingProvider, setIsTestingProvider] = useState(false);
+  const [providerTestResult, setProviderTestResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
 
   // Custom harness state
   const [customHarnessName, setCustomHarnessName] = useState('');
@@ -212,15 +239,114 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
   const currentHarness =
     AI_HARNESS_OPTIONS.find((h) => h.id === selectedHarness) || AI_HARNESS_OPTIONS[0];
 
-  const handleApplyHfModel = (model: HuggingFaceModel) => {
+  // Agnostic Provider Presets
+  const PROVIDER_PRESETS = [
+    { name: 'Ollama (Local)', url: 'http://localhost:11434/v1', key: 'ollama' },
+    { name: 'LM Studio (Local)', url: 'http://localhost:1234/v1', key: '' },
+    { name: 'vLLM (Local)', url: 'http://localhost:8000/v1', key: '' },
+    { name: 'OpenAI Cloud', url: 'https://api.openai.com/v1', key: '' },
+    { name: 'Groq Cloud', url: 'https://api.groq.com/openai/v1', key: '' },
+    { name: 'Together AI', url: 'https://api.together.xyz/v1', key: '' },
+  ];
+
+  // True-to-system hardware-gated model activation
+  const handleApplyHfModel = (model: HuggingFaceModel, forceOverride = false) => {
     setInspectedHfModel(model);
+
+    // Evaluate hardware capability to prevent software freeze or OOM
+    const gateCheck = canRunOnSystem(
+      model.paramsBillions,
+      selectedQuant,
+      hardwareSpecs,
+      preferGpu
+    );
+
+    if (!gateCheck.allowed && !forceOverride) {
+      setBlockedModelNotice({
+        model,
+        reason: gateCheck.reason || 'Hardware resource limit exceeded.',
+        estimate: gateCheck.estimate,
+      });
+      return;
+    }
+
+    setBlockedModelNotice(null);
     onSelectHarness(model.recommendedHarness);
     onSelectModel(model.id);
   };
 
+  // Test Agnostic Provider Endpoint
+  const handleTestProvider = async () => {
+    if (!providerUrl.trim()) {
+      setProviderTestResult({
+        success: false,
+        message: 'Please provide a valid endpoint Base URL before testing.',
+      });
+      return;
+    }
+
+    setIsTestingProvider(true);
+    setProviderTestResult(null);
+
+    try {
+      const res = await fetch('/api/agent/turn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: 'ping test: verify connection',
+          currentCode: 'def build_parts(): return []',
+          harness: 'agnostic-toolcall',
+          model: selectedModel || 'gpt-4o-mini',
+          providerBaseUrl: providerUrl,
+          providerApiKey: providerKey,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setProviderTestResult({
+          success: true,
+          message: `Endpoint verified successfully! Provider responded via model: ${data.modelUsed || selectedModel}`,
+        });
+      } else {
+        const err = await res.json().catch(() => ({ error: 'Connection test failed' }));
+        setProviderTestResult({
+          success: false,
+          message: err.error || `Server responded with HTTP ${res.status}`,
+        });
+      }
+    } catch (err: any) {
+      setProviderTestResult({
+        success: false,
+        message: err.message || 'Unable to reach backend router or provider endpoint.',
+      });
+    } finally {
+      setIsTestingProvider(false);
+    }
+  };
+
+  // Save Agnostic Provider Configuration to LocalStorage and State
+  const handleSaveProviderConfig = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('apexcad_provider_url', providerUrl);
+      localStorage.setItem('apexcad_provider_key', providerKey);
+    }
+    onUpdateProviderConfig?.({
+      baseUrl: providerUrl,
+      apiKey: providerKey,
+    });
+    setProviderTestResult({
+      success: true,
+      message: 'Provider configuration saved successfully to local storage.',
+    });
+    setTimeout(() => {
+      setProviderTestResult((prev) => (prev?.message.includes('saved') ? null : prev));
+    }, 3000);
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-2.5 sm:p-5">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-6xl max-h-[94vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-6xl max-h-[94vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 relative">
         
         {/* =================================================================== */}
         {/* Header */}
@@ -949,65 +1075,203 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
           {/* TAB 3: CLOUD & AGNOSTIC MODELS */}
           {/* ----------------------------------------------------------------- */}
           {activeTab === 'cloud-models' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xs font-bold text-white tracking-wide">
-                    Cloud Foundation Models
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    Google Gemini, Anthropic Claude, OpenAI, and AMD ROCm Open-Weights.
-                  </p>
+            <div className="space-y-5">
+              
+              {/* Agnostic OpenAI-Compatible / Custom Endpoint Configuration */}
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3.5 shadow-md">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Server className="w-4 h-4 text-sky-400" />
+                    <h3 className="text-xs font-bold text-white tracking-wide">
+                      Agnostic Provider Endpoint Configuration
+                    </h3>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-950 text-sky-300 border border-sky-800 font-mono">
+                    OpenAI / Ollama / vLLM / LM Studio / Groq
+                  </span>
                 </div>
-                <div className="text-[11px] text-emerald-400 font-medium">
-                  {AI_MODEL_OPTIONS.length} Models Registered
-                </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {AI_MODEL_OPTIONS.map((m) => {
-                  const isSelected = selectedModel === m.id;
-                  return (
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Route CAD code synthesis and geometric repair through any custom local server or cloud provider endpoint.
+                  Matches standard OpenAI <code className="text-amber-300 font-mono text-[10px]">/v1/chat/completions</code> format.
+                </p>
+
+                {/* Quick Provider Presets */}
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-semibold text-slate-400">Quick Endpoint Presets:</span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                    {PROVIDER_PRESETS.map((preset) => (
+                      <button
+                        key={preset.name}
+                        onClick={() => {
+                          setProviderUrl(preset.url);
+                          if (preset.key) setProviderKey(preset.key);
+                        }}
+                        className="p-2 rounded-lg bg-slate-900 hover:bg-slate-800/80 border border-slate-800 text-left transition flex flex-col justify-between gap-1 group"
+                      >
+                        <span className="text-xs font-semibold text-slate-200 group-hover:text-sky-300 truncate">
+                          {preset.name}
+                        </span>
+                        <span className="text-[9px] font-mono text-slate-500 truncate">
+                          {preset.url.replace('http://', '').replace('https://', '')}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Endpoint Base URL and API Key Inputs */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
+                      <span>Provider Base URL:</span>
+                      <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. http://localhost:11434/v1 or https://api.groq.com/openai/v1"
+                      value={providerUrl}
+                      onChange={(e) => setProviderUrl(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 font-mono transition"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold text-slate-400 flex items-center justify-between">
+                      <span>API Key / Bearer Token:</span>
+                      <span className="text-slate-500 font-normal">(optional for local Ollama/LM Studio)</span>
+                    </label>
+                    <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 focus-within:border-sky-500 transition">
+                      <Key className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      <input
+                        type={showToken ? 'text' : 'password'}
+                        placeholder="sk-... or api key"
+                        value={providerKey}
+                        onChange={(e) => setProviderKey(e.target.value)}
+                        className="w-full bg-transparent text-xs text-white placeholder-slate-600 focus:outline-none font-mono"
+                      />
+                      <button
+                        onClick={() => setShowToken(!showToken)}
+                        className="text-slate-400 hover:text-slate-200 p-0.5"
+                        title={showToken ? 'Hide Key' : 'Show Key'}
+                      >
+                        {showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Test Connection & Save Action Buttons */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
+                  <div className="flex items-center gap-2">
                     <button
-                      key={m.id}
-                      onClick={() => {
-                        onSelectModel(m.id);
-                        if (m.recommendedHarness) {
-                          onSelectHarness(m.recommendedHarness);
-                        }
-                      }}
-                      className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between gap-2.5 ${
-                        isSelected
-                          ? 'bg-sky-950/50 border-sky-500 text-sky-100 shadow-md ring-1 ring-sky-500/40'
-                          : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-800/30 text-slate-300'
+                      onClick={handleTestProvider}
+                      disabled={isTestingProvider || !providerUrl.trim()}
+                      className="px-3 py-1.5 rounded-lg bg-sky-950 hover:bg-sky-900 disabled:opacity-40 border border-sky-700/60 text-sky-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      {isTestingProvider ? (
+                        <>
+                          <RefreshCw className="w-3 h-3 text-sky-400 animate-spin" />
+                          <span>Testing Endpoint...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-3 h-3 text-sky-400" />
+                          <span>Test Connection</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={handleSaveProviderConfig}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-950 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Check className="w-3 h-3 text-emerald-400" />
+                      <span>Save Endpoint</span>
+                    </button>
+                  </div>
+
+                  {providerTestResult && (
+                    <div
+                      className={`px-3 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 ${
+                        providerTestResult.success
+                          ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/60'
+                          : 'bg-rose-950/80 text-rose-300 border border-rose-700/60'
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-1 w-full">
-                        <div>
-                          <div className="font-bold text-xs text-white">{m.name}</div>
-                          <div className="text-[10px] text-slate-400">{m.provider}</div>
-                        </div>
-                        {isSelected && (
-                          <span className="px-1.5 py-0.5 rounded bg-sky-900 text-sky-200 text-[10px] font-bold">
-                            Active
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="text-[11px] text-slate-400">
-                        Context: <span className="font-mono text-slate-300">{m.contextWindow}</span>
-                      </div>
-
-                      <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-500">
-                        <span>Harness: {m.recommendedHarness}</span>
-                        {m.isLocalCompatible && (
-                          <span className="text-emerald-400 font-semibold">Local Run</span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
+                      {providerTestResult.success ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                      )}
+                      <span>{providerTestResult.message}</span>
+                    </div>
+                  )}
+                </div>
               </div>
+
+              {/* Cloud Foundation Models */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xs font-bold text-white tracking-wide">
+                      Cloud Foundation Models
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      Pre-configured Google Gemini, Anthropic Claude, OpenAI, and AMD ROCm Open-Weights.
+                    </p>
+                  </div>
+                  <div className="text-[11px] text-emerald-400 font-medium">
+                    {AI_MODEL_OPTIONS.length} Models Registered
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {AI_MODEL_OPTIONS.map((m) => {
+                    const isSelected = selectedModel === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => {
+                          onSelectModel(m.id);
+                          if (m.recommendedHarness) {
+                            onSelectHarness(m.recommendedHarness);
+                          }
+                        }}
+                        className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between gap-2.5 ${
+                          isSelected
+                            ? 'bg-sky-950/50 border-sky-500 text-sky-100 shadow-md ring-1 ring-sky-500/40'
+                            : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-800/30 text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-1 w-full">
+                          <div>
+                            <div className="font-bold text-xs text-white">{m.name}</div>
+                            <div className="text-[10px] text-slate-400">{m.provider}</div>
+                          </div>
+                          {isSelected && (
+                            <span className="px-1.5 py-0.5 rounded bg-sky-900 text-sky-200 text-[10px] font-bold">
+                              Active
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-[11px] text-slate-400">
+                          Context: <span className="font-mono text-slate-300">{m.contextWindow}</span>
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-500">
+                          <span>Harness: {m.recommendedHarness}</span>
+                          {m.isLocalCompatible && (
+                            <span className="text-emerald-400 font-semibold">Local Run</span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
             </div>
           )}
 
@@ -1143,6 +1407,88 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* =================================================================== */}
+        {/* Hardware Gating Alert Overlay (True-to-System Freeze Prevention) */}
+        {/* =================================================================== */}
+        {blockedModelNotice && (
+          <div className="absolute inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-slate-900 border-2 border-rose-500/80 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-rose-950/80 border border-rose-600/80 text-rose-400 shrink-0">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                    <span>Hardware Gate Activated</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-700 font-mono">
+                      OOM Prevention
+                    </span>
+                  </h3>
+                  <p className="text-xs text-rose-300/90 font-medium mt-1">
+                    {blockedModelNotice.reason}
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
+                <div className="flex justify-between items-center text-slate-300">
+                  <span className="text-slate-400">Target Model:</span>
+                  <span className="font-mono font-bold text-amber-300">
+                    {blockedModelNotice.model.name} ({blockedModelNotice.model.paramsBillions}B)
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-300">
+                  <span className="text-slate-400">Selected Quantization:</span>
+                  <span className="font-mono text-slate-200">{selectedQuant}</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-300">
+                  <span className="text-slate-400">Required Memory:</span>
+                  <span className="font-mono text-rose-400 font-bold">
+                    {blockedModelNotice.estimate.totalRequiredRamGb} GB
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-300">
+                  <span className="text-slate-400">Available Rig Capacity:</span>
+                  <span className="font-mono text-slate-200">
+                    {blockedModelNotice.estimate.availableTargetGb} GB {preferGpu ? 'VRAM' : 'RAM'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-300">
+                  <span className="text-slate-400">System Utilization:</span>
+                  <span className="font-mono text-rose-400 font-bold">
+                    {blockedModelNotice.estimate.utilizationPercentage}%
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-300">
+                  <span className="text-slate-400">Est. Throughput:</span>
+                  <span className="font-mono text-amber-400 font-bold">
+                    ~{blockedModelNotice.estimate.estimatedTokensPerSec} tokens/sec
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Running this model locally would starve the WebGL viewport and Manifold WASM kernel of memory, likely freezing the browser tab or causing kernel panic. We recommend switching to a lighter model (e.g. 7B/8B Q4) or connecting an external cloud endpoint.
+              </p>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/80">
+                <button
+                  onClick={() => setBlockedModelNotice(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition"
+                >
+                  Choose a Lighter Model
+                </button>
+                <button
+                  onClick={() => handleApplyHfModel(blockedModelNotice.model, true)}
+                  className="px-4 py-2 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-700/80 text-rose-200 text-xs font-semibold transition"
+                >
+                  I Understand the Risk — Force Activate
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   detectSystemHardwareResources,
   calculateModelResourceFootprint,
+  canRunOnSystem,
 } from './appToolsAndSkills';
 import {
   getOllamaCommandForModel,
@@ -136,5 +137,63 @@ describe('Hermes Hardware & Resource Estimator Service', () => {
 
   it('safely handles empty or missing id in getOllamaCommandForModel', () => {
     expect(getOllamaCommandForModel('')).toBe('');
+  });
+
+  describe('canRunOnSystem Hardware Gate & OOM Protection', () => {
+    const baseline16GbRig: SystemHardwareResources = {
+      systemRamGb: 16,
+      gpuVramGb: 16,
+      cpuCores: 8,
+      hasWebGpu: true,
+      gpuAdapterName: 'Apple M2 Pro',
+      osPlatform: 'macOS',
+      deviceType: 'Apple Silicon Mac (Unified Memory)',
+      isAppleSilicon: true,
+      hasMetal: true,
+    };
+
+    it('approves a 7B model on a 16GB rig with healthy margins', () => {
+      const result = canRunOnSystem(7.61, 'Q4_K_M', baseline16GbRig, true);
+      expect(result.allowed).toBe(true);
+      expect(result.estimate.totalRequiredRamGb).toBeLessThan(8);
+      expect(result.requiresConfirmation).toBeFalsy();
+    });
+
+    it('blocks a 70B model on an 8GB laptop to prevent system freeze', () => {
+      const modest8GbRig: SystemHardwareResources = {
+        systemRamGb: 8,
+        gpuVramGb: 2,
+        cpuCores: 4,
+        hasWebGpu: false,
+        gpuAdapterName: 'Integrated Graphics',
+        osPlatform: 'Windows',
+        deviceType: 'Laptop / Mobile',
+        isAppleSilicon: false,
+      };
+
+      const result = canRunOnSystem(70.0, 'Q4_K_M', modest8GbRig, true);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('Out-Of-Memory Risk');
+      expect(result.estimate.fitStatus).toBe('oom-risk');
+    });
+
+    it('enforces 1.5 GB reservation for WebGL & Manifold CAD viewport', () => {
+      // Rig has 8 GB total RAM
+      const tightRig: SystemHardwareResources = {
+        systemRamGb: 8,
+        gpuVramGb: 8,
+        cpuCores: 4,
+        hasWebGpu: true,
+        gpuAdapterName: 'M1',
+        osPlatform: 'macOS',
+        deviceType: 'Apple Silicon Mac (Unified Memory)',
+        isAppleSilicon: true,
+        hasMetal: true,
+      };
+
+      // A 14B model requires ~9.5 GB, exceeding the 8 GB capacity
+      const result = canRunOnSystem(14.0, 'Q4_K_M', tightRig, true);
+      expect(result.allowed).toBe(false);
+    });
   });
 });
