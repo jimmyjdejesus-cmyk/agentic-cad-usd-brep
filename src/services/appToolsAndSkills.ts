@@ -8,6 +8,7 @@ import {
   QuantizationType,
   SystemHardwareResources,
   ResourceEstimate,
+  SystemGateResult,
 } from '../types/cad';
 import { calculateAssemblyMassProperties, MATERIAL_PRESETS } from './massCalculator';
 
@@ -626,6 +627,91 @@ export function calculateModelResourceFootprint(
     runtimeNeeded,
     runtimeCategory,
     offloadStrategy,
+  };
+}
+
+/**
+ * True-to-system hardware gatekeeper to ensure local model execution does not
+ * starve system memory, trigger continuous swap thrashing, freeze Three.js/CAD rendering,
+ * or slow the machine beyond usability.
+ *
+ * Requirements:
+ * - Reserves 1.5 GB memory for WebGL canvas, Three.js scene graph, and Manifold WASM solid kernel.
+ * - Prevents OOM crashes if required memory exceeds available target memory.
+ * - Enforces minimum throughput threshold (4 tokens/sec) to prevent UI deadlock.
+ *
+ * @param paramsBillions Model parameter count in billions
+ * @param quantization Selected quantization type (e.g. Q4_K_M)
+ * @param systemResources Host hardware inventory
+ * @param preferGpu Whether inference attempts to allocate on GPU/Metal VRAM
+ * @returns SystemGateResult with allowed status, warning or blocking reason, and resource estimate
+ */
+export function canRunOnSystem(
+  paramsBillions: number,
+  quantization: QuantizationType,
+  systemResources: SystemHardwareResources,
+  preferGpu: boolean = true
+): SystemGateResult {
+  // First compute full resource footprint including weights, KV cache, and runtime overhead
+  const estimate = calculateModelResourceFootprint(
+    paramsBillions,
+    quantization,
+    systemResources,
+    preferGpu
+  );
+
+  // Reserve 1.5 GB memory baseline specifically for the active CAD studio Three.js viewport
+  // and Manifold WASM geometric evaluation engine
+  const cadViewportReservationGb = 1.5;
+  const effectiveAvailableGb = Math.max(0.5, estimate.availableTargetGb - cadViewportReservationGb);
+  const effectiveUtilization = (estimate.totalRequiredRamGb / effectiveAvailableGb) * 100;
+
+  // 1. Critical OOM condition: Model exceeds total physical memory limits
+  if (estimate.totalRequiredRamGb > estimate.availableTargetGb) {
+    return {
+      allowed: false,
+      reason: `Out-Of-Memory Risk: Model requires ${estimate.totalRequiredRamGb} GB but system only has ${estimate.availableTargetGb} GB ${preferGpu ? 'VRAM' : 'RAM'} available. Running this will crash the browser tab or freeze your operating system.`,
+      estimate,
+      requiresConfirmation: true,
+    };
+  }
+
+  // 2. Severe Memory Pressure: Model consumes > 95% of effective memory after CAD reservation
+  if (effectiveUtilization > 95) {
+    return {
+      allowed: false,
+      reason: `Severe Memory Pressure: Model requires ${estimate.totalRequiredRamGb} GB, leaving less than ${(estimate.availableTargetGb - estimate.totalRequiredRamGb).toFixed(1)} GB for the Three.js CAD viewport and OS. System paging will cause extreme lag.`,
+      estimate,
+      requiresConfirmation: true,
+    };
+  }
+
+  // 3. Unusable Throughput: Token rate below 4 tokens/sec makes multi-turn CAD loops unusable
+  if (estimate.estimatedTokensPerSec < 4) {
+    return {
+      allowed: false,
+      reason: `Unusable Performance: Estimated speed is only ~${estimate.estimatedTokensPerSec} tokens/sec on current hardware. Interactive CAD generation will feel completely unresponsive. Select a quantized format (Q4_K_M) or smaller parameter size.`,
+      estimate,
+      requiresConfirmation: true,
+    };
+  }
+
+  // 4. Tight fit condition: Model fits memory with reduced headroom (allowed without blocking modal)
+  if (estimate.fitStatus === 'tight') {
+    return {
+      allowed: true,
+      reason: `Hardware Fit Tight: Model consumes ${(effectiveUtilization).toFixed(0)}% of available memory. Consider closing heavy applications for optimal CAD framerates.`,
+      estimate,
+      requiresConfirmation: false,
+    };
+  }
+
+  // 5. Optimal / Moderate fit: Safe to execute smoothly
+  return {
+    allowed: true,
+    reason: `Optimal: Hardware has ample headroom (${estimate.totalRequiredRamGb} GB required out of ${estimate.availableTargetGb} GB available). Expected speed: ~${estimate.estimatedTokensPerSec} t/s.`,
+    estimate,
+    requiresConfirmation: false,
   };
 }
 

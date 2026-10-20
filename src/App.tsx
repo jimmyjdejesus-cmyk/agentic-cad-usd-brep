@@ -109,6 +109,7 @@ import {
   MaterialPreset,
   UserCadFile,
   SystemHardwareResources,
+  AgnosticProviderConfig,
 } from './types/cad';
 
 const QUICK_PROMPTS = [
@@ -138,6 +139,11 @@ export const App: React.FC = () => {
   // Agnostic AI Harness & Model Selection
   const [selectedHarness, setSelectedHarness] = useState<HarnessTypeId>('google-genai');
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3.8-flash');
+  // Agnostic Provider Endpoint Configuration (Custom OpenAI-compatible, Ollama, LM Studio, Groq, Together)
+  const [providerConfig, setProviderConfig] = useState<AgnosticProviderConfig>(() => ({
+    baseUrl: typeof window !== 'undefined' ? localStorage.getItem('apexcad_provider_url') || '' : '',
+    apiKey: typeof window !== 'undefined' ? localStorage.getItem('apexcad_provider_key') || '' : '',
+  }));
   const [hardwareSpecs, setHardwareSpecs] = useState<SystemHardwareResources>(() =>
     detectSystemHardwareResources()
   );
@@ -979,6 +985,7 @@ export const App: React.FC = () => {
         harness: selectedHarness,
         model: selectedModel,
         maxIterations: 3,
+        providerConfig,
       });
 
       setCode(turn.finalCode);
@@ -2758,6 +2765,14 @@ export const App: React.FC = () => {
         onSelectHarness={setSelectedHarness}
         selectedModel={selectedModel}
         onSelectModel={setSelectedModel}
+        providerConfig={providerConfig}
+        onUpdateProviderConfig={(newConfig) => {
+          setProviderConfig(newConfig);
+          if (typeof window !== 'undefined') {
+            if (newConfig.baseUrl) localStorage.setItem('apexcad_provider_url', newConfig.baseUrl);
+            if (newConfig.apiKey) localStorage.setItem('apexcad_provider_key', newConfig.apiKey);
+          }
+        }}
       />
 
       {/* Modal: In-App Toolsets & Skills Registry */}
