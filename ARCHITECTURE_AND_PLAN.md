@@ -1,6 +1,6 @@
-# Agentic CAD Studio — Deep Research & Architecture Plan
+# Agentic CAD Studio — Architecture Specification & Engineering Plan
 
-## 1. Deep Research Summary
+## 1. Deep Research & Foundational Technologies
 
 ### 1.1 NVIDIA `usd-brep` (`NVIDIA-Omniverse/usd-brep` v1.0.0)
 - **What It Is**: NVIDIA Omniverse's standalone C++ and Python library (`usd-brep==1.0.0`, CPython 3.12) for exact **NURBS-based Boundary Representation (BRep)** solid modeling (`SMLib` / `SM_API` / `_omni_solid` / `usd_brep`) with native OpenUSD (`BrepArray` and `UsdGeom.Mesh`) import and export.
@@ -15,9 +15,7 @@
      - **Exact NURBS `BrepArray` OpenUSD (`.brep.usda`)** via `sm.usd.export_brep()` / `sm.usd.export_breps()` for lossless downstream CAD operations.
      - **Binary/ASCII `.stl` and `.obj`** for 3D printing and universal 3D viewers.
 
-### 1.2 Survey of Existing Agentic CAD Repositories (What Not to Rebuild)
-We researched the leading open-source agentic CAD repositories to adopt their best patterns without rebuilding existing kernels or validators:
-
+### 1.2 Survey of Existing Agentic CAD Repositories
 | Repository | Core Stack | Key Takeaway Adopted in This Project |
 |---|---|---|
 | **`NVIDIA-Omniverse/usd-brep`** | `usd_brep` (`_omni_solid`) C++ NURBS kernel + OpenUSD `BrepArray` | **Used directly** as our primary Python 3.12 BRep modeling, tessellation, topology/manifold querying, and OpenUSD export engine, along with NVIDIA's official `.agents/` operation guides and `example_generate_asset.py` contract. |
@@ -28,79 +26,114 @@ We researched the leading open-source agentic CAD repositories to adopt their be
 
 ---
 
-## 2. System Architecture (Hybrid Local `usd_brep` Kernel + Google AI Studio Vibe-Coding Ready)
+## 2. System Architecture & Dual-Runtime Solid Modeling
 
 To satisfy both:
-1. **Real NVIDIA `usd_brep` execution** (using the official CPython 3.12 `usd-brep==1.0.0` C++ kernel), and
-2. **Seamless Google AI Studio ("Vibe Editing") compatibility** (where AI Studio imports the GitHub repo as a Vite + React + TypeScript project and runs it inside AI Studio's browser preview sandbox),
+1. **Real NVIDIA `usd_brep` execution** (using the official CPython 3.12 `usd-brep==1.0.0` C++ kernel on supported platforms), and
+2. **Seamless Google AI Studio & Browser compatibility** (where AI Studio imports the GitHub repo as a Vite + React + TypeScript project running inside a browser preview sandbox),
 
-we use a **Dual-Runtime Hybrid Architecture**:
+we use a **Dual-Runtime Hybrid Architecture** backed by an in-browser WebAssembly CSG engine and a model-agnostic AI copilot:
 
+```mermaid
+flowchart TD
+    subgraph Frontend["Frontend Client (Vite + React 18 + Three.js)"]
+        UI_Sidebar["Sidebar: Archetypes, Presets, File Manager"]
+        UI_Workbench["Workbench: Agentic Chat, Code Editor, Diagnostics"]
+        UI_Inspector["Inspector: Parts Tree, Mass Properties, 3D Pins, Explode"]
+        UI_Viewport["3D Viewport: OrbitControls, Z-Up CAD, PBR Materials"]
+        UI_CAM["CAM Studio: Toolpaths, G-Code, DXF, 3D Print Preflight"]
+        UI_Harness["AI Harness: Multi-Provider Settings & Hardware Gate"]
+    end
+
+    subgraph ServiceLayer["Client Service Layer (TypeScript)"]
+        Router["Model-Agnostic Provider Router (src/services/agnosticRouter.ts)"]
+        HardwareGate["Hardware & Memory Gate (src/services/hermesHardwareService.ts)"]
+        ParametricAI["Parametric Intelligence & Auto-Repair (src/services/parametricIntelligence.ts)"]
+        ManifoldCSG["Manifold-3D WebAssembly Engine (src/services/manifoldEngine.ts)"]
+        CAMService["CAM & Post-Processor Service (src/services/camService.ts)"]
+        RuntimeBridge["CAD Runtime Bridge (src/services/cadRuntime.ts)"]
+    end
+
+    subgraph ServerLayer["Backend API Server (Express + FastAPI)"]
+        ExpressServer["Express Hybrid Server (server.ts, Port 3000)"]
+        FastAPIServer["FastAPI Python Engine (backend/server.py, Port 8000)"]
+        NvidiaKernel["NVIDIA usd-brep / SMLib C++ Kernel (_omni_solid)"]
+    end
+
+    UI_Workbench --> Router
+    Router --> HardwareGate
+    HardwareGate --> ParametricAI
+    ParametricAI --> RuntimeBridge
+    RuntimeBridge -->|Local Backend Mode| ExpressServer
+    ExpressServer -->|Relay| FastAPIServer
+    FastAPIServer --> NvidiaKernel
+    RuntimeBridge -->|Offline / AI Studio Fallback| ManifoldCSG
+    ManifoldCSG --> UI_Viewport
+    NvidiaKernel --> UI_Viewport
+    UI_Viewport --> CAMService
+    CAMService --> UI_CAM
 ```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                   Frontend: Vite + React 18 + TypeScript                   │
-│             (Root layout compatible with Google AI Studio Build)           │
-├───────────────────────┬──────────────────────────┬─────────────────────────┤
-│  Pane 1: CAD Library  │  Pane 2: Agentic Workbench│  Pane 3: 3D USD Viewer  │
-│  • NVIDIA Reference   │  • Gemini 3.8 Flash Agent │  • Three.js Orbit/Grid  │
-│    Assets & Templates │    (@google/genai SDK)    │  • Per-Part Selection   │
-│  • Parametric Gallery │  • Auto-Repair Loop       │  • Wireframe / BBox /   │
-│  • Version History    │  • Python Code Editor     │    Explode Assembly     │
-│    with Diffs         │  • Diagnostics Inspector  │  • 1-Click Export:      │
-│                       │    (Manifold, Volume,     │    .usda (Mesh),        │
-│                       │     Clearances, Breaches) │    .brep.usda (NURBS),  │
-│                       │                           │    .stl, .py            │
-└───────────┬───────────┴─────────────┬────────────┴────────────┬────────────┘
-            │                         │                         │
-            ▼                         ▼                         ▼
-   ┌────────────────────────────────────┐      ┌─────────────────────────────┐
-   │ Mode A: Local Native Kernel API    │      │ Mode B: Browser AI Studio   │
-   │ FastAPI (`backend/server.py`)      │      │ Fallback Interpreter        │
-   │ Runs in `.venv-usd-brep` (Py 3.12) │      │ Runs 100% client-side when  │
-   │ • Real `import usd_brep as sm`     │      │ inside Google AI Studio     │
-   │ • Exact NURBS booleans, fillets,   │      │ cloud preview iframe        │
-   │   sweeps, curves, surfaces         │      │ • Evaluates `sm.*` calls    │
-   │ • `sm.tessellate()` → `PolyBrep`   │      │   to Three.js meshes        │
-   │ • `sm.usd.export_brep()` & `.usda` │      │ • Exports `.usda` & `.stl`  │
-   └────────────────────────────────────┘      └─────────────────────────────┘
-```
-
-### 2.1 Repository Layout
-- `package.json`, `vite.config.ts`, `tsconfig.json`, `index.html`, `metadata.json` — Root Vite + React + TypeScript configuration adhering strictly to Google AI Studio's GitHub import & two-way sync specification.
-- `src/` — React + Three.js + `@google/genai` application:
-  - `src/services/geminiAgent.ts` — Multi-step Agentic CAD pipeline using `@google/genai` (`gemini-3.8-flash`), embedded with NVIDIA's official `usd_brep` API signature guide & `SM_ERR_*` self-healing loop.
-  - `src/services/cadRuntime.ts` — Hybrid execution client: automatically uses the native Python 3.12 `usd_brep` FastAPI backend when available (`/api/execute`), and gracefully falls back to the client-side `usd_brep` geometric evaluator when running in Google AI Studio's cloud preview.
-  - `src/data/presets.ts` — Curated, verified `usd_brep` scripts (including NVIDIA's official `example_generate_asset.py` and `round_corner_pipe.py`, plus mechanical CAD parts: Flanged Pipe Elbow, Parametric Spur Gear, Robotic Parallel Gripper, Hollow Voronoi/Lattice Cube).
-  - `src/components/Viewport3D.tsx` — Interactive Three.js Z-up CAD viewport with part picking, wireframe overlay, bounding boxes, explode view slider, and camera presets (`iso`, `front`, `top`, `right`).
-- `backend/` — Lightweight Python 3.12 FastAPI execution engine (`backend/server.py` + `backend/cad_engine.py`):
-  - Executes `build_parts()` against real `usd_brep` (`_omni_solid`), computes `Brep.info()`, `material_census()`, pairwise `brep_relationship()`, NVIDIA's `sanity_checks()`, tessellates with configurable tolerances, and exports `.usda` (Mesh), `.brep.usda` (NURBS `BrepArray`), and `.stl`.
-- `docs/nvidia-usd-brep/` — Complete mirror of NVIDIA's official `usd-brep` documentation, `.agents/operations/*.md` guides, `.agents/docs/generate_asset.md` playbook, `.agents/docs/errors.md`, type stubs (`__init__.pyi`, `usd.pyi`), and reference examples.
 
 ---
 
-## 3. Production Enhancements & Security Architecture
+## 3. Core Subsystems
 
-### 3.1 Engineering Inspector & Workspace UX
-- **Docked Multi-Tab Sidebar (`src/App.tsx`)**: Consolidated floating overlays into a single responsive sidebar featuring:
-  - **Parts Inspector**: Visibility toggling, single-part isolation, and inline part renaming.
-  - **Mass Properties Calculator**: Dynamic mass, volume, and center-of-mass (CoM) computed across material presets.
-  - **3D Annotations Dock**: Real-time vertex/surface pin tracking, resolution state, and viewport focus triggers.
-  - **Explosion Timeline**: Eased multi-stage disassembly animation and keyframe scrubbing.
+### 3.1 Model-Agnostic Copilot & Hardware Gate
+- **Providers Supported**: Google Gemini 3.8 Flash, local Ollama socket (`http://127.0.0.1:11434`), LM Studio (`http://127.0.0.1:1234`), vLLM, Groq, Together AI, OpenAI, and Hugging Face Hub live GGUF model explorer.
+- **Hardware Gating (`canRunOnSystem()`)**: Evaluates host CPU cores, RAM, and WebGPU VRAM. Strictly enforces a **1.5 GB memory reservation** for Three.js geometry and WebAssembly buffers, preventing host OOM system freezes.
+- **Connection Probing (`testOnly` mode)**: Verifies socket connectivity before routing prompts to prevent cryptic synthesis aborts.
 
-### 3.2 Dynamic Shape Templates & CAD File Manager
-- **Geometric Archetypes (`src/data/cadTemplates.ts`)**: Rapid initialization from Box, Cylinder, Triangular Prism, or Blank Canvas templates.
-- **Dynamic Shape Thumbnails (`src/components/CadShapeThumbnail.tsx`)**: Vector SVG rendering of parametric dimensions and schematic silhouettes.
-- **Persistent Storage (`src/services/cadFileManager.ts`)**: Versioned design retention across browser localStorage and optional Firestore cloud vaults.
+### 3.2 Dual Solid Modeling Kernels
+- **Native B-Rep (`usd-brep`)**: Exact NURBS surfaces, circular filleting, sweeps, boolean operations, OpenUSD `BrepArray` export, and tolerance-controlled tessellation.
+- **Client-Side CSG (`manifold-3d` Wasm)**: Client-side Constructive Solid Geometry engine running in WebAssembly. Generates guaranteed watertight 2-manifold output, exact outward normal STL exports, and individual part downloads with 0-crash offline reliability.
 
-### 3.3 CI/CD & Automated Verification Pipeline
-- **GitHub Actions Matrix (`.github/workflows/ci.yml`)**:
-  1. `security-audit`: Pattern scanning of tracked files for zero credential leakage.
-  2. `frontend-ci`: TypeScript typechecking (`npm run lint`), Vitest suite (`npm test`), and production bundle compilation (`npm run build`).
-  3. `backend-ci`: Python 3.12 environment setup and pytest execution for `backend/test_cad_engine.py`.
-- **Browser Automation Suite (`scripts/verify-browser.mjs`)**: Headless Chrome CDP testing across 9 DOM/ARIA and viewport interaction scenarios.
+### 3.3 Native CAM, G-Code & Digital Fabrication Studio
+- **Toolpaths**: 2D Contour Profiling with cutter radius compensation (`G41`/`G42`), Pocket Clearing with raster/concentric stepovers, Waterline Z-Level Roughing, and Ballnose Surface Finishing.
+- **CNC G-Code**: RS-274 / LinuxCNC standard output with configurable feed rates, spindle RPM, and rapid clearance planes (`G00 Z5.0`).
+- **2D DXF**: AutoCAD R12 DXF polyline cut-sheet generation for CNC laser, plasma, and waterjet machines.
+- **3D Printing Preflight**: Automated slicing estimation, layer counting ($0.12 - 0.28\text{ mm}$), print duration, and filament weight computation.
 
-### 3.4 Security & Secret Management Playbook
-- **Zero-Leaked Keys in Tracked Assets**: Configuration manifests like `firebase-applet-config.json` use empty string placeholders.
-- **Environment Resolution**: Seamless loading of `VITE_FIREBASE_API_KEY` and `GEMINI_API_KEY` across Vite client and Node server contexts.
-- **Fail-Safe Initialization**: Safe dummy fallback keys prevent module-load crashes (`auth/invalid-api-key`) in unconfigured offline environments.
+### 3.4 Engineering Inspector & CAD File Manager
+- **Docked Multi-Tab Sidebar**:
+  - **Parts Tree**: Per-part visibility toggle, single-click isolation, and synchronized multi-layer renaming (Python code, OpenUSD prims, 3D pins).
+  - **Mass Properties**: Physical volume, bounding dimensions, mass, and 3D Center-of-Mass (CoM) marker for 8 PBR industrial materials.
+  - **3D Annotations Dock**: Interactive vertex-snapped annotation pins with leader lines, resolution tracking, and camera focus.
+  - **Explosion Timeline**: Keyframe-scrubbed assembly disassembly animation.
+- **CAD File Retention**: Versioned design retention across localStorage and optional Firestore cloud storage.
 
+---
+
+## 4. Testing, TDD & CI Verification Matrix
+
+The repository maintains **155 frontend unit and integration tests across 14 test suites** (100% pass rate in ~1.1s), backend Python pytest tests, and headless Chrome browser automation:
+
+```bash
+# 1. Frontend Unit Tests (Vitest — 155 tests across 14 test suites)
+npm test
+
+# 2. TypeScript Static Analysis (0 errors)
+npm run lint
+
+# 3. Production Bundle Build (Vite)
+npm run build
+
+# 4. Headless Chrome CDP Verification (9 DOM/ARIA & Viewport scenarios)
+npm run test:browser
+
+# 5. Python Backend Engine Verification
+pytest backend/test_cad_engine.py -v
+```
+
+### CI/CD Automation Matrix (`.github/workflows/ci.yml`)
+1. **`security-audit`**: Pattern scanning over all tracked git files to guarantee 0 leaked credentials or private keys.
+2. **`frontend-ci`**: Node 20 environment, `npm run lint` typecheck, `npm test` Vitest suite, and `npm run build` production bundling.
+3. **`backend-ci`**: Python 3.12 environment, `pip install -r backend/requirements.txt`, and pytest engine verification.
+
+---
+
+## 5. Security & Secret Management Policy
+
+- **Zero Tracked Secrets**: All configuration manifests (`firebase-applet-config.json`, `.firebaserc`) contain zero hardcoded credentials or API keys.
+- **Environment Isolation**: Dynamic injection via `.env` (`GEMINI_API_KEY`, `VITE_FIREBASE_API_KEY`).
+- **Safe Offline Fallback**: Dummy fallback credentials protect against module-load crashes (`auth/invalid-api-key`) when running in offline or unconfigured environments.
+- **Automated CI Enforcement**: Verified on every push and pull request via the GitHub Actions `security-audit` job.

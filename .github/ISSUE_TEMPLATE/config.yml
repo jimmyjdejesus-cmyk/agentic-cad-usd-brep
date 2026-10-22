@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: NVIDIA usd-brep Documentation
+    url: https://github.com/NVIDIA-Omniverse/usd-brep
+    about: Official documentation and reference guides for NVIDIA usd-brep and SMLib NURBS kernel.
+  - name: OpenUSD Standard Documentation
+    url: https://openusd.org/release/index.html
+    about: Official OpenUSD specification and schemas.
