@@ -125,3 +125,31 @@ for f in [f.strip() for f in os.popen('git ls-files').readlines()]:
 print('PASSED: Clean git tree.')
 "
 ```
+
+---
+
+## 5. Dual-Branch (`dev`/`main`) Development & Scheduled Release Operations
+
+### 5.1 Branch Roles & Protection
+- `main`: Production release branch. No direct commits allowed. Protected by GitHub branch rules and PR target guard.
+- `dev`: Active integration branch. All feature branches (`feat/*`, `fix/*`) target `dev`.
+- Force pushes and branch deletions are strictly disabled on both `main` and `dev`.
+
+### 5.2 Release & Versioning Commands
+```bash
+# Check if dev is ahead of main and preview next SemVer version:
+npm run release:check
+
+# Preview formatted changelog for pending commits:
+npm run release:changelog
+
+# Bump version and update CHANGELOG.md locally:
+npm run release:bump [auto|patch|minor|major]
+```
+
+### 5.3 Automated Release Workflow
+1. Scheduled release workflow runs every Monday at 00:00 UTC (or manual dispatch).
+2. Calculates SemVer bump based on conventional commits (`feat:` -> minor, `fix:` -> patch, breaking -> major).
+3. Updates `package.json` and prepends categorized changes to `CHANGELOG.md`.
+4. Opens or updates release PR (`dev` -> `main`).
+5. Merging into `main` automatically creates the git tag `vX.Y.Z` and publishes the GitHub release.

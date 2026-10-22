@@ -1,7 +1,7 @@
 # ApexCAD Studio — NVIDIA `usd-brep` Agentic CAD Studio
 
 [![CI Matrix](https://github.com/jimmyjdejesus-cmyk/agentic-cad-usd-brep/actions/workflows/ci.yml/badge.svg)](https://github.com/jimmyjdejesus-cmyk/agentic-cad-usd-brep/actions/workflows/ci.yml)
-[![Vitest](https://img.shields.io/badge/Vitest-155%20Tests%20Passing-brightgreen.svg)](docs/TDD_AND_TESTING.md)
+[![Vitest](https://img.shields.io/badge/Vitest-160%20Tests%20Passing-brightgreen.svg)](docs/TDD_AND_TESTING.md)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18.3-cyan.svg)](https://react.dev/)
 [![OpenUSD](https://img.shields.io/badge/OpenUSD-24.08-green.svg)](https://openusd.org/)
@@ -150,12 +150,32 @@ npm run backend
 
 ---
 
+## Branching Strategy & Release Lifecycle
+
+ApexCAD Studio follows a structured development and release cadence:
+
+- **`main` (Production Branch)**: Direct commits to `main` are **strictly prohibited** by branch protection and CI guards. Only verified code via **Scheduled Release PRs from `dev`** or emergency hotfixes can be merged into `main`.
+- **`dev` (Active Integration Branch)**: All day-to-day development happens in topic branches (`feat/*`, `fix/*`, `refactor/*`) branched from `dev` and merged into `dev` via pull requests.
+- **Automated Scheduled Releases**: A GitHub Actions workflow ([`.github/workflows/scheduled-release-pr.yml`](.github/workflows/scheduled-release-pr.yml)) runs weekly on Mondays at 00:00 UTC (or manually triggered) to calculate SemVer version bumps from Conventional Commits, update `CHANGELOG.md`, and open an automated Release PR from `dev` to `main`.
+- **Automated Publishing & Tagging**: Merging a release PR into `main` automatically triggers [`.github/workflows/publish-release.yml`](.github/workflows/publish-release.yml), creating an annotated Git tag (`vX.Y.Z`) and publishing a formal GitHub Release.
+
+```bash
+# Developer Release CLI Tooling
+npm run release:check       # Check if dev is ahead of main & preview next SemVer version
+npm run release:changelog   # Preview formatted markdown changelog for pending commits
+npm run release:bump        # Bump package.json and update CHANGELOG.md locally
+```
+
+See the [Branching Strategy & Release Lifecycle Guide](docs/BRANCHING_AND_RELEASES.md) for full architectural details.
+
+---
+
 ## Testing & Quality Assurance Matrix
 
 The repository features comprehensive automated test coverage across frontend, backend, browser, and security dimensions:
 
 ```bash
-# 1. Frontend Unit Tests (Vitest — 155 tests across 14 test suites, ~1.1s)
+# 1. Frontend Unit Tests (Vitest — 160 tests across 15 test suites, ~1.2s)
 npm test
 
 # 2. TypeScript Static Analysis (0 errors)
@@ -178,15 +198,17 @@ pytest backend/test_cad_engine.py -v
 Continuous Integration is automated via GitHub Actions in [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 
 - **Job 1 (`security-audit`)**: Scans all tracked files for exposed API keys, private keys, and secrets with 0-tolerance leak enforcement.
-- **Job 2 (`frontend-ci`)**: Executes TypeScript linting (`tsc --noEmit`), Vitest suite (`npm test`), and production bundle compilation (`npm run build`).
+- **Job 2 (`frontend-ci`)**: Executes TypeScript linting (`tsc --noEmit`), Vitest suite (`npm test`), and production bundle compilation (`npm run build`) across both `main` and `dev` branches.
 - **Job 3 (`backend-ci`)**: Sets up Python 3.12, installs `backend/requirements.txt`, and verifies `backend/test_cad_engine.py`.
+- **Guard Workflow ([`.github/workflows/pr-target-guard.yml`](.github/workflows/pr-target-guard.yml))**: Enforces that direct feature PRs target `dev`, rejecting any attempt to target `main` directly.
 
 ---
 
 ## Documentation Links
 
+- 🌿 [Branching Strategy & Release Lifecycle Guide](docs/BRANCHING_AND_RELEASES.md) — Dual-branch flow (`dev` & `main`), no-commit policy, automated scheduled releases, SemVer calculation, and publishing.
 - 🏛️ [System Architecture Specification](docs/ARCHITECTURE.md) — Comprehensive layer-by-layer architectural breakdown, hardware memory gating formulas, and kernel interfaces.
-- 🧪 [TDD & Quality Assurance Guide](docs/TDD_AND_TESTING.md) — Test-Driven Development methodology, detailed catalog of all 14 test suites (155 tests), and regression testing protocols.
+- 🧪 [TDD & Quality Assurance Guide](docs/TDD_AND_TESTING.md) — Test-Driven Development methodology, detailed catalog of all 15 test suites (160 tests), and regression testing protocols.
 - ⚙️ [CAM, CNC G-Code & Digital Fabrication Guide](docs/CAM_AND_MANUFACTURING.md) — Toolpath strategies (Profiling, Pocketing, Waterline, Finishing), RS-274 G-Code dialect, and 2D DXF cut-sheet export.
 - 🧠 [Model-Agnostic AI & Hardware Gating Guide](docs/MODEL_AGNOSTIC_AI.md) — Multi-provider configuration (Ollama, LM Studio, vLLM, Groq, Together, Hugging Face Hub), memory gating calculations, and OOM prevention.
 - 📋 [Pull Request Template](.github/pull_request_template.md) — Engineering validation checklist and testing requirements for PR submissions.

@@ -1,0 +1,32 @@
+name: PR Target & Base Branch Guard
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-pr-target:
+    name: Enforce Dev Branch as Source for Main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify PR Source Branch
+        run: |
+          HEAD_REF="${{ github.head_ref }}"
+          BASE_REF="${{ github.base_ref }}"
+
+          echo "Evaluating PR target base: '${BASE_REF}', head source: '${HEAD_REF}'"
+
+          # Only allow release PRs from 'dev', 'release/*', or emergency 'hotfix/*' to target main
+          if [[ "$HEAD_REF" == "dev" || "$HEAD_REF" =~ ^release/.* || "$HEAD_REF" =~ ^hotfix/.* ]]; then
+            echo "✅ Source branch '${HEAD_REF}' is permitted to target '${BASE_REF}'."
+            exit 0
+          else
+            echo "::error title=Invalid Target Branch::Direct PRs to '${BASE_REF}' from feature branch '${HEAD_REF}' are prohibited."
+            echo "::notice::ApexCAD Studio operates a protected development flow. Please edit this pull request and change the base branch from '${BASE_REF}' to 'dev'."
+            echo ""
+            echo "Allowed paths to 'main':"
+            echo "  1. Regular development: feature branch -> dev"
+            echo "  2. Scheduled release: dev -> main"
+            echo "  3. Emergency hotfix: hotfix/* -> main"
+            exit 1
+          fi
