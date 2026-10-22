@@ -12,7 +12,10 @@
     "backend": "uvicorn backend.server:app --host 127.0.0.1 --port 8000 --reload",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "test:browser": "node scripts/verify-browser.mjs"
+    "test:browser": "node scripts/verify-browser.mjs",
+    "release:check": "node scripts/release-manager.mjs check",
+    "release:changelog": "node scripts/release-manager.mjs changelog",
+    "release:bump": "node scripts/release-manager.mjs bump"
   },
   "dependencies": {
     "@google/genai": "^2.3.0",

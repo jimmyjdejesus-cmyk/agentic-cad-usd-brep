@@ -12,7 +12,7 @@ ApexCAD Studio enforces a **Strict Test-Driven Development (TDD)** engineering s
 
 ## 2. Testing Verification Matrix
 
-ApexCAD Studio's test suite consists of **155 frontend tests across 14 test suites**, a Python pytest backend engine suite, and a Headless Chrome CDP browser automation runner.
+ApexCAD Studio's test suite consists of **160 frontend tests across 15 test suites**, a Python pytest backend engine suite, and a Headless Chrome CDP browser automation runner.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -32,10 +32,11 @@ ApexCAD Studio's test suite consists of **155 frontend tests across 14 test suit
 │ src/services/partRenaming      │ 11 tests      │ Synced Part Renaming  │
 │ src/services/pbrMaterial       │  5 tests      │ PBR Physics & Presets │
 │ src/services/massCalculator    │  6 tests      │ Volume, Mass & CoM    │
+│ src/services/releaseManager    │  5 tests      │ SemVer Bump & Release │
 │ src/components/CadShapeThumb.. │ 11 tests      │ SVG Vector Thumbnails │
 │ src/components/OnboardingTut.. │  5 tests      │ Interactive Walkthru  │
 ├────────────────────────────────┼───────────────┼───────────────────────┤
-│ Total Frontend (Vitest)        │ 155 tests     │ 100% Pass Rate (~1.1s)│
+│ Total Frontend (Vitest)        │ 160 tests     │ 100% Pass Rate (~1.2s)│
 ├────────────────────────────────┼───────────────┼───────────────────────┤
 │ backend/test_cad_engine.py     │ 18 tests      │ Pytest FastAPI Engine │
 │ scripts/verify-browser.mjs     │ 9 scenarios   │ Headless Chrome CDP   │
@@ -124,6 +125,12 @@ ApexCAD Studio's test suite consists of **155 frontend tests across 14 test suit
 ### 3.14 [`src/components/OnboardingTutorial.test.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/OnboardingTutorial.test.tsx) (5 tests)
 - **Interactive Onboarding**:
   - Step progression, UI spotlight highlights, dismiss, and completion persistence in localStorage.
+
+### 3.15 [`src/services/releaseManager.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/releaseManager.test.ts) (5 tests)
+- **Release Versioning & Changelog Automation**:
+  - Evaluates SemVer version bumps (`patch`, `minor`, `major`) based on Conventional Commits.
+  - Generates categorized markdown changelog sections with commit scopes, descriptions, and hashes.
+  - Honors forced bump overrides.
 
 ---
 

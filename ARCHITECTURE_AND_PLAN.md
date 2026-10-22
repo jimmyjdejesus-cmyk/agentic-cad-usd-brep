@@ -103,12 +103,29 @@ flowchart TD
 
 ---
 
-## 4. Testing, TDD & CI Verification Matrix
+## 4. Branching Strategy & Scheduled Release Lifecycle
 
-The repository maintains **155 frontend unit and integration tests across 14 test suites** (100% pass rate in ~1.1s), backend Python pytest tests, and headless Chrome browser automation:
+ApexCAD Studio enforces a strict production release architecture:
+1. **`main` (Production)**: Protected branch. Direct pushes are blocked by GitHub branch protection and the PR Target Guard workflow (`.github/workflows/pr-target-guard.yml`). It receives code exclusively through scheduled releases or hotfixes.
+2. **`dev` (Active Integration)**: Protected branch. All feature branches (`feat/*`, `fix/*`, `refactor/*`) branch from and merge into `dev` via pull requests after passing CI status checks.
+3. **Scheduled Release Workflow (`.github/workflows/scheduled-release-pr.yml`)**:
+   - Executes weekly on Mondays at 00:00 UTC (or via manual `workflow_dispatch`).
+   - Analyzes commit divergence between `main` and `dev`.
+   - Computes SemVer bump (Major for breaking changes, Minor for features, Patch for fixes).
+   - Generates categorized `CHANGELOG.md` section.
+   - Updates `package.json` and opens/updates an automated Release PR from `dev` to `main`.
+4. **Publish Release & Tagging (`.github/workflows/publish-release.yml`)**:
+   - Executes on push to `main` (merge of release PR).
+   - Automatically creates annotated Git tag `vX.Y.Z` and publishes the official GitHub Release with release notes.
+
+---
+
+## 5. Testing, TDD & CI Verification Matrix
+
+The repository maintains **160 frontend unit and integration tests across 15 test suites** (100% pass rate in ~1.2s), backend Python pytest tests, and headless Chrome browser automation:
 
 ```bash
-# 1. Frontend Unit Tests (Vitest — 155 tests across 14 test suites)
+# 1. Frontend Unit Tests (Vitest — 160 tests across 15 test suites)
 npm test
 
 # 2. TypeScript Static Analysis (0 errors)
@@ -122,16 +139,20 @@ npm run test:browser
 
 # 5. Python Backend Engine Verification
 pytest backend/test_cad_engine.py -v
+
+# 6. Release & Versioning Check
+npm run release:check
 ```
 
 ### CI/CD Automation Matrix (`.github/workflows/ci.yml`)
 1. **`security-audit`**: Pattern scanning over all tracked git files to guarantee 0 leaked credentials or private keys.
-2. **`frontend-ci`**: Node 20 environment, `npm run lint` typecheck, `npm test` Vitest suite, and `npm run build` production bundling.
+2. **`frontend-ci`**: Node 20 environment, `npm run lint` typecheck, `npm test` Vitest suite, and `npm run build` production bundling across both `main` and `dev`.
 3. **`backend-ci`**: Python 3.12 environment, `pip install -r backend/requirements.txt`, and pytest engine verification.
+4. **`validate-pr-target`**: Blocks any feature PR attempting to target `main` directly instead of `dev`.
 
 ---
 
-## 5. Security & Secret Management Policy
+## 6. Security & Secret Management Policy
 
 - **Zero Tracked Secrets**: All configuration manifests (`firebase-applet-config.json`, `.firebaserc`) contain zero hardcoded credentials or API keys.
 - **Environment Isolation**: Dynamic injection via `.env` (`GEMINI_API_KEY`, `VITE_FIREBASE_API_KEY`).

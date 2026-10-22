@@ -1,3 +1,8 @@
+> [!IMPORTANT]
+> **Branch Target Policy**:
+> - All features, bug fixes, refactoring, and documentation PRs **must target `dev`**.
+> - PRs targeting `main` are reserved exclusively for scheduled release PRs originating from `dev` or emergency `hotfix/*` branches. Direct feature PRs to `main` are blocked by CI guards.
+
 ## Description
 
 <!-- Provide a concise summary of the changes introduced by this pull request. -->

@@ -1,0 +1,97 @@
+name: Publish Release & Tag
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag-and-publish:
+    name: Tag & Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract Current Version
+        id: get_version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Current version in package.json: ${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Check If Git Tag Exists
+        id: check_tag
+        run: |
+          TAG="${{ steps.get_version.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag '$TAG' already exists in repository."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag '$TAG' does not exist yet. Ready to publish."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract Release Notes from CHANGELOG
+        if: steps.check_tag.outputs.exists == 'false'
+        id: extract_notes
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          python3 -c "
+          import re, sys
+
+          version = '${VERSION}'
+          changelog_file = 'CHANGELOG.md'
+          notes = []
+          capturing = False
+
+          try:
+              with open(changelog_file, 'r', encoding='utf-8') as f:
+                  for line in f:
+                      if line.startswith(f'## [{version}]'):
+                          capturing = True
+                          notes.append(line)
+                      elif capturing and line.startswith('## ['):
+                          break
+                      elif capturing:
+                          notes.append(line)
+          except Exception as e:
+              notes = [f'Release v{version}']
+
+          output_notes = ''.join(notes).strip()
+          if not output_notes:
+              output_notes = f'## Release v{version}\n\nAutomated release from dev to main.'
+
+          with open('/tmp/release_notes.md', 'w', encoding='utf-8') as out:
+              out.write(output_notes)
+          "
+          echo "Notes extracted to /tmp/release_notes.md"
+
+      - name: Create and Push Git Tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          TAG="${{ steps.get_version.outputs.tag }}"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$TAG" -m "ApexCAD Studio ${TAG}"
+          git push origin "$TAG"
+          echo "✅ Git tag '$TAG' created and pushed."
+
+      - name: Create GitHub Release
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.get_version.outputs.tag }}"
+          VERSION="${{ steps.get_version.outputs.version }}"
+
+          gh release create "$TAG" \
+            --title "ApexCAD Studio v${VERSION}" \
+            --notes-file /tmp/release_notes.md
+          echo "✅ GitHub Release '$TAG' published successfully."
