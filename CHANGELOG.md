@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] — 2026-10-22
+
+### 🚀 Features & Enhancements
+- **flow:** configure dev-driven workflow, PR guard, SemVer release automation, and branch protection (6389cce)
+
 ## [1.0.0] — 2026-10-21
 
 ### 🚀 Features & Enhancements

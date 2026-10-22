@@ -254,13 +254,14 @@ async function main() {
       existingChangelog = `# Changelog — ApexCAD Studio\n\nAll notable changes to this project will be documented in this file.\n\n`;
     }
 
-    // Prepend new section after title header
-    const titleHeaderRegex = /^(# Changelog[^\n]*\n\n[^\n]*\n\n)/;
+    // Prepend new section after the introduction divider
+    const introDivider = '\n---\n\n';
     let updatedChangelog = '';
-    if (titleHeaderRegex.test(existingChangelog)) {
-      updatedChangelog = existingChangelog.replace(titleHeaderRegex, `$1${newSection}`);
+    if (existingChangelog.includes(introDivider)) {
+      const parts = existingChangelog.split(introDivider);
+      updatedChangelog = parts[0] + introDivider + newSection + parts.slice(1).join(introDivider);
     } else {
-      updatedChangelog = `# Changelog — ApexCAD Studio\n\n${newSection}${existingChangelog}`;
+      updatedChangelog = `# Changelog — ApexCAD Studio\n\nAll notable changes to this project will be documented in this file.\n\n---\n\n${newSection}${existingChangelog}`;
     }
 
     fs.writeFileSync(CHANGELOG_PATH, updatedChangelog, 'utf8');
