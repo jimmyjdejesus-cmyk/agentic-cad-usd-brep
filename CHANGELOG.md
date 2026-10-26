@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.1] — 2026-10-26
+
+### 🛠️ Architecture, Tests & Maintenance
+- **browser:** add comprehensive visual and frontend CDP testing suite with multi-state screenshot verification (a8bd2e6)
+- **audit:** optimize bundle chunking, enhance fallback transparency, ignore .firebase, and persist deep audit skill (f05142b)
+
 ## [1.1.0] — 2026-10-22
 
 ### 🚀 Features & Enhancements
