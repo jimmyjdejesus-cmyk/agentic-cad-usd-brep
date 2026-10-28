@@ -57,6 +57,13 @@ import { CamCncModal } from './components/CamCncModal';
 import { NewDesignModal } from './components/NewDesignModal';
 import { OnboardingTutorial } from './components/OnboardingTutorial';
 import { CadShapeThumbnail } from './components/CadShapeThumbnail';
+import { CsgBooleanToolbar } from './components/CsgBooleanToolbar';
+import {
+  CsgBooleanOperation,
+  InsertPrimitiveConfig,
+  insertPrimitiveIntoScript,
+  applyCsgBooleanToScript,
+} from './services/csgEngine';
 import { BASIC_SHAPE_INSERT_OPTIONS, CAD_TEMPLATES, BasicShapeInsertOption } from './data/cadTemplates';
 import {
   auth,
@@ -190,6 +197,7 @@ export const App: React.FC = () => {
   const [pbrFinishMode, setPbrFinishMode] = useState<PbrFinishMode>('auto');
   const [explodeFactor, setExplodeFactor] = useState<number>(0);
   const [partOffsets, setPartOffsets] = useState<Record<string, [number, number, number]>>({});
+  const [showOverhangWarnings, setShowOverhangWarnings] = useState<boolean>(false);
 
   // Memoized parts and stage data for stable child component references
   const currentPartNames = useMemo(
@@ -608,6 +616,31 @@ export const App: React.FC = () => {
     } finally {
       setIsExecuting(false);
     }
+  };
+
+  const handleInsertPrimitive = async (config: InsertPrimitiveConfig) => {
+    const updatedCode = insertPrimitiveIntoScript(config, code);
+    setCode(updatedCode);
+    await handleExecuteCode(updatedCode, 'interactive_solid', envelope);
+    if (config.name) {
+      setSelectedPartName(config.name);
+    }
+  };
+
+  const handleApplyCsg = async (
+    operation: CsgBooleanOperation,
+    targetPart: string,
+    toolPart: string
+  ) => {
+    const { updatedCode, resultPartName } = applyCsgBooleanToScript(
+      operation,
+      targetPart,
+      toolPart,
+      code
+    );
+    setCode(updatedCode);
+    await handleExecuteCode(updatedCode, 'csg_assembly', envelope);
+    setSelectedPartName(resultPartName);
   };
 
   const handleSelectDesign = async (designId: string) => {
@@ -1409,6 +1442,18 @@ export const App: React.FC = () => {
                   <span className={`w-2 h-2 rounded-full ${showBounds ? 'bg-amber-400 shadow-sm shadow-amber-400' : 'bg-zinc-700'}`} />
                 </button>
 
+                {/* 3D Print Overhang Heatmap */}
+                <button
+                  onClick={() => setShowOverhangWarnings((v) => !v)}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs hover:bg-[#14161b] transition text-zinc-200"
+                >
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Overhang (&gt;45°) Heatmap</span>
+                  </div>
+                  <span className={`w-2 h-2 rounded-full ${showOverhangWarnings ? 'bg-amber-400 shadow-sm shadow-amber-400' : 'bg-zinc-700'}`} />
+                </button>
+
                 {/* Center of Mass Reticle */}
                 <button
                   onClick={() => setShowCenterOfMass((v) => !v)}
@@ -2073,6 +2118,18 @@ export const App: React.FC = () => {
             </div>
           )}
 
+          {/* Floating CSG Boolean & Primitive Insertion Toolbar */}
+          <CsgBooleanToolbar
+            parts={parts}
+            selectedPartName={selectedPartName}
+            onSelectPart={setSelectedPartName}
+            onInsertPrimitive={handleInsertPrimitive}
+            onApplyCsg={handleApplyCsg}
+            showOverhangWarnings={showOverhangWarnings}
+            onToggleOverhangWarnings={() => setShowOverhangWarnings((v) => !v)}
+            onOpenCamModal={() => setShowCamCncModal(true)}
+          />
+
           {/* 3D Canvas */}
           <Viewport3D
             parts={parts}
@@ -2094,6 +2151,7 @@ export const App: React.FC = () => {
             selectedMaterial={selectedMaterial}
             customDensity={customDensity}
             pbrFinishMode={pbrFinishMode}
+            showOverhangWarnings={showOverhangWarnings}
             annotations={annotations}
             selectedAnnotationId={selectedAnnotationId}
             onSelectAnnotation={setSelectedAnnotationId}

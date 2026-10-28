@@ -38,6 +38,7 @@ interface Viewport3DProps {
   selectedMaterial?: MaterialPreset;
   customDensity?: number | null;
   pbrFinishMode?: PbrFinishMode;
+  showOverhangWarnings?: boolean;
   // 3D Annotations
   annotations?: CadAnnotation[];
   selectedAnnotationId?: string | null;
@@ -84,6 +85,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   selectedMaterial,
   customDensity,
   pbrFinishMode = 'auto',
+  showOverhangWarnings = false,
   annotations = [],
   selectedAnnotationId = null,
   onSelectAnnotation,
@@ -844,6 +846,65 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
         pbrFinishMode
       );
 
+      // Overhang Angle Highlighting for 3D Print Preflight (>45 degrees from vertical)
+      if (showOverhangWarnings) {
+        const numVertices = part.mesh.points.length;
+        const colors = new Float32Array(numVertices * 3);
+        const baseR = part.color[0];
+        const baseG = part.color[1];
+        const baseB = part.color[2];
+
+        // Default all vertices to part base color
+        for (let i = 0; i < numVertices; i++) {
+          colors[i * 3] = baseR;
+          colors[i * 3 + 1] = baseG;
+          colors[i * 3 + 2] = baseB;
+        }
+
+        const tris = part.mesh.triangles;
+        const pts = part.mesh.points;
+        for (let t = 0; t < tris.length; t += 3) {
+          const i0 = tris[t];
+          const i1 = tris[t + 1];
+          const i2 = tris[t + 2];
+          const p0 = pts[i0];
+          const p1 = pts[i1];
+          const p2 = pts[i2];
+          if (!p0 || !p1 || !p2) continue;
+
+          const ax = p1[0] - p0[0];
+          const ay = p1[1] - p0[1];
+          const az = p1[2] - p0[2];
+          const bx = p2[0] - p0[0];
+          const by = p2[1] - p0[1];
+          const bz = p2[2] - p0[2];
+
+          const nx = ay * bz - az * by;
+          const ny = az * bx - ax * bz;
+          const nz = ax * by - ay * bx;
+          const len = Math.hypot(nx, ny, nz);
+          if (len > 1e-9) {
+            const unitNz = nz / len;
+            // Downward normal facing build plate
+            if (unitNz < -0.05) {
+              const angleFromHorizontalDeg = Math.asin(Math.min(1.0, Math.max(0.0, -unitNz))) * (180.0 / Math.PI);
+              const overhangDeg = 90.0 - angleFromHorizontalDeg;
+              if (overhangDeg > 45) {
+                // Bright warning orange/amber
+                const warnR = 0.96;
+                const warnG = 0.45;
+                const warnB = 0.12;
+                colors[i0 * 3] = warnR; colors[i0 * 3 + 1] = warnG; colors[i0 * 3 + 2] = warnB;
+                colors[i1 * 3] = warnR; colors[i1 * 3 + 1] = warnG; colors[i1 * 3 + 2] = warnB;
+                colors[i2 * 3] = warnR; colors[i2 * 3 + 1] = warnG; colors[i2 * 3 + 2] = warnB;
+              }
+            }
+          }
+        }
+        geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        mat.vertexColors = true;
+      }
+
       const mesh = new THREE.Mesh(geom, mat);
       mesh.userData = { partName: part.name };
 
@@ -1389,6 +1450,12 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
         <span>Left-Drag: Orbit</span>
         <span>Right/Shift-Drag: Pan</span>
         <span>Scroll: Zoom</span>
+        {showOverhangWarnings && (
+          <span className="flex items-center gap-1.5 font-semibold text-amber-400 bg-amber-950/70 px-2 py-0.5 rounded border border-amber-600/60">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+            Overhang (&gt;45°) Heatmap Active (Orange = Support Required)
+          </span>
+        )}
         {isAnnotating ? (
           <span className="text-emerald-400 font-semibold animate-pulse">
             ✦ Annotate Mode Active: Click part or vertex

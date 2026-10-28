@@ -28,6 +28,8 @@ import {
   generateDxfProfile,
 } from '../services/camService';
 import { generatePartAsciiStl } from '../services/cadRuntime';
+import { CncToolpathSimulator } from './CncToolpathSimulator';
+import { SlicerLayerVisualizer } from './SlicerLayerVisualizer';
 
 interface CamCncModalProps {
   isOpen: boolean;
@@ -93,6 +95,7 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
   const [camConfig, setCamConfig] = useState<CncCamConfig>(DEFAULT_CAM_CONFIG);
   const [sliceZMm, setSliceZMm] = useState<number>(1.0);
   const [copiedGcode, setCopiedGcode] = useState(false);
+  const [cncViewMode, setCncViewMode] = useState<'simulator' | 'gcode'>('simulator');
 
   const getStatusText = (tab: ActiveTab, partName?: string, dialect?: string, sliceZ?: number) => {
     if (tab === 'cnc_gcode') {
@@ -491,21 +494,46 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
                 </div>
               </div>
 
-              {/* Right Column: Real-Time G-Code Viewer */}
+              {/* Right Column: Interactive 3D Simulator & G-Code Viewer */}
               <div className="lg:col-span-7 flex flex-col h-full space-y-2">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span className="font-semibold text-white flex items-center gap-1.5">
-                    <Code2 className="w-4 h-4 text-amber-400" />
-                    <span>G-Code Output Preview ({generatedGcode.split('\n').length} lines)</span>
-                  </span>
-                  <span className="font-mono text-[10px] text-slate-500">
-                    Safe Z: +{camConfig.safeZMm}mm | RPM: {camConfig.spindleRpm}
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                    <button
+                      onClick={() => setCncViewMode('simulator')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                        cncViewMode === 'simulator'
+                          ? 'bg-cyan-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Cpu className="w-3.5 h-3.5" />
+                      <span>3D Animated Toolpath Simulator</span>
+                    </button>
+                    <button
+                      onClick={() => setCncViewMode('gcode')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                        cncViewMode === 'gcode'
+                          ? 'bg-amber-600 text-slate-950 shadow-sm'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Code2 className="w-3.5 h-3.5" />
+                      <span>G-Code Stream ({generatedGcode.split('\n').length} lines)</span>
+                    </button>
+                  </div>
+
+                  <span className="font-mono text-[10px] text-slate-500 hidden sm:inline">
+                    Safe Z: +{camConfig.safeZMm}mm · RPM: {camConfig.spindleRpm}
                   </span>
                 </div>
 
-                <div className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3.5 font-mono text-xs text-amber-300/90 overflow-y-auto max-h-[380px] shadow-inner select-text">
-                  <pre className="whitespace-pre-wrap leading-relaxed">{generatedGcode}</pre>
-                </div>
+                {cncViewMode === 'simulator' && activePart ? (
+                  <CncToolpathSimulator part={activePart} config={camConfig} />
+                ) : (
+                  <div className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3.5 font-mono text-xs text-amber-300/90 overflow-y-auto max-h-[380px] shadow-inner select-text">
+                    <pre className="whitespace-pre-wrap leading-relaxed">{generatedGcode}</pre>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -605,7 +633,7 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
           )}
 
           {/* TAB 3: 3D PRINTING PREFLIGHT (STL & SLICER) */}
-          {activeTab === '3d_printing' && preflightInfo && (
+          {activeTab === '3d_printing' && preflightInfo && activePart && (
             <div
               id="tabpanel-3d_printing"
               role="tabpanel"
@@ -613,98 +641,56 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
               tabIndex={0}
               className="space-y-4 focus:outline-none"
             >
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {/* Health Check Card */}
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Watertight Quality</span>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  </div>
-                  <div className="text-base font-bold text-emerald-400 flex items-center gap-1.5">
-                    <span>2-Manifold Solid</span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Closed shell with 0 Euler defects, 0 lamina edges, and strictly outward facet normals ($u \times v$).
-                  </p>
-                </div>
+              {/* Slicer Layer Visualizer with Overhang Angle Diagnostics */}
+              <SlicerLayerVisualizer part={activePart} preflightInfo={preflightInfo} />
 
-                {/* Footprint Envelope */}
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Build Envelope</span>
-                    <Compass className="w-4 h-4 text-amber-400" />
-                  </div>
-                  <div className="text-base font-bold text-white font-mono">
-                    {preflightInfo.boundingBoxMm.width} × {preflightInfo.boundingBoxMm.depth} × {preflightInfo.boundingBoxMm.height} mm
-                  </div>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Volume: <strong className="text-slate-200">{preflightInfo.volumeCm3} cm³</strong> | Area: <strong className="text-slate-200">{preflightInfo.surfaceAreaCm2} cm²</strong>
-                  </p>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                {/* Filament Mass Estimation Table */}
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <Scale className="w-4 h-4 text-amber-400" />
+                    <span>Filament Mass by Material (20% Gyroid + 3 Walls)</span>
+                  </h4>
 
-                {/* Estimated Print Duration */}
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Estimated Print Time</span>
-                    <Clock className="w-4 h-4 text-sky-400" />
-                  </div>
-                  <div className="text-base font-bold text-sky-300">
-                    ~{preflightInfo.estimatedPrintTimeMin} minutes
-                  </div>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Estimated at 0.20 mm standard layer height and 20% infill density.
-                  </p>
-                </div>
-              </div>
-
-              {/* Filament Mass Estimation Table */}
-              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                  <Scale className="w-4 h-4 text-amber-400" />
-                  <span>Filament Mass by Material (20% Gyroid Infill + 3 Shells)</span>
-                </h4>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  {Object.entries(preflightInfo.estimatedMassG).map(([mat, mass]) => (
-                    <div key={mat} className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-center">
-                      <div className="text-xs font-bold text-slate-200">{mat}</div>
-                      <div className="text-sm font-mono font-bold text-amber-400 mt-1">{mass} g</div>
-                      <div className="text-[9px] text-slate-500 mt-0.5">
-                        {mat === 'PLA' ? '215°C / 60°C' : mat === 'PETG' ? '240°C / 80°C' : '250°C / 100°C'}
+                  <div className="grid grid-cols-4 gap-2">
+                    {Object.entries(preflightInfo.estimatedMassG).map(([mat, mass]) => (
+                      <div key={mat} className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-center">
+                        <div className="text-xs font-bold text-slate-200">{mat}</div>
+                        <div className="text-sm font-mono font-bold text-amber-400 mt-0.5">{mass} g</div>
+                        <div className="text-[9px] text-slate-500 mt-0.5">
+                          {mat === 'PLA' ? '215°C' : mat === 'PETG' ? '240°C' : mat === 'ABS' ? '250°C' : '230°C'}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Bed Adhesion & Orientation Notice */}
-              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-start justify-between gap-3 text-xs">
-                <div>
-                  <div className="font-bold text-white flex items-center gap-1.5">
-                    <span>Bed Adhesion Risk:</span>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        preflightInfo.adhesionRisk === 'low'
-                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-700'
-                          : 'bg-amber-950 text-amber-300 border border-amber-700'
-                      }`}
-                    >
-                      {preflightInfo.adhesionRisk.toUpperCase()} RISK
-                    </span>
+                    ))}
                   </div>
-                  <p className="text-slate-400 text-[11px] mt-1">
-                    First layer contact area: <strong>{preflightInfo.firstLayerContactAreaMm2} mm²</strong>.
-                    Part rests securely on ground plane $Z=0$.
-                  </p>
                 </div>
 
-                <button
-                  onClick={handleDownloadStl}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition shadow-md shrink-0 cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download Watertight STL</span>
-                </button>
+                {/* Build Footprint & Export */}
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span>Watertight 2-Manifold Solid</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Bounding: {preflightInfo.boundingBoxMm.width} × {preflightInfo.boundingBoxMm.depth} × {preflightInfo.boundingBoxMm.height} mm
+                        · Volume: {preflightInfo.volumeCm3} cm³
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={handleDownloadStl}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition shadow-md shrink-0 cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Download STL</span>
+                    </button>
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-mono">
+                    Ready for Bambu Studio, OrcaSlicer, PrusaSlicer, and Cura
+                  </div>
+                </div>
               </div>
             </div>
           )}

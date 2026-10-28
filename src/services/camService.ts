@@ -580,6 +580,9 @@ export function calculate3dPrintPreflight(part: CadPartOutput): PrintPreflightIn
   const adhesionRisk: 'low' | 'medium' | 'high' =
     contactRatio >= 0.4 ? 'low' : contactRatio >= 0.15 ? 'medium' : 'high';
 
+  // Run overhang analysis
+  const overhangAnalysis = analyzeOverhangs(part, 45);
+
   return {
     partName: part.name,
     isWatertight: part.diagnostics.manifold !== false,
@@ -597,5 +600,487 @@ export function calculate3dPrintPreflight(part: CadPartOutput): PrintPreflightIn
     firstLayerContactAreaMm2: parseFloat(firstLayerContactAreaMm2.toFixed(1)),
     recommendedNozzleTempC: 215, // Standard PLA
     recommendedBedTempC: 60,
+    overhangAnalysis,
+  };
+}
+
+// ============================================================================
+// 4. OVERHANG ANALYSIS & SLICER LAYER GENERATOR
+// ============================================================================
+
+import {
+  OverhangAnalysisResult,
+  OverhangAnalysisZone,
+  SimulatedToolpath,
+  Slicer2DLine,
+  Slicer2DPoint,
+  SlicerLayerInfo,
+  ToolpathMotionStep,
+} from '../types/cad';
+
+/**
+ * Evaluates part mesh for steep overhangs exceeding the critical angle threshold
+ * (standard FDM printability limit is 45 degrees from vertical).
+ */
+export function analyzeOverhangs(
+  part: CadPartOutput,
+  thresholdAngleDeg: number = 45
+): OverhangAnalysisResult {
+  const pts = part.mesh.points;
+  const tris = part.mesh.triangles;
+  let totalAreaCm2 = 0;
+  let totalOverhangAreaCm2 = 0;
+  let unsupportedFacetCount = 0;
+  const totalFacetCount = Math.floor(tris.length / 3);
+
+  const zonesMap = new Map<number, { minZ: number; maxZ: number; area: number; worstAngle: number }>();
+
+  for (let i = 0; i < tris.length; i += 3) {
+    const i0 = tris[i];
+    const i1 = tris[i + 1];
+    const i2 = tris[i + 2];
+    const p0 = pts[i0];
+    const p1 = pts[i1];
+    const p2 = pts[i2];
+    if (!p0 || !p1 || !p2) continue;
+
+    // Triangle vectors in cm
+    const ax = p1[0] - p0[0];
+    const ay = p1[1] - p0[1];
+    const az = p1[2] - p0[2];
+
+    const bx = p2[0] - p0[0];
+    const by = p2[1] - p0[1];
+    const bz = p2[2] - p0[2];
+
+    // Cross product -> Normal vector
+    const nx = ay * bz - az * by;
+    const ny = az * bx - ax * bz;
+    const nz = ax * by - ay * bx;
+    const len = Math.hypot(nx, ny, nz);
+    if (len < 1e-9) continue;
+
+    const areaCm2 = len * 0.5;
+    totalAreaCm2 += areaCm2;
+
+    const unitNz = nz / len;
+
+    // If unitNz < -0.05, the normal points downward towards the build plate
+    if (unitNz < -0.05) {
+      // Angle from vertical axis (0 deg = vertical wall, 90 deg = horizontal ceiling)
+      // cos(angle with -Z) = -unitNz
+      const angleFromHorizontalDeg = Math.asin(Math.min(1.0, Math.max(0.0, -unitNz))) * (180.0 / Math.PI);
+      const overhangAngleDeg = 90.0 - angleFromHorizontalDeg;
+
+      if (overhangAngleDeg > thresholdAngleDeg) {
+        totalOverhangAreaCm2 += areaCm2;
+        unsupportedFacetCount++;
+
+        const zCenterMm = ((p0[2] + p1[2] + p2[2]) / 3.0) * CM_TO_MM;
+        const bucketKey = Math.floor(zCenterMm / 5.0) * 5; // 5mm vertical buckets
+
+        const currentZone = zonesMap.get(bucketKey) || {
+          minZ: bucketKey,
+          maxZ: bucketKey + 5,
+          area: 0,
+          worstAngle: 0,
+        };
+        currentZone.area += areaCm2;
+        currentZone.worstAngle = Math.max(currentZone.worstAngle, overhangAngleDeg);
+        zonesMap.set(bucketKey, currentZone);
+      }
+    }
+  }
+
+  const overhangPercentage = totalAreaCm2 > 0 ? (totalOverhangAreaCm2 / totalAreaCm2) * 100 : 0;
+
+  const zones: OverhangAnalysisZone[] = Array.from(zonesMap.values())
+    .sort((a, b) => a.minZ - b.minZ)
+    .map((z) => ({
+      minZ: parseFloat(z.minZ.toFixed(1)),
+      maxZ: parseFloat(z.maxZ.toFixed(1)),
+      overhangAreaCm2: parseFloat(z.area.toFixed(2)),
+      worstAngleDeg: parseFloat(z.worstAngle.toFixed(1)),
+      risk: z.worstAngle > 65 || z.area > 5.0 ? 'critical' : z.worstAngle > 50 ? 'moderate' : 'mild',
+    }));
+
+  const status: 'safe' | 'warning' | 'critical' =
+    totalOverhangAreaCm2 === 0
+      ? 'safe'
+      : overhangPercentage > 12 || zones.some((z) => z.risk === 'critical')
+      ? 'critical'
+      : 'warning';
+
+  const recommendation =
+    status === 'safe'
+      ? 'All faces self-supporting within 45° threshold. Ready to 3D print without supports.'
+      : status === 'warning'
+      ? `Minor overhangs detected (${totalOverhangAreaCm2.toFixed(1)} cm²). Consider 15% tree supports or reorienting part.`
+      : `Critical steep overhangs detected (${totalOverhangAreaCm2.toFixed(1)} cm², worst ${
+          zones[0]?.worstAngleDeg || 75
+        }°). Tree supports or 45° chamfer redesign required.`;
+
+  return {
+    totalOverhangAreaCm2: parseFloat(totalOverhangAreaCm2.toFixed(2)),
+    overhangPercentage: parseFloat(overhangPercentage.toFixed(1)),
+    unsupportedFacetCount,
+    totalFacetCount,
+    status,
+    thresholdAngleDeg,
+    zones,
+    recommendation,
+  };
+}
+
+/**
+ * Generates continuous slicer layers from bottom to top for visual simulation
+ */
+export function generateSlicerLayers(
+  part: CadPartOutput,
+  layerHeightMm: number = 0.2,
+  infillDensityPercent: number = 20
+): SlicerLayerInfo[] {
+  const bbox = part.diagnostics.bounds;
+  const zMinMm = bbox ? Math.max(0, bbox[0][2] * CM_TO_MM) : 0.0;
+  const zMaxMm = bbox ? Math.max(zMinMm + 1.0, bbox[1][2] * CM_TO_MM) : 20.0;
+
+  const layers: SlicerLayerInfo[] = [];
+  const totalLayers = Math.max(1, Math.floor((zMaxMm - zMinMm) / layerHeightMm));
+
+  // Limit sampled layers to 60 max for fluid 60fps rendering in UI while retaining fidelity
+  const sampleStride = totalLayers > 80 ? Math.ceil(totalLayers / 80) : 1;
+
+  for (let l = 0; l < totalLayers; l += sampleStride) {
+    const zMm = zMinMm + (l + 0.5) * layerHeightMm;
+    const rawSegments = sliceMeshAtZ(part, zMm);
+    const loops = stitchSegmentsIntoLoops(rawSegments);
+
+    const outerPerimeters: Slicer2DPoint[][] = [];
+    const innerPerimeters: Slicer2DPoint[][] = [];
+    const infillLines: Slicer2DLine[] = [];
+
+    let totalPerimeterLen = 0;
+
+    loops.forEach((loop) => {
+      if (loop.length < 3) return;
+      outerPerimeters.push(loop);
+
+      // Inner perimeter (0.4mm nozzle offset inward)
+      const innerLoop = offsetPolyline(loop, -0.4);
+      if (innerLoop.length >= 3) {
+        innerPerimeters.push(innerLoop);
+      }
+
+      for (let i = 0; i < loop.length; i++) {
+        const next = loop[(i + 1) % loop.length];
+        totalPerimeterLen += Math.hypot(next.x - loop[i].x, next.y - loop[i].y);
+      }
+    });
+
+    // Generate infill hatching within bounding box
+    if (infillDensityPercent > 0 && outerPerimeters.length > 0) {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      outerPerimeters.forEach((loop) => {
+        loop.forEach((pt) => {
+          if (pt.x < minX) minX = pt.x;
+          if (pt.x > maxX) maxX = pt.x;
+          if (pt.y < minY) minY = pt.y;
+          if (pt.y > maxY) maxY = pt.y;
+        });
+      });
+
+      if (maxX > minX && maxY > minY) {
+        // Density spacing (e.g. 20% infill -> 2.5mm line spacing)
+        const spacingMm = Math.max(1.2, 0.4 / (Math.max(5, infillDensityPercent) / 100));
+        const width = maxX - minX;
+        const height = maxY - minY;
+        const isOdd = l % 2 === 1;
+
+        // Infill grid/diagonal lines
+        const stepCount = Math.min(30, Math.floor((width + height) / spacingMm));
+        for (let s = 0; s < stepCount; s++) {
+          const offset = s * spacingMm;
+          if (isOdd) {
+            // 45 degree hatch
+            const x0 = minX + offset * 0.7;
+            const y0 = minY;
+            const x1 = minX;
+            const y1 = minY + offset * 0.7;
+            if (x0 <= maxX || y1 <= maxY) {
+              infillLines.push({
+                p1: { x: Math.min(maxX, x0), y: Math.max(minY, y0) },
+                p2: { x: Math.max(minX, x1), y: Math.min(maxY, y1) },
+              });
+            }
+          } else {
+            // 135 degree cross hatch
+            const x0 = minX + offset * 0.7;
+            const y0 = maxY;
+            const x1 = minX;
+            const y1 = maxY - offset * 0.7;
+            if (x0 <= maxX || y1 >= minY) {
+              infillLines.push({
+                p1: { x: Math.min(maxX, x0), y: Math.min(maxY, y0) },
+                p2: { x: Math.max(minX, x1), y: Math.max(minY, y1) },
+              });
+            }
+          }
+        }
+      }
+    }
+
+    let totalInfillLen = 0;
+    infillLines.forEach((line) => {
+      totalInfillLen += Math.hypot(line.p2.x - line.p1.x, line.p2.y - line.p1.y);
+    });
+
+    // 45mm/s wall speed, 75mm/s infill speed, 0.8s layer change time
+    const layerTime = totalPerimeterLen / 45.0 + totalInfillLen / 75.0 + 0.8;
+    // 0.4mm nozzle * 0.2mm layer height -> cross section = 0.08 mm2
+    // 1.75mm filament -> cross section = 2.405 mm2
+    const totalExtrusionMm = ((totalPerimeterLen * 2 + totalInfillLen) * 0.08) / 2.405;
+
+    layers.push({
+      layerIndex: l + 1,
+      zMm: parseFloat(zMm.toFixed(2)),
+      outerPerimeters,
+      innerPerimeters,
+      infillLines,
+      layerHeightMm,
+      estimatedTimeSeconds: parseFloat(layerTime.toFixed(1)),
+      extrusionLengthMm: parseFloat(totalExtrusionMm.toFixed(1)),
+    });
+  }
+
+  return layers;
+}
+
+// ============================================================================
+// 5. INTERACTIVE CNC TOOLPATH SIMULATOR & MOTION PATH BUILDER
+// ============================================================================
+
+/**
+ * Builds an explicit list of 3D motion steps for animating CNC cutter toolpaths
+ */
+export function buildSimulatedToolpath(
+  part: CadPartOutput,
+  config: CncCamConfig = DEFAULT_CAM_CONFIG
+): SimulatedToolpath {
+  const bbox = part.diagnostics.bounds;
+  const zHeightMm = bbox ? Math.abs((bbox[1][2] - bbox[0][2]) * CM_TO_MM) : 10.0;
+  const targetDepthMm = config.stockThicknessMm || zHeightMm;
+
+  // Extract nominal 2D contour profile
+  const rawSegments = sliceMeshAtZ(part, 1.0);
+  let loops = stitchSegmentsIntoLoops(rawSegments);
+  if (loops.length === 0) {
+    loops = [extractBoundaryFootprintPoints(part)];
+  }
+
+  const toolRadius = config.toolDiameterMm * 0.5;
+  const offsetDistance =
+    config.cutOperation === 'outside_contour'
+      ? toolRadius
+      : config.cutOperation === 'inside_pocket'
+      ? -toolRadius
+      : 0.0;
+
+  const toolpathLoops = loops.map((loop) => offsetPolyline(loop, offsetDistance));
+  const steps: ToolpathMotionStep[] = [];
+
+  let currentX = 0;
+  let currentY = 0;
+  let currentZ = config.safeZMm;
+  let lineIdx = 1;
+
+  // Initial Safe Retract
+  steps.push({
+    x: 0,
+    y: 0,
+    z: config.safeZMm,
+    isRapid: true,
+    isCutting: false,
+    feedRate: 3000,
+    command: `G00 Z${config.safeZMm.toFixed(2)}`,
+    lineIndex: lineIdx++,
+    passNumber: 0,
+  });
+
+  const numPasses = Math.max(1, Math.ceil(targetDepthMm / config.stepDownMm));
+
+  toolpathLoops.forEach((loop, loopIdx) => {
+    if (loop.length < 2) return;
+    const start = loop[0];
+
+    // Rapid to loop start above stock
+    steps.push({
+      x: start.x,
+      y: start.y,
+      z: config.safeZMm,
+      isRapid: true,
+      isCutting: false,
+      feedRate: 3000,
+      command: `G00 X${start.x.toFixed(2)} Y${start.y.toFixed(2)}`,
+      lineIndex: lineIdx++,
+      passNumber: 0,
+    });
+    currentX = start.x;
+    currentY = start.y;
+
+    for (let pass = 1; pass <= numPasses; pass++) {
+      const currentPassZ = -Math.min(targetDepthMm, pass * config.stepDownMm);
+      const isFinalPass = pass === numPasses;
+
+      // Controlled Plunge
+      steps.push({
+        x: currentX,
+        y: currentY,
+        z: currentPassZ,
+        isRapid: false,
+        isCutting: true,
+        feedRate: config.plungeRateMmMin,
+        command: `G01 Z${currentPassZ.toFixed(2)} F${config.plungeRateMmMin}`,
+        lineIndex: lineIdx++,
+        passNumber: pass,
+      });
+      currentZ = currentPassZ;
+
+      // Mill perimeter points
+      for (let ptIdx = 1; ptIdx < loop.length; ptIdx++) {
+        const pt = loop[ptIdx];
+        if (
+          isFinalPass &&
+          config.addHoldingTabs &&
+          config.tabCount &&
+          ptIdx % Math.max(1, Math.floor(loop.length / config.tabCount)) === 0
+        ) {
+          const tabZ = currentPassZ + (config.tabHeightMm || 1.5);
+          steps.push({
+            x: pt.x,
+            y: pt.y,
+            z: tabZ,
+            isRapid: false,
+            isCutting: true,
+            feedRate: config.feedRateMmMin,
+            command: `G01 X${pt.x.toFixed(2)} Y${pt.y.toFixed(2)} Z${tabZ.toFixed(2)} [Tab]`,
+            lineIndex: lineIdx++,
+            passNumber: pass,
+          });
+          steps.push({
+            x: pt.x,
+            y: pt.y,
+            z: currentPassZ,
+            isRapid: false,
+            isCutting: true,
+            feedRate: config.plungeRateMmMin,
+            command: `G01 Z${currentPassZ.toFixed(2)}`,
+            lineIndex: lineIdx++,
+            passNumber: pass,
+          });
+        } else {
+          steps.push({
+            x: pt.x,
+            y: pt.y,
+            z: currentPassZ,
+            isRapid: false,
+            isCutting: true,
+            feedRate: config.feedRateMmMin,
+            command: `G01 X${pt.x.toFixed(2)} Y${pt.y.toFixed(2)}`,
+            lineIndex: lineIdx++,
+            passNumber: pass,
+          });
+        }
+        currentX = pt.x;
+        currentY = pt.y;
+      }
+
+      // Close loop back to start
+      steps.push({
+        x: start.x,
+        y: start.y,
+        z: currentPassZ,
+        isRapid: false,
+        isCutting: true,
+        feedRate: config.feedRateMmMin,
+        command: `G01 X${start.x.toFixed(2)} Y${start.y.toFixed(2)}`,
+        lineIndex: lineIdx++,
+        passNumber: pass,
+      });
+      currentX = start.x;
+      currentY = start.y;
+    }
+
+    // Retract after loop
+    steps.push({
+      x: currentX,
+      y: currentY,
+      z: config.safeZMm,
+      isRapid: true,
+      isCutting: false,
+      feedRate: 3000,
+      command: `G00 Z${config.safeZMm.toFixed(2)}`,
+      lineIndex: lineIdx++,
+      passNumber: 0,
+    });
+    currentZ = config.safeZMm;
+  });
+
+  // Final Home Return
+  steps.push({
+    x: 0,
+    y: 0,
+    z: config.safeZMm + 10,
+    isRapid: true,
+    isCutting: false,
+    feedRate: 3000,
+    command: `G00 Z${(config.safeZMm + 10).toFixed(2)} X0 Y0`,
+    lineIndex: lineIdx++,
+    passNumber: 0,
+  });
+
+  // Calculate distances & times
+  let totalDist = 0;
+  let rapidDist = 0;
+  let cuttingDist = 0;
+  let timeSec = 0;
+
+  let minX = 0, maxX = 0, minY = 0, maxY = 0, minZ = 0, maxZ = config.safeZMm + 10;
+
+  for (let i = 1; i < steps.length; i++) {
+    const prev = steps[i - 1];
+    const curr = steps[i];
+    const d = Math.hypot(curr.x - prev.x, curr.y - prev.y, curr.z - prev.z);
+    totalDist += d;
+
+    if (curr.isRapid) {
+      rapidDist += d;
+      timeSec += (d / 3000) * 60; // 3000 mm/min rapid
+    } else {
+      cuttingDist += d;
+      timeSec += (d / Math.max(100, curr.feedRate)) * 60;
+    }
+
+    minX = Math.min(minX, curr.x);
+    maxX = Math.max(maxX, curr.x);
+    minY = Math.min(minY, curr.y);
+    maxY = Math.max(maxY, curr.y);
+    minZ = Math.min(minZ, curr.z);
+    maxZ = Math.max(maxZ, curr.z);
+  }
+
+  return {
+    steps,
+    totalDistanceMm: parseFloat(totalDist.toFixed(1)),
+    rapidDistanceMm: parseFloat(rapidDist.toFixed(1)),
+    cuttingDistanceMm: parseFloat(cuttingDist.toFixed(1)),
+    estimatedTimeSeconds: Math.max(10, Math.round(timeSec)),
+    boundsMm: {
+      minX: parseFloat(minX.toFixed(1)),
+      maxX: parseFloat(maxX.toFixed(1)),
+      minY: parseFloat(minY.toFixed(1)),
+      maxY: parseFloat(maxY.toFixed(1)),
+      minZ: parseFloat(minZ.toFixed(1)),
+      maxZ: parseFloat(maxZ.toFixed(1)),
+    },
   };
 }

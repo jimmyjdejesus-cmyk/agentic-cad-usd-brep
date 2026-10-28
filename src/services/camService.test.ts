@@ -7,6 +7,9 @@ import {
   generateCncGcode,
   calculate3dPrintPreflight,
   offsetPolyline,
+  analyzeOverhangs,
+  generateSlicerLayers,
+  buildSimulatedToolpath,
 } from './camService';
 
 describe('CAM & CNC Toolpath Generator Service', () => {
@@ -204,6 +207,49 @@ describe('CAM & CNC Toolpath Generator Service', () => {
       expect(preflight.recommendedBedTempC).toBe(60);
       expect(preflight.recommendedNozzleTempC).toBe(215);
       expect(preflight.adhesionRisk).toBeDefined();
+      expect(preflight.overhangAnalysis).toBeDefined();
+    });
+
+    it('analyzes overhang angles and generates recommendations', () => {
+      const analysis = analyzeOverhangs(mockBoxPart, 45);
+
+      expect(analysis).toBeDefined();
+      expect(analysis.totalFacetCount).toBe(12);
+      expect(analysis.status).toBeDefined();
+      expect(analysis.recommendation).toBeDefined();
+    });
+
+    it('generates continuous slicer layers with infill and perimeters', () => {
+      const layers = generateSlicerLayers(mockBoxPart, 2.0, 20);
+
+      expect(layers.length).toBeGreaterThan(0);
+      const firstLayer = layers[0];
+      expect(firstLayer.zMm).toBeGreaterThan(0);
+      expect(firstLayer.layerHeightMm).toBe(2.0);
+      expect(firstLayer.estimatedTimeSeconds).toBeGreaterThan(0);
+    });
+  });
+
+  describe('3D CNC Toolpath Simulation & Motion Path Builder', () => {
+    it('builds simulated toolpath motion steps with feeds, speeds, and bounds', () => {
+      const sim = buildSimulatedToolpath(mockBoxPart, {
+        machineDialect: 'grbl',
+        toolDiameterMm: 3.175,
+        toolType: 'flat_endmill',
+        feedRateMmMin: 1200,
+        plungeRateMmMin: 300,
+        spindleRpm: 16000,
+        stepDownMm: 10.0,
+        safeZMm: 5.0,
+        cutOperation: 'outside_contour',
+      });
+
+      expect(sim.steps.length).toBeGreaterThanOrEqual(5);
+      expect(sim.totalDistanceMm).toBeGreaterThan(0);
+      expect(sim.estimatedTimeSeconds).toBeGreaterThan(0);
+      expect(sim.boundsMm.minZ).toBeLessThan(0); // Cuts below Z=0
+      expect(sim.boundsMm.maxZ).toBeGreaterThanOrEqual(5.0); // Retracts to safe Z
     });
   });
 });
+

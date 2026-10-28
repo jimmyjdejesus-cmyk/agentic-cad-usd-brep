@@ -1,31 +1,27 @@
-# ApexCAD Studio: Factory Preset Removal & Hands-on Onboarding Engine
+# ApexCAD Studio: 3D Printing, CNC Machining & General 3D Modeling Suite
 
-A streamlined architectural overhaul that completely removes static factory presets, establishes a pristine zero-state workspace with the New Design dialog, and introduces a rich, interactive hands-on tutorial guiding users through building their very first 3D B-Rep part.
+A unified high-precision CAD/CAM/3D-Print workstation providing browser-based interactive 3D solid modeling (CSG primitives & booleans), multi-layer G-code toolpath simulation with animated endmill cutting, and full 3D print preflight slicing with overhang angle inspection.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The following architectural and UX decisions were confirmed during the Phase 1 clarification interview:
->
-> - **Confirmed Initial Workspace State**: The application will start in a clean blank workspace rather than auto-loading an arbitrary factory preset. If no custom files exist, the user is greeted by an inviting zero-state launchpad with the New Design modal and an option to launch the hands-on onboarding tutorial.
-> - **Confirmed Onboarding Style**: An **interactive hands-on tutorial** that walks the user step-by-step through configuring and building their first 3D solid part, navigating the 3D viewport, executing code/prompts, inspecting mass properties, and saving to Cloud Vault.
-> - **Confirmed Template Strategy**: Basic geometric starter templates (Parametric Enclosure Box, Concentric Cylinder Shaft, Bearing Sphere, Conical Nozzle, Seal Torus, and Clean Blank Slate) are preserved inside the `New Design` dialog, ensuring users never face blank-canvas paralysis.
-> - **Cleaned Preset Dropdown**: The header dropdown is decluttered to exclusively manage user-created designs ("My Designs"), with quick Rename, Delete, and Cloud Sync actions.
+> The user confirmed the following primary focus areas over EDA, prioritizing manufacturing and solid geometry creation:
+> - **3D Printing**: Slicer layer visualizer with interactive Z-height scrubbing, layer-by-layer perimeter/infill simulation, print duration estimation, and overhang violation angle warnings ($>45^\circ$).
+> - **CNC & CAM**: Interactive 3D toolpath animation with synchronized 3D cutter endmill simulation, feed/speed clearance visualization, and dialect-specific G-code generation (GRBL, LinuxCNC, Haas).
+> - **3D General Modeling**: Interactive primitive insertion (Cube, Cylinder, Sphere, Wedge, Torus, Bounded Plate) with direct viewport gizmos and client-side CSG Boolean operations (Union, Subtract/Cut, Intersect) powered by manifold-3d.
+> - **EDA Pipeline Status**: Preserved in full under an accessible secondary studio launcher so that logic synthesis and netlist placement remain intact whenever the user returns to silicon design.
+
+- **Confirmed Decision 1**: Prioritize 3D printing slicing preview with overhang detection and layer scrubbing.
+- **Confirmed Decision 2**: Implement animated 3D CNC toolpath playback directly in the CAM modal and 3D canvas with rapid vs. feed pass rendering and collision clearance planes.
+- **Confirmed Decision 3**: Add on-viewport primitive insertion toolbar and CSG operations directly in the 3D scene with instant mesh rebuild and code synchronization.
 
 ---
 
 ## 1. Overview & Core Concept
 
-### What It Does
-Transforms ApexCAD Studio from a preset-showcase into a genuine personal CAD authoring tool. Users start with their own clean workspace, configure real parts from geometry primitives or blank Python B-Rep code, and learn all CAD capabilities through a guided, step-by-step interactive onboarding experience.
-
-### Target Audience / Persona
-Mechanical engineers, silicon package designers, and CAD makers who need a clutter-free, production-ready modeling suite where only their own projects and custom files are stored and displayed.
-
-### Key Value
-- **Zero Factory Clutter**: No unwanted hardcoded presets competing with personal files in the design selector or cluttering memory.
-- **Immediate Hands-on Mastery**: New users are guided through real interactive actions (selecting a primitive, rotating in 3D, running the B-Rep engine, analyzing physical mass).
-- **Graceful Zero-State Experience**: When launching without previous files, the app displays a focused welcome launchpad rather than an error or an arbitrary pre-baked model.
+- **What It Does**: ApexCAD Studio transforms the workspace into an end-to-end digital fabrication hub. Engineers and makers can model parametric parts using intuitive 3D primitives and CSG booleans, verify 3D printability with layer-by-layer slicing and overhang analysis, and simulate CNC mill toolpaths with animated endmills before exporting production-ready G-code, DXF, and STL files.
+- **Target Audience / Persona**: Mechanical engineers, CNC machinists, 3D printing enthusiasts, and product designers needing instant geometric feedback and toolpath validation without launching heavy desktop software.
+- **Key Value**: Closes the loop between 3D modeling and physical manufacturing: zero dead clicks, real client-side geometric computations, instant visual validation of overhangs and tool clearance, and direct file exports.
 
 ---
 
@@ -33,95 +29,100 @@ Mechanical engineers, silicon package designers, and CAD makers who need a clutt
 
 ### Key User Flows
 
-1. **First-Time User Experience (Zero-State & Onboarding)**:
-   - On first launch (when no saved user files exist), the 3D viewport displays a subtle coordinate grid with a sleek, non-intrusive **Welcome Launchpad**.
-   - The user is offered two primary pathways:
-     - **"Start Hands-On Tutorial"** (Recommended): Initiates the guided 6-step tutorial that builds an actual part right before their eyes.
-     - **"Create New Design"**: Directly opens the geometric template modal (Box, Cylinder, Sphere, Cone, Torus, Blank).
-   - A persistent **"Tutorial / Tour"** button in the header utility bar allows reopening the guide at any time.
+1. **3D General Modeling Flow**:
+   - The user clicks the Viewport Primitive Toolbar (Box, Cylinder, Sphere, Wedge, Torus) or uses the existing AI prompt harness / Python B-Rep editor.
+   - Inserting a shape renders it immediately in the 3D scene with transform handles (position, rotation, scale).
+   - Selecting two parts unlocks the **Boolean CSG Bar** (`Union`, `Difference / Cut`, `Intersection`), executing instant Manifold boolean operations and updating the parametric code.
+2. **3D Print Slicer & Overhang Analysis Flow**:
+   - The user opens the **Manufacturing & CAM Hub** and selects the **3D Print Preflight & Slicer** tab.
+   - The interactive layer visualizer enables vertical layer scrubbing ($0.12\text{mm}$ to $0.32\text{mm}$ resolution) displaying outer perimeters, inner walls, and concentric/grid infill paths.
+   - Overhang analysis highlights downward-facing faces steeper than $45^\circ$ in amber/red warning heatmaps, with estimated print time, filament mass, and layer count.
+3. **CNC Toolpath & Animated Cutter Simulation Flow**:
+   - Switching to the **CNC Milling & Toolpaths** tab calculates multi-pass 2.5D/3D profile, pocket, and drilling passes based on selected tool diameter and stepdown.
+   - Clicking **Play Simulation** activates an animated 3D endmill cutter traversing the toolpath lines with a timeline slider, play/pause, speed controls ($1\times, 2\times, 5\times$), and rapid vs. feed color-coding (cyan feed, amber rapid).
+   - The user inspects the synchronized G-code viewer and downloads verified G-code or DXF cutting contours.
 
-2. **The 6-Step Interactive Hands-on Tutorial Flow**:
-   - **Step 1: Welcome & Mission Briefing**: Introduces ApexCAD Studio's core philosophy—exact NURBS boundary representation (B-Rep) with real-time USD generation.
-   - **Step 2: Choose Starter Geometry**: User interacts directly with the starter selector (Box, Cylinder, or Blank) to pick their target part foundation.
-   - **Step 3: 3D Viewport Mastery**: Teaches camera controls: Left-click drag to Orbit, Right-click / Shift-drag to Pan, Wheel to Zoom, and projection presets (ISO, Front, Top, Wireframe).
-   - **Step 4: AI & Code Generation Harness**: Demonstrates how Python code drives exact geometry and how natural language prompts update the solid model.
-   - **Step 5: Physical Material & Mass Analysis**: Demonstrates assigning materials (Aluminum 6061-T6, Grade 5 Titanium, 316L Stainless Steel) and calculating live volume, center of gravity, and mass.
-   - **Step 6: Completion & Workspace Hand-off**: Saves their newly crafted first part directly to their workspace with local storage and Firebase Cloud Vault syncing, leaving the viewport in live edit mode.
+### Visual Identity & Theme
 
-3. **Returning User Experience**:
-   - The app immediately loads the user's most recent active project from `localStorage` or Cloud Vault.
-   - The header design dropdown displays exclusively the user's projects (`My Designs (N)`), complete with last-modified timestamps, quick delete, and rename actions.
-
-### Visual Identity & Theme Tokens
-- **Background**: Deep matte zinc (`#090a0f` / `bg-slate-950`).
-- **Surfaces**: Dark slate cards (`#131722` / `bg-slate-900/90`) with crisp borders (`border-slate-800`).
-- **Accents**:
-  - Indigo/Sky (`#6366f1` / `#0ea5e9`) for active highlights and tutorial step indicators.
-  - Emerald (`#10b981`) for positive actions ("Create Design", "Finish Tutorial", "Saved").
-  - Amber (`#f59e0b`) for active viewport indicators.
-- **Anti-Slop Discipline**: Zero static pills or candy badges. Clean unboxed typographic metadata separated by `·`. Clear, single-line action buttons with proper horizontal padding.
+- **Aesthetic Direction**: Utilitarian, precision industrial engineering workstation. Clean dark-graphite foundation with crisp architectural lines, high-contrast geometry rendering, and zero decorative AI fluff.
+- **Color Palette (60-30-10 Distribution)**:
+  - `60% Dominant Canvas`: Deep obsidian and graphite workspace surfaces (`#090D16`, `#0F172A`).
+  - `30% Structural Surfaces`: Slate panels, hairline boundaries (`#1E293B`, border `rgba(255,255,255,0.08)`), and high-legibility crisp white/slate-200 typography.
+  - `10% Purposeful Accents`: High-intent cyan (`#06B6D4`) for CNC toolpaths/feeds, emerald (`#10B981`) for watertight safe zones, amber (`#F59E0B`) for rapid traverses and overhang warnings, and cobalt (`#3B82F6`) for primary action triggers.
+- **Typography & Hierarchy**:
+  - Display / Headings: `Plus Jakarta Sans` (Semibold 600, tight tracking).
+  - Body Prose: `Plus Jakarta Sans` (Regular 400, crisp contrast).
+  - Telemetry & Coordinates: `JetBrains Mono` / tabular numbers (`font-mono tabular-nums`) for coordinates, layer heights, feed rates, and cycle times.
+- **Anti-Slop Discipline**:
+  - No decorative floating badges, no purple gradients, no code-comment titles.
+  - Unboxed metadata with clean typographic separators (`·`).
+  - Interactive tabs styled with solid segmented button backgrounds.
+  - Every button, slider, and toggle wired to active geometric and simulation handlers.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Complete Removal of Factory Presets from Startup and UI**
-  - *Chosen Approach*: Remove `DEFAULT_PRESETS` from default dropdown listings and startup logic. The application only lists user-created files (`userFiles`).
-  - *Why*: Direct compliance with user intent. Eliminates the cognitive burden of navigating past 5 pre-made factory assets to find personal designs.
-  - *Fallback Safeguard*: The underlying NVIDIA usd-brep example scripts remain available in the "Guides" and documentation tabs for developer reference without polluting the design switcher.
-
-- **Decision 2: Interactive Hands-On Tutorial Modal vs. Passive Video/Tooltip Walkthrough**
-  - *Chosen Approach*: An interactive step-by-step modal with live viewport interaction, step progression, and automatic creation of a real working part upon completion.
-  - *Why*: Hands-on learning ensures muscle memory for 3D navigation and CAD code execution. The user finishes onboarding with an actual 3D model in their workspace.
-
-- **Decision 3: Zero-State Launchpad vs. Auto-creating a Blank File on Load**
-  - *Chosen Approach*: Display a clean zero-state launchpad that lets the user choose between the Hands-on Tutorial and the New Design dialog.
-  - *Why*: Prevents creating phantom "Untitled_123" files in the user's library without their consent.
+- **Decision 1: Client-Side Manifold-3D CSG Booleans**
+  - *Chosen Approach*: Execute CSG operations (Union, Subtract, Intersect) directly in the browser using the pre-loaded `manifold-3d` WebAssembly engine, while providing Python B-Rep code synchronization.
+  - *Why*: Instant sub-millisecond feedback on boolean cuts without backend round-trip latency, enabling real-time preview during interactive modeling.
+  - *Alternatives Considered*: Server-only Python execution (too sluggish for interactive primitive placement and viewport scrubbing).
+- **Decision 2: Canvas-Rendered Slicer Layer Visualizer with Overhang Shader**
+  - *Chosen Approach*: Implement a dual-mode 3D print inspector: a 3D overhang angle colorizer in Three.js combined with an interactive 2D cross-section layer preview showing toolpaths, perimeters, and infill.
+  - *Why*: Gives users both global geometric awareness (where supports are needed) and granular slice inspection (per-layer nozzle path verification).
+- **Decision 3: Animated 3D CNC Cutter Toolpath Simulator**
+  - *Chosen Approach*: An interactive Three.js CAM preview with an endmill tool model (flute + shank) animated along parsed G-code / toolpath segments, complete with step-scrubbing and cycle time estimation.
+  - *Why*: Prevents costly real-world CNC crashes by letting machinists verify clearance height, plunging, and material engagement visually.
 
 ---
 
 ## 4. Technical Architecture & Data Strategy
 
-### System Component Architecture
-
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                                 ApexCAD Studio Header                                  │
-│  [Logo · ApexCAD]  ──  [+ New Design] [My Designs (N) ▼]  ──  [Tutorial] [Vault Sync]  │
-└──────────────────────────────────────────┬─────────────────────────────────────────────┘
-                                           │
-         ┌─────────────────────────────────┴─────────────────────────────────┐
-         ▼                                                                   ▼
-┌───────────────────────────────────┐               ┌────────────────────────────────────┐
-│      Zero-State Launchpad         │               │     OnboardingTutorial Modal       │
-│  - "Start Hands-on Tutorial"      │ ────────────> │  - Step 1: Welcome & Mission       │
-│  - "Create New Design" (+ New)    │               │  - Step 2: Choose Starter Shape    │
-│  - Quick tips for navigation      │               │  - Step 3: Viewport Orbit/Pan/Zoom │
-└───────────────────────────────────┘               │  - Step 4: Code & AI Generation    │
-                                                    │  - Step 5: Material & Mass Physics │
-                                                    │  - Step 6: Finalize First Part     │
-                                                    └─────────────────┬──────────────────┘
-                                                                      │
-                                                                      ▼
-                                                    ┌────────────────────────────────────┐
-                                                    │        User Design Library         │
-                                                    │  - localStorage ('apexcad_files')  │
-                                                    │  - Firestore Cloud Vault           │
-                                                    │  - Active 3D CAD Viewport          │
-                                                    └────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                        ApexCAD React Application                       │
+│                                                                        │
+│  ┌───────────────────────┐ ┌────────────────────────────────────────┐  │
+│  │   Navigation & Tabs   │ │   AI Harness & Model Drawer (Agnostic) │  │
+│  │ [CAD/3D] [CAM] [EDA]  │ │ [Gemini 3.8 Flash] [Anthropic] [Local] │  │
+│  └───────────┬───────────┘ └───────────────────┬────────────────────┘  │
+│              │                                 │                       │
+│              ▼                                 ▼                       │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                    3D Viewport & Scene Graph                     │  │
+│  │  - Three.js WebGL Engine with Studio Key/Fill/Rim Lighting       │  │
+│  │  - Interactive Primitive Toolbar (Box, Cyl, Sphere, Wedge, Plate)│  │
+│  │  - Viewport Gizmo & CSG Boolean Bar (Union, Cut, Intersect)      │  │
+│  │  - Overhang Surface Highlighting Shader (Amber >45° warnings)    │  │
+│  └───────────────────┬─────────────────────────┬────────────────────┘  │
+│                      │                         │                       │
+│         ┌────────────┴───────────┐ ┌───────────┴───────────┐           │
+│         ▼                        │ │                       ▼           │
+│  ┌─────────────────────────────┐ │ │ ┌───────────────────────────────┐ │
+│  │   CAM & CNC Milling Modal   │ │ │ │   3D Print Slicer & Preflight │ │
+│  │ - Multi-pass toolpaths      │ │ │ │ - Layer-by-layer Z scrubber   │ │
+│  │ - 3D Animated Cutter Model  │ │ │ │ - Infill & perimeter preview  │ │
+│  │ - Rapid vs Feed trajectory  │ │ │ │ - Overhang warning angle mesh │ │
+│  │ - GRBL / LinuxCNC / Haas    │ │ │ │ - Time, filament mass & cost  │ │
+│  └─────────────────────────────┘ │ │ └───────────────────────────────┘ │
+│                                  │ │                                   │
+│  ┌─────────────────────────────┐ │ │ ┌───────────────────────────────┐ │
+│  │ Manifold-3D WASM CSG Engine │◄┘ └►│ Export Pipeline               │ │
+│  │ (Client-side boolean math)  │     │ (STL, STEP, DXF, G-code, JSON)│ │
+│  └─────────────────────────────┘     └───────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-### State Management & Persistence Mapping
+### Component & State Plan
 
-1. **Onboarding State (`apexcad_onboarding_completed`)**:
-   - Boolean flag in `localStorage`. If `false` or absent, the Zero-State launchpad highlights the tutorial prompt.
-   - Users can trigger the tutorial anytime via the header `Tutorial` button, resetting step index to 0.
-
-2. **File Library (`userFiles`)**:
-   - `loadUserFiles()`: Loads custom designs from `localStorage`.
-   - When empty, `activeFile` is set to `null`, activating the clean Zero-State Launchpad.
-   - When a design is created (via New Design modal or Onboarding completion), it becomes `activeFile`, executes in the viewport, and auto-saves.
-
-3. **Factory Presets Cleared**:
-   - `presets` state in `App.tsx` replaced by `userFiles`.
-   - The design dropdown displays exclusively user files with clean unboxed metadata (updated timestamp, template type, delete/rename controls).
+1. **`src/components/Viewport3D.tsx`**:
+   - Add primitive insertion handles and direct CSG interaction overlay.
+   - Integrate normal-based overhang highlighting mode for 3D print preflight inspection directly on the 3D model.
+2. **`src/components/CamCncModal.tsx` & `src/services/camService.ts`**:
+   - Add 3D cutter toolpath animation with play/pause, scrub slider, and endmill spindle cylinder rendering.
+   - Expand 3D printing tab into an interactive slicer preview with per-layer trajectory rendering (walls, skin, infill), overhang detection table, and print time calculation.
+3. **`src/services/csgEngine.ts`**:
+   - Provide client-side boolean operations (Union, Subtract, Intersect) combining Manifold-3D geometry with code generation.
+4. **`src/App.tsx`**:
+   - Integrate the primitive toolbar and boolean controls seamlessly into the main CAD layout.
+   - Maintain the EDA Silicon Studio accessible via a clean workspace switcher.

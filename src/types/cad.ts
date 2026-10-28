@@ -372,6 +372,77 @@ export interface CncCamConfig {
   stockThicknessMm?: number;     // Optional stock thickness (mm)
 }
 
+// Interactive 3D Toolpath Motion & Cutter Simulation Types
+export interface ToolpathMotionStep {
+  x: number;
+  y: number;
+  z: number;
+  isRapid: boolean;
+  isCutting: boolean;
+  feedRate: number;
+  command: string;
+  lineIndex: number;
+  passNumber: number;
+}
+
+export interface SimulatedToolpath {
+  steps: ToolpathMotionStep[];
+  totalDistanceMm: number;
+  rapidDistanceMm: number;
+  cuttingDistanceMm: number;
+  estimatedTimeSeconds: number;
+  boundsMm: {
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+    minZ: number;
+    maxZ: number;
+  };
+}
+
+// 3D Slicer Layer Types
+export interface Slicer2DPoint {
+  x: number;
+  y: number;
+}
+
+export interface Slicer2DLine {
+  p1: Slicer2DPoint;
+  p2: Slicer2DPoint;
+}
+
+export interface SlicerLayerInfo {
+  layerIndex: number;
+  zMm: number;
+  outerPerimeters: Slicer2DPoint[][];
+  innerPerimeters: Slicer2DPoint[][];
+  infillLines: Slicer2DLine[];
+  layerHeightMm: number;
+  estimatedTimeSeconds: number;
+  extrusionLengthMm: number;
+}
+
+// 3D Printing Overhang Diagnostics
+export interface OverhangAnalysisZone {
+  minZ: number;
+  maxZ: number;
+  overhangAreaCm2: number;
+  worstAngleDeg: number;
+  risk: 'mild' | 'moderate' | 'critical';
+}
+
+export interface OverhangAnalysisResult {
+  totalOverhangAreaCm2: number;
+  overhangPercentage: number;
+  unsupportedFacetCount: number;
+  totalFacetCount: number;
+  status: 'safe' | 'warning' | 'critical';
+  thresholdAngleDeg: number;
+  zones: OverhangAnalysisZone[];
+  recommendation: string;
+}
+
 // 3D Printing Preflight Diagnostics & Slicing Helper
 export interface PrintPreflightInfo {
   partName: string;
@@ -386,6 +457,7 @@ export interface PrintPreflightInfo {
   firstLayerContactAreaMm2: number;
   recommendedNozzleTempC: number;
   recommendedBedTempC: number;
+  overhangAnalysis?: OverhangAnalysisResult;
 }
 
 export interface AiModelOption {
