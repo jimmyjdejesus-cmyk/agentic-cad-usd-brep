@@ -16,5 +16,24 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      // Code-split large third-party vendor dependencies to optimize initial page load
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules/three/')) {
+              return 'three-vendor';
+            }
+            if (id.includes('node_modules/lucide-react/')) {
+              return 'lucide-vendor';
+            }
+            if (id.includes('node_modules/firebase/') || id.includes('node_modules/@firebase/')) {
+              return 'firebase-vendor';
+            }
+          },
+        },
+      },
+      chunkSizeWarningLimit: 800,
+    },
   };
 });

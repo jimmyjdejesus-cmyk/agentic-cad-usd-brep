@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -40,6 +40,8 @@ interface CamCncModalProps {
 
 type ActiveTab = 'cnc_gcode' | 'dxf_cutting' | '3d_printing';
 
+const TAB_KEYS: ActiveTab[] = ['cnc_gcode', 'dxf_cutting', '3d_printing'];
+
 export const CamCncModal: React.FC<CamCncModalProps> = ({
   isOpen,
   onClose,
@@ -49,6 +51,34 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
   onDownloadFile,
 }) => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('cnc_gcode');
+
+  const handleTabKeyDown = (e: React.KeyboardEvent) => {
+    const currentIndex = TAB_KEYS.indexOf(activeTab);
+    if (currentIndex === -1) return;
+
+    let newIndex = currentIndex;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      newIndex = (currentIndex + 1) % TAB_KEYS.length;
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      newIndex = (currentIndex - 1 + TAB_KEYS.length) % TAB_KEYS.length;
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      newIndex = 0;
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      newIndex = TAB_KEYS.length - 1;
+    } else {
+      return;
+    }
+
+    const nextTab = TAB_KEYS[newIndex];
+    setActiveTab(nextTab);
+    setTimeout(() => {
+      document.getElementById(`tab-${nextTab}`)?.focus();
+    }, 0);
+  };
 
   // Currently inspected part (defaults to selectedPartName, or first part)
   const activePart = useMemo(() => {
@@ -63,6 +93,26 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
   const [camConfig, setCamConfig] = useState<CncCamConfig>(DEFAULT_CAM_CONFIG);
   const [sliceZMm, setSliceZMm] = useState<number>(1.0);
   const [copiedGcode, setCopiedGcode] = useState(false);
+
+  const getStatusText = (tab: ActiveTab, partName?: string, dialect?: string, sliceZ?: number) => {
+    if (tab === 'cnc_gcode') {
+      return `G-Code toolpath generated for ${partName || 'selected part'} (${(dialect || camConfig.machineDialect).toUpperCase()}).`;
+    } else if (tab === 'dxf_cutting') {
+      return `2D DXF contour slice generated for ${partName || 'selected part'} at Z=${(sliceZ ?? sliceZMm).toFixed(2)} mm.`;
+    } else if (tab === '3d_printing') {
+      return `3D printing preflight analysis complete for ${partName || 'selected part'}.`;
+    }
+    return '';
+  };
+
+  const [statusMessage, setStatusMessage] = useState<string>(() =>
+    getStatusText(activeTab, activePart?.name, camConfig.machineDialect, sliceZMm)
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setStatusMessage(getStatusText(activeTab, activePart?.name, camConfig.machineDialect, sliceZMm));
+  }, [isOpen, activeTab, activePart, camConfig, sliceZMm]);
 
   // Generate real-time G-Code
   const generatedGcode = useMemo(() => {
@@ -87,33 +137,45 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
   const handleCopyGcode = () => {
     navigator.clipboard.writeText(generatedGcode);
     setCopiedGcode(true);
+    setStatusMessage('G-Code copied to clipboard.');
     setTimeout(() => setCopiedGcode(false), 2000);
   };
 
   const handleDownloadGcode = () => {
     if (!activePart) return;
     const ext = camConfig.machineDialect === 'haas' ? '.nc' : '.gcode';
-    onDownloadFile(generatedGcode, `${activePart.name}_toolpath${ext}`);
+    const filename = `${activePart.name}_toolpath${ext}`;
+    onDownloadFile(generatedGcode, filename);
+    setStatusMessage(`Downloading ${filename}.`);
   };
 
   const handleDownloadDxf = () => {
     if (!activePart) return;
-    onDownloadFile(generatedDxf, `${activePart.name}_cut_profile.dxf`);
+    const filename = `${activePart.name}_cut_profile.dxf`;
+    onDownloadFile(generatedDxf, filename);
+    setStatusMessage(`Downloading ${filename}.`);
   };
 
   const handleDownloadAssemblyDxf = () => {
     const assemblyDxf = generateAssemblyDxf(parts, sliceZMm);
-    onDownloadFile(assemblyDxf, `assembly_cut_profiles.dxf`);
+    const filename = 'assembly_cut_profiles.dxf';
+    onDownloadFile(assemblyDxf, filename);
+    setStatusMessage(`Downloading ${filename}.`);
   };
 
   const handleDownloadStl = () => {
     if (!activePart) return;
     const stl = activePart.stl_text || generatePartAsciiStl(activePart, activePart.name);
-    onDownloadFile(stl, `${activePart.name}.stl`);
+    const filename = `${activePart.name}.stl`;
+    onDownloadFile(stl, filename);
+    setStatusMessage(`Downloading ${filename}.`);
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-2.5 sm:p-5">
+      <div role="status" aria-live="polite" className="sr-only">
+        {statusMessage}
+      </div>
       <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         
         {/* =================================================================== */}
@@ -155,8 +217,18 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
         {/* Navigation Tabs & Active Part Selector */}
         {/* =================================================================== */}
         <div className="px-5 py-2.5 bg-slate-900 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
+          <div
+            role="tablist"
+            aria-label="Digital Fabrication Workflows"
+            className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold"
+            onKeyDown={handleTabKeyDown}
+          >
             <button
+              id="tab-cnc_gcode"
+              role="tab"
+              aria-selected={activeTab === 'cnc_gcode'}
+              aria-controls="tabpanel-cnc_gcode"
+              tabIndex={activeTab === 'cnc_gcode' ? 0 : -1}
               onClick={() => setActiveTab('cnc_gcode')}
               className={`px-3 py-1.5 rounded-lg flex items-center gap-2 transition ${
                 activeTab === 'cnc_gcode'
@@ -169,6 +241,11 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
             </button>
 
             <button
+              id="tab-dxf_cutting"
+              role="tab"
+              aria-selected={activeTab === 'dxf_cutting'}
+              aria-controls="tabpanel-dxf_cutting"
+              tabIndex={activeTab === 'dxf_cutting' ? 0 : -1}
               onClick={() => setActiveTab('dxf_cutting')}
               className={`px-3 py-1.5 rounded-lg flex items-center gap-2 transition ${
                 activeTab === 'dxf_cutting'
@@ -181,6 +258,11 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
             </button>
 
             <button
+              id="tab-3d_printing"
+              role="tab"
+              aria-selected={activeTab === '3d_printing'}
+              aria-controls="tabpanel-3d_printing"
+              tabIndex={activeTab === '3d_printing' ? 0 : -1}
               onClick={() => setActiveTab('3d_printing')}
               className={`px-3 py-1.5 rounded-lg flex items-center gap-2 transition ${
                 activeTab === '3d_printing'
@@ -196,9 +278,10 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
           {/* Active Part Selector Dropdown */}
           {parts.length > 0 && (
             <div className="flex items-center gap-2 text-xs">
-              <span className="text-slate-400">Target Part:</span>
+              <label htmlFor="cam-target-part-select" className="text-slate-400">Target Part:</label>
               <div className="relative">
                 <select
+                  id="cam-target-part-select"
                   value={activePart?.name || ''}
                   onChange={(e) => onSelectPart?.(e.target.value)}
                   className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200 font-mono text-xs focus:outline-none focus:border-amber-500 cursor-pointer"
@@ -221,7 +304,13 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
 
           {/* TAB 1: CNC MILLING & G-CODE */}
           {activeTab === 'cnc_gcode' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            <div
+              id="tabpanel-cnc_gcode"
+              role="tabpanel"
+              aria-labelledby="tab-cnc_gcode"
+              tabIndex={0}
+              className="grid grid-cols-1 lg:grid-cols-12 gap-5 focus:outline-none"
+            >
               {/* Left Column: Tooling & Machining Parameters */}
               <div className="lg:col-span-5 space-y-4">
                 <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3.5">
@@ -232,8 +321,9 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
 
                   {/* Machine Dialect */}
                   <div className="space-y-1">
-                    <label className="text-[10px] font-semibold text-slate-400">CNC Controller Dialect:</label>
+                    <label htmlFor="cam-controller-dialect" className="text-[10px] font-semibold text-slate-400">CNC Controller Dialect:</label>
                     <select
+                      id="cam-controller-dialect"
                       value={camConfig.machineDialect}
                       onChange={(e) =>
                         setCamConfig({ ...camConfig, machineDialect: e.target.value as any })
@@ -249,8 +339,8 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
                   </div>
 
                   {/* Tool Diameter Presets */}
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-semibold text-slate-400">Endmill Diameter:</label>
+                  <div className="space-y-1" role="group" aria-labelledby="endmill-diameter-label">
+                    <span id="endmill-diameter-label" className="text-[10px] font-semibold text-slate-400 block">Endmill Diameter:</span>
                     <div className="grid grid-cols-4 gap-1.5">
                       {[
                         { label: '1/8" (3.18mm)', val: 3.175 },
@@ -261,6 +351,7 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
                         <button
                           key={t.label}
                           onClick={() => setCamConfig({ ...camConfig, toolDiameterMm: t.val })}
+                          aria-pressed={Math.abs(camConfig.toolDiameterMm - t.val) < 0.01}
                           className={`p-1.5 rounded-lg text-center text-[10px] font-mono border transition ${
                             Math.abs(camConfig.toolDiameterMm - t.val) < 0.01
                               ? 'bg-amber-950 text-amber-300 border-amber-600'
@@ -276,58 +367,70 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
                   {/* Feed, Plunge, and Spindle Rates */}
                   <div className="grid grid-cols-2 gap-2.5">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-semibold text-slate-400">Cutting Feed (mm/min):</label>
+                      <label htmlFor="cam-feed-rate" className="text-[10px] font-semibold text-slate-400">Cutting Feed Rate:</label>
                       <input
+                        id="cam-feed-rate"
                         type="number"
                         value={camConfig.feedRateMmMin}
                         onChange={(e) =>
                           setCamConfig({ ...camConfig, feedRateMmMin: parseFloat(e.target.value) || 1000 })
                         }
+                        aria-describedby="cam-feed-rate-unit"
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-white font-mono"
                       />
+                      <span id="cam-feed-rate-unit" className="text-[10px] text-slate-500 block font-mono">mm/min</span>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-semibold text-slate-400">Plunge Feed (mm/min):</label>
+                      <label htmlFor="cam-plunge-rate" className="text-[10px] font-semibold text-slate-400">Plunge Feed Rate:</label>
                       <input
+                        id="cam-plunge-rate"
                         type="number"
                         value={camConfig.plungeRateMmMin}
                         onChange={(e) =>
                           setCamConfig({ ...camConfig, plungeRateMmMin: parseFloat(e.target.value) || 250 })
                         }
+                        aria-describedby="cam-plunge-rate-unit"
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-white font-mono"
                       />
+                      <span id="cam-plunge-rate-unit" className="text-[10px] text-slate-500 block font-mono">mm/min</span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2.5">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-semibold text-slate-400">Spindle Speed (RPM):</label>
+                      <label htmlFor="cam-spindle-rpm" className="text-[10px] font-semibold text-slate-400">Spindle Speed:</label>
                       <input
+                        id="cam-spindle-rpm"
                         type="number"
                         value={camConfig.spindleRpm}
                         onChange={(e) =>
                           setCamConfig({ ...camConfig, spindleRpm: parseInt(e.target.value) || 16000 })
                         }
+                        aria-describedby="cam-spindle-rpm-unit"
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-white font-mono"
                       />
+                      <span id="cam-spindle-rpm-unit" className="text-[10px] text-slate-500 block font-mono">RPM</span>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-semibold text-slate-400">Step-down Pass (mm):</label>
+                      <label htmlFor="cam-step-down" className="text-[10px] font-semibold text-slate-400">Step-down Pass Depth:</label>
                       <input
+                        id="cam-step-down"
                         type="number"
                         step="0.5"
                         value={camConfig.stepDownMm}
                         onChange={(e) =>
                           setCamConfig({ ...camConfig, stepDownMm: parseFloat(e.target.value) || 1.5 })
                         }
+                        aria-describedby="cam-step-down-unit"
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-white font-mono"
                       />
+                      <span id="cam-step-down-unit" className="text-[10px] text-slate-500 block font-mono">mm</span>
                     </div>
                   </div>
 
                   {/* Cut Operation */}
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-semibold text-slate-400">Toolpath Strategy:</label>
+                  <div className="space-y-1" role="group" aria-labelledby="toolpath-strategy-label">
+                    <span id="toolpath-strategy-label" className="text-[10px] font-semibold text-slate-400 block">Toolpath Strategy:</span>
                     <div className="grid grid-cols-3 gap-1.5">
                       {[
                         { id: 'outside_contour', label: 'Outside Contour' },
@@ -337,6 +440,7 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
                         <button
                           key={op.id}
                           onClick={() => setCamConfig({ ...camConfig, cutOperation: op.id as any })}
+                          aria-pressed={camConfig.cutOperation === op.id}
                           className={`p-1.5 rounded-lg text-[10px] font-medium border text-center transition ${
                             camConfig.cutOperation === op.id
                               ? 'bg-amber-950 text-amber-300 border-amber-600'
@@ -352,13 +456,15 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
                   {/* Holding Tabs Toggle */}
                   <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
                     <div>
-                      <div className="text-xs font-semibold text-slate-200">Holding Tabs</div>
-                      <div className="text-[10px] text-slate-500">Prevents part ejection on through-cuts</div>
+                      <label htmlFor="cam-holding-tabs" className="text-xs font-semibold text-slate-200 cursor-pointer block">Holding Tabs</label>
+                      <div id="cam-holding-tabs-desc" className="text-[10px] text-slate-500">Prevents part ejection on through-cuts</div>
                     </div>
                     <input
+                      id="cam-holding-tabs"
                       type="checkbox"
                       checked={camConfig.addHoldingTabs}
                       onChange={(e) => setCamConfig({ ...camConfig, addHoldingTabs: e.target.checked })}
+                      aria-describedby="cam-holding-tabs-desc"
                       className="rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-0 cursor-pointer"
                     />
                   </div>
@@ -406,7 +512,13 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
 
           {/* TAB 2: 2D FLAT PROFILE CUTTING (DXF) */}
           {activeTab === 'dxf_cutting' && (
-            <div className="space-y-4">
+            <div
+              id="tabpanel-dxf_cutting"
+              role="tabpanel"
+              aria-labelledby="tab-dxf_cutting"
+              tabIndex={0}
+              className="space-y-4 focus:outline-none"
+            >
               <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
@@ -425,19 +537,26 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
                 {/* Slice Height Slider */}
                 <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 space-y-2">
                   <div className="flex justify-between items-center text-xs text-slate-300">
-                    <span className="font-medium">Cross-Section Z-Height:</span>
+                    <label htmlFor="cam-slice-z" className="font-medium">Cross-Section Z-Height:</label>
                     <span className="font-mono font-bold text-amber-400">{sliceZMm.toFixed(2)} mm</span>
                   </div>
                   <input
+                    id="cam-slice-z"
                     type="range"
                     min="0.1"
                     max="40.0"
                     step="0.5"
                     value={sliceZMm}
                     onChange={(e) => setSliceZMm(parseFloat(e.target.value))}
+                    aria-describedby="cam-slice-z-unit"
+                    aria-valuemin={0.1}
+                    aria-valuemax={40.0}
+                    aria-valuenow={sliceZMm}
+                    aria-valuetext={`${sliceZMm.toFixed(2)} millimeters`}
                     className="w-full accent-amber-500 cursor-pointer"
                   />
-                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                  <span id="cam-slice-z-unit" className="sr-only">millimeters</span>
+                  <div className="flex justify-between text-[10px] text-slate-500 font-mono" aria-hidden="true">
                     <span>Base (Z=0.1mm)</span>
                     <span>Midpoint (Z=20mm)</span>
                     <span>Top (Z=40mm)</span>
@@ -487,7 +606,13 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
 
           {/* TAB 3: 3D PRINTING PREFLIGHT (STL & SLICER) */}
           {activeTab === '3d_printing' && preflightInfo && (
-            <div className="space-y-4">
+            <div
+              id="tabpanel-3d_printing"
+              role="tabpanel"
+              aria-labelledby="tab-3d_printing"
+              tabIndex={0}
+              className="space-y-4 focus:outline-none"
+            >
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {/* Health Check Card */}
                 <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">

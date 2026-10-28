@@ -228,8 +228,14 @@ export async function runAgenticCadTurn(params: {
     ],
   });
 
+  // Provide transparent user notice if external provider was unreachable and fallback engine was engaged
+  const isFallbackEngaged = harness !== 'local-deterministic';
+  const explanationNotice = isFallbackEngaged
+    ? `\n\n*(Note: Provider **${harness}** was unreachable; synthesized using ApexCAD deterministic parametric engine).*`
+    : `\n\n*(Synthesized using ApexCAD deterministic parametric engine).*`;
+
   return {
-    explanation: `${synthesized.explanation}\n\n*(Synthesized using **${harness}** with **${model}**. In-app tools executed locally).*`,
+    explanation: `${synthesized.explanation}${explanationNotice}`,
     finalCode,
     executionResult: execRes,
     steps,
