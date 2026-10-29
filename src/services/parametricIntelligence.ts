@@ -555,10 +555,32 @@ function mutateDimensionInCode(
   let modifiedCode = code;
   let changed = false;
 
+  // Find the target variable bound to intent.targetPart
+  let targetVar: string | null = null;
+  if (intent.targetPart) {
+    const returnRegex = /return\s*\[(.*?)\]/s;
+    const match = code.match(returnRegex);
+    if (match) {
+      const returnBody = match[1];
+      const partTupleRegex = /\(\s*["']([^"']+)["']\s*,\s*([A-Za-z0-9_]+)\s*,\s*\([^)]+\)\s*,\s*["'][^"']+["']\s*\)/g;
+      let m;
+      while ((m = partTupleRegex.exec(returnBody)) !== null) {
+        if (m[1] === intent.targetPart) {
+          targetVar = m[2];
+          break;
+        }
+      }
+    }
+  }
+
+  const varPrefix = targetVar ? `${targetVar}\\s*=\\s*` : ``;
+  const anyPrefix = `(?:[A-Za-z0-9_]+\\s*=\\s*)?`;
+  const prefixPattern = targetVar ? varPrefix : anyPrefix;
+
   // 1. Target cylinder: sm.create_cylinder((cx, cy, z0), radius, height)
   if (intent.parameter === 'height') {
     // Match: cylinder = sm.create_cylinder((cx, cy, z0), radius, height)
-    const cylRegex = /(sm\.create_cylinder\(\s*\([^)]+\)\s*,\s*[^,]+\s*,\s*)([0-9]+(?:\.[0-9]+)?)/g;
+    const cylRegex = new RegExp(`(${prefixPattern}sm\\.create_cylinder\\(\\s*\\([^)]+\\)\\s*,\\s*[^,]+\\s*,\\s*)([0-9]+(?:\\.[0-9]+)?)`, 'g');
     if (cylRegex.test(code)) {
       modifiedCode = code.replace(cylRegex, (match, prefix, oldHeight) => {
         const prev = parseFloat(oldHeight);
@@ -574,7 +596,7 @@ function mutateDimensionInCode(
 
     // Also match box height: sm.create_box((minX, minY, minZ), L, W, H)
     if (!changed) {
-      const boxRegex = /(sm\.create_box\(\s*\([^)]+\)\s*,\s*[^,]+\s*,\s*[^,]+\s*,\s*)([0-9]+(?:\.[0-9]+)?)/g;
+      const boxRegex = new RegExp(`(${prefixPattern}sm\\.create_box\\(\\s*\\([^)]+\\)\\s*,\\s*[^,]+\\s*,\\s*[^,]+\\s*,\\s*)([0-9]+(?:\\.[0-9]+)?)`, 'g');
       if (boxRegex.test(code)) {
         modifiedCode = code.replace(boxRegex, (match, prefix, oldH) => {
           const prev = parseFloat(oldH);
@@ -590,7 +612,7 @@ function mutateDimensionInCode(
     }
   } else if (intent.parameter === 'radius') {
     // Match cylinder radius: sm.create_cylinder((cx, cy, z0), radius, height)
-    const cylRadRegex = /(sm\.create_cylinder\(\s*\([^)]+\)\s*,\s*)([0-9]+(?:\.[0-9]+)?)(\s*,\s*[^)]+\))/g;
+    const cylRadRegex = new RegExp(`(${prefixPattern}sm\\.create_cylinder\\(\\s*\\([^)]+\\)\\s*,\\s*)([0-9]+(?:\\.[0-9]+)?)(\\s*,\\s*[^)]+\\))`, 'g');
     if (cylRadRegex.test(code)) {
       modifiedCode = code.replace(cylRadRegex, (match, prefix, oldRad, suffix) => {
         const prev = parseFloat(oldRad);
@@ -606,7 +628,7 @@ function mutateDimensionInCode(
 
     // Match sphere radius: sm.create_sphere((cx, cy, cz), radius)
     if (!changed) {
-      const sphRegex = /(sm\.create_sphere\(\s*\([^)]+\)\s*,\s*)([0-9]+(?:\.[0-9]+)?)/g;
+      const sphRegex = new RegExp(`(${prefixPattern}sm\\.create_sphere\\(\\s*\\([^)]+\\)\\s*,\\s*)([0-9]+(?:\\.[0-9]+)?)`, 'g');
       if (sphRegex.test(code)) {
         modifiedCode = code.replace(sphRegex, (match, prefix, oldRad) => {
           const nextVal = (intent.value || parseFloat(oldRad)).toFixed(1);
@@ -617,7 +639,7 @@ function mutateDimensionInCode(
     }
   } else if (intent.parameter === 'width' || intent.parameter === 'length') {
     // Match box length/width: sm.create_box((minX, minY, minZ), L, W, H)
-    const boxDimRegex = /(sm\.create_box\(\s*\([^)]+\)\s*,\s*)([0-9]+(?:\.[0-9]+)?)(\s*,\s*)([0-9]+(?:\.[0-9]+)?)/g;
+    const boxDimRegex = new RegExp(`(${prefixPattern}sm\\.create_box\\(\\s*\\([^)]+\\)\\s*,\\s*)([0-9]+(?:\\.[0-9]+)?)(\\s*,\\s*)([0-9]+(?:\\.[0-9]+)?)`, 'g');
     if (boxDimRegex.test(code)) {
       modifiedCode = code.replace(boxDimRegex, (match, prefix, oldL, comma, oldW) => {
         changed = true;

@@ -233,28 +233,22 @@ export function applyCsgBooleanToScript(
 
   // Build the updated return array:
   // Remove part A and part B, and add the resultPartName
-  const elements = returnBody
-    .split(/\),\s*\(/)
-    .map((e, idx, arr) => {
-      let cleaned = e.trim();
-      if (arr.length > 1) {
-        if (idx === 0 && !cleaned.endsWith(')')) cleaned += ')';
-        else if (idx === arr.length - 1 && !cleaned.startsWith('(')) cleaned = '(' + cleaned;
-        else if (!cleaned.startsWith('(') && !cleaned.endsWith(')')) cleaned = '(' + cleaned + ')';
-      }
-      return cleaned;
-    })
-    .filter((entry) => {
-      return (
-        !entry.includes(`"${targetPartName}"`) &&
-        !entry.includes(`'${targetPartName}'`) &&
-        !entry.includes(`"${toolPartName}"`) &&
-        !entry.includes(`'${toolPartName}'`)
-      );
-    });
+  const elements: string[] = [];
+  partTupleRegex.lastIndex = 0;
+  let tMatch;
+  while ((tMatch = partTupleRegex.exec(returnBody)) !== null) {
+    const name = tMatch[1];
+    if (name !== targetPartName && name !== toolPartName) {
+      elements.push(tMatch[0]);
+    }
+  }
 
   elements.push(`("${resultPartName}", ${resultVar}, ${outColor}, "${outKind}")`);
-  const updatedReturnContents = elements.join(', ');
+  // Join with a newline and proper indentation for multi-line tuples
+  const separator = elements.length > 2 || returnBody.includes('\n') ? `,\n${indent}    ` : ', ';
+  const updatedReturnContents = returnBody.includes('\n')
+    ? `\n${indent}    ${elements.join(separator)}\n${indent}`
+    : elements.join(separator);
 
   const codeBeforeReturn = currentCode.slice(0, match.index);
   const codeAfterReturn = currentCode.slice(match.index! + match[0].length);
