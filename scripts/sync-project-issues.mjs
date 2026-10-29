@@ -297,7 +297,13 @@ async function syncWithGitHubApi(manifest, dryRun = false) {
     const msObj = manifest.milestones.find((m) => m.id === epic.milestoneId);
     const msNum = milestoneNumberMap.get(epic.milestoneId);
     const found = Array.isArray(existingIssues)
-      ? existingIssues.find((i) => i.title === epic.title || (i.body && i.body.includes(`\`${epic.id}\``)))
+      ? existingIssues.find(
+          (i) =>
+            i.title === epic.title ||
+            (i.labels?.some((l) => (l.name || l) === 'type:epic') &&
+              i.body &&
+              i.body.includes(`> **Epic ID:** \`${epic.id}\``))
+        )
       : null;
 
     const initialBody = formatEpicMarkdown(epic, msObj, manifest.subIssues, subIssueNumberMap);
@@ -319,7 +325,13 @@ async function syncWithGitHubApi(manifest, dryRun = false) {
   for (const sub of manifest.subIssues) {
     const msNum = milestoneNumberMap.get(sub.milestoneId);
     const found = Array.isArray(existingIssues)
-      ? existingIssues.find((i) => i.title === sub.title || (i.body && i.body.includes(`**Tracking ID:** \`${sub.id}\``)))
+      ? existingIssues.find(
+          (i) =>
+            i.title === sub.title ||
+            (i.labels?.some((l) => (l.name || l) === 'type:sub-issue') &&
+              i.body &&
+              i.body.includes(`**Tracking ID:** \`${sub.id}\``))
+        )
       : null;
 
     const body = formatSubIssueMarkdown(sub, epicIssueNumberMap, subIssueNumberMap);
