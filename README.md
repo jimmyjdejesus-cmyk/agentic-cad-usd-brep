@@ -207,6 +207,7 @@ Continuous Integration is automated via GitHub Actions in [`.github/workflows/ci
 ## Documentation & Maintainer Governance
 
 - 🗺️ [Product Roadmap & Release End States (`ROADMAP.md`)](ROADMAP.md) — Feature Maturity Matrix (`Stable`, `Beta`, `Experimental`, `Planned`), release milestones (`v1.2.0` → `v2.0.0`), exit criteria, and maker benchmark fixtures.
+- 🎯 [Project Milestones, Epics, Sub-Issues & Dependency Tracker (`docs/PROJECT_MILESTONES_AND_ISSUES.md`)](docs/PROJECT_MILESTONES_AND_ISSUES.md) — Full 5-milestone, 5-epic, 20-sub-issue tracking matrix with cross-issue dependency graph and GitHub sync CLI (`npm run issues:sync`).
 - 🤝 [Contributor Guide (`CONTRIBUTING.md`)](CONTRIBUTING.md) — Local setup, `cm` vs. `mm` unit conventions, `dev` → `main` PR rules, and high-impact "Good First Issues".
 - 🌿 [Branching Strategy & Release Lifecycle Guide](docs/BRANCHING_AND_RELEASES.md) — Dual-branch flow (`dev` & `main`), no-commit policy, automated scheduled releases, SemVer calculation, and publishing.
 - 🏛️ [System Architecture Specification](docs/ARCHITECTURE.md) — Comprehensive layer-by-layer architectural breakdown, hardware memory gating formulas, and kernel interfaces.

@@ -1,0 +1,538 @@
+{
+  "project": "ApexCAD Studio (agentic-cad-usd-brep)",
+  "repository": "jimmyjdejesus-cmyk/agentic-cad-usd-brep",
+  "targetUx": "3D modeling parts for 3D printers and CNC machines with clean direct editing and an agentic copilot workflow",
+  "labels": [
+    { "name": "type:epic", "color": "5319E7", "description": "Milestone parent epic tracking multiple sub-issues and release exit gates" },
+    { "name": "type:sub-issue", "color": "1D76DB", "description": "Granular engineering sub-issue linked to a parent epic" },
+    { "name": "area:3d-printing", "color": "0E8A16", "description": "STL/3MF export, millimeter scaling, slicer preview, and overhang preflight" },
+    { "name": "area:cnc-cam", "color": "D93F0B", "description": "2.5D CNC toolpaths, G-code post-processor, DXF flat patterns, and dogbone relief" },
+    { "name": "area:cad-kernel", "color": "0052CC", "description": "NVIDIA usd-brep Python backend and in-browser manifold-3d WebAssembly CSG engine" },
+    { "name": "area:viewport-ux", "color": "FBCA04", "description": "Three.js 3D viewport, transform gizmos, parametric inspector, and direct editing" },
+    { "name": "area:copilot-dfm", "color": "B60205", "description": "Agentic copilot, AST code mutation, selection context, and DFM auto-repair" },
+    { "name": "priority:p0-blocker", "color": "E11D48", "description": "Release-blocking requirement for the current milestone" },
+    { "name": "priority:p1-high", "color": "F59E0B", "description": "High-impact maker workflow improvement" },
+    { "name": "good first issue", "color": "7057FF", "description": "Well-scoped sub-issue ideal for new contributors and forkers" }
+  ],
+  "milestones": [
+    {
+      "id": "M1",
+      "version": "v1.2.0",
+      "title": "v1.2.0 — True-Scale Maker Baseline & Honesty Pass",
+      "state": "open",
+      "dueOn": "2026-11-15T23:59:59Z",
+      "targetEndState": "Zero-surprise 1:1 millimeter STL and R12 DXF exports for 3D printing slicers and laser/CNC cutters, backed by accurate model IDs and transparent feature maturity documentation.",
+      "exitCriteria": [
+        "Exported 10 cm CAD part measures 100.0 mm x 100.0 mm in Bambu Studio, PrusaSlicer, OrcaSlicer, and Cura",
+        "Header design switcher cleanly loads both custom designs and factory presets",
+        "Default cloud Gemini model IDs updated to verified production models (gemini-2.5-flash / gemini-2.5-pro)",
+        "Experimental AMD EDA Silicon Studio isolated behind an explicit opt-in toggle",
+        "All Vitest, TypeScript lint, and pytest suites pass with 0 errors"
+      ]
+    },
+    {
+      "id": "M2",
+      "version": "v1.3.0",
+      "title": "v1.3.0 — Precision Direct Editing, 3D Gizmos & Parametric Inspector",
+      "state": "open",
+      "dueOn": "2026-12-06T23:59:59Z",
+      "targetEndState": "Users can click any part in the 3D viewport to drag/rotate/scale it with millimeter grid snapping or edit its dimensions in a live sidebar inspector without manually editing Python code.",
+      "exitCriteria": [
+        "3D TransformControls gizmo (Translate, Rotate, Scale) snaps to 1 mm / 5 mm / 15 deg increments and updates build_parts() code",
+        "Parametric Properties Inspector edits width, depth, height, radius, and position of only the selected part",
+        "mutateDimensionInCode() and applyCsgBooleanToScript() target exact part variables and support multi-line return [...] lists",
+        "src/App.tsx decomposed into modular UI components under 400 lines each"
+      ]
+    },
+    {
+      "id": "M3",
+      "version": "v1.4.0",
+      "title": "v1.4.0 — Structured Browser CAD Parser, Fillets/Chamfers & Fastener Library",
+      "state": "open",
+      "dueOn": "2026-12-27T23:59:59Z",
+      "targetEndState": "Browser-only and macOS users can model functional mechanical parts with chamfers, fillets, and standard metric hardware cutouts (M2-M8 counterbores, countersinks, heat-set inserts, nut traps).",
+      "exitCriteria": [
+        "Structured Python AST/block evaluator in cadRuntime.ts replaces single-line regexes and supports multi-line calls and helper functions",
+        "In-browser sm.chamfer_edges() and sm.fillet_edges() bevel/round geometry via manifold-3d operations",
+        "Metric Fastener & Hardware Catalog (M2-M8 clearance, SHCS counterbore, countersink, brass heat-set insert bosses, hex nut traps) produces watertight meshes within +/-0.05 mm of ISO tables",
+        "sm.sweep_along_planar_path extrudes along real 2D polyline paths instead of a hardcoded torus"
+      ]
+    },
+    {
+      "id": "M4",
+      "version": "v1.5.0",
+      "title": "v1.5.0 — Context-Aware Copilot (Click-to-Edit & DFM Auto-Repair)",
+      "state": "open",
+      "dueOn": "2027-01-17T23:59:59Z",
+      "targetEndState": "The AI copilot understands which part, face, or vertex is selected in the 3D viewport and automatically enforces 3D printing and CNC Design-for-Manufacturing (DFM) constraints.",
+      "exitCriteria": [
+        "/api/agent/turn receives selectedPartName, 3D surface/vertex pin coordinates and normals, and active DFM rules",
+        "Prompts referencing @part_name or active surface pins modify only the targeted feature without regenerating unrelated parts",
+        "DFM verifier flags thin walls (< 1.2 mm), tight mating clearances (< 0.25 mm), and unmachinable internal CNC corners (< toolRadius) with 1-click auto-repair",
+        "All 5 Canonical Maker Benchmark Fixtures pass automated synthesis and DFM checks"
+      ]
+    },
+    {
+      "id": "M5",
+      "version": "v2.0.0",
+      "title": "v2.0.0 — 2.5D Multi-Depth CNC CAM, Pocket Clearing & STEP / 3MF Interop",
+      "state": "open",
+      "dueOn": "2027-02-14T23:59:59Z",
+      "targetEndState": "Machinists and makers can generate shop-ready 2.5D CNC G-code (multi-Z roughing, concentric/raster pocket clearing, peck drilling, dogbone corner relief) and export multi-part .3mf and .step files.",
+      "exitCriteria": [
+        "Multi-Z planar slicing detects blind pockets, counterbores, stepped bosses, and through-holes across part height",
+        "Concentric and raster interior pocket clearing toolpaths respect configurable stepover (10%-80% tool diameter)",
+        "Circular hole recognition emits G81/G83 peck-drilling cycles and inside pockets support optional dogbone corner relief",
+        "Multi-part .3mf export preserves millimeter scale and part colors in Bambu Studio / PrusaSlicer, and Python backend exports ISO 10303-21 .step files"
+      ]
+    }
+  ],
+  "epics": [
+    {
+      "id": "EPIC-1",
+      "milestoneId": "M1",
+      "title": "[EPIC v1.2.0] True-Scale Maker Baseline, Model ID Standardization & UI Focus",
+      "labels": ["type:epic", "area:3d-printing", "priority:p0-blocker"],
+      "summary": "Establish a rock-solid baseline for 3D printing and laser/CNC makers by shipping 10x millimeter STL scaling, accurate model IDs, clean preset switching, and an opt-in toggle for experimental non-maker modules.",
+      "subIssueIds": ["ISS-101", "ISS-102", "ISS-103", "ISS-104"]
+    },
+    {
+      "id": "EPIC-2",
+      "milestoneId": "M2",
+      "title": "[EPIC v1.3.0] Precision Direct Viewport Editing, 3D Gizmos & Parametric Inspector",
+      "labels": ["type:epic", "area:viewport-ux", "priority:p0-blocker"],
+      "summary": "Enable clean direct manipulation in the 3D viewport and sidebar inspector so makers can position, resize, and boolean-combine parts visually with bi-directional Python code synchronization.",
+      "subIssueIds": ["ISS-201", "ISS-202", "ISS-203", "ISS-204"]
+    },
+    {
+      "id": "EPIC-3",
+      "milestoneId": "M3",
+      "title": "[EPIC v1.4.0] Structured Browser CAD Parser, Fillets/Chamfers & Metric Fastener Catalog",
+      "labels": ["type:epic", "area:cad-kernel", "priority:p0-blocker"],
+      "summary": "Eliminate single-line regex limitations in the browser CAD evaluator and add real chamfer/fillet approximations, path sweeps, and a standard M2-M8 metric hardware and heat-set insert library.",
+      "subIssueIds": ["ISS-301", "ISS-302", "ISS-303", "ISS-304"]
+    },
+    {
+      "id": "EPIC-4",
+      "milestoneId": "M4",
+      "title": "[EPIC v1.5.0] Context-Aware Copilot (Selection Pinning, @Part Targeting & DFM Loop)",
+      "labels": ["type:epic", "area:copilot-dfm", "priority:p1-high"],
+      "summary": "Connect 3D viewport selection and surface/vertex annotation pins directly to the AI copilot and enforce automated Design-for-Manufacturing (DFM) rules for 3D printers and CNC mills.",
+      "subIssueIds": ["ISS-401", "ISS-402", "ISS-403", "ISS-404"]
+    },
+    {
+      "id": "EPIC-5",
+      "milestoneId": "M5",
+      "title": "[EPIC v2.0.0] 2.5D Multi-Depth CNC CAM, Pocket Clearing & 3MF / STEP Interop",
+      "labels": ["type:epic", "area:cnc-cam", "priority:p1-high"],
+      "summary": "Upgrade the CAM studio from single-slice perimeter offsetting to full 2.5D multi-depth CNC machining (pocket clearing, peck drilling, dogbone relief) plus native .3mf and .step export.",
+      "subIssueIds": ["ISS-501", "ISS-502", "ISS-503", "ISS-504"]
+    }
+  ],
+  "subIssues": [
+    {
+      "id": "ISS-101",
+      "epicId": "EPIC-1",
+      "milestoneId": "M1",
+      "title": "[v1.2.0] 10x Millimeter Slicer STL Scaling & Export Unit Toggle",
+      "status": "completed",
+      "labels": ["type:sub-issue", "area:3d-printing", "priority:p0-blocker"],
+      "dependsOn": [],
+      "blocks": ["ISS-102", "ISS-504"],
+      "targetFiles": [
+        "src/services/cadRuntime.ts",
+        "src/services/cadRuntime.test.ts",
+        "src/components/CamCncModal.tsx",
+        "src/components/CamCncModal.test.tsx",
+        "src/App.tsx"
+      ],
+      "description": "Add `unitScale` parameter (`10.0` for `cm` -> `mm` slicer standard, `1.0` for native OpenUSD `cm`) to `generatePartAsciiStl()` and `generateAsciiStlClient()`, expose `mm` vs `cm` unit selection in `CamCncModal.tsx` and the main export menu in `App.tsx`, and restore Factory Presets in the header design selector.",
+      "acceptanceCriteria": [
+        "`generatePartAsciiStl(part, name, 10.0)` scales all vertex coordinates by 10x while preserving unit outward facet normals",
+        "Main export dropdown offers both `3D Printable STL (Millimeters 10x)` and `3D Mesh (Centimeters 1x)`",
+        "Unit tests in `cadRuntime.test.ts` and `CamCncModal.test.tsx` verify 10x scaling and UI controls"
+      ]
+    },
+    {
+      "id": "ISS-102",
+      "epicId": "EPIC-1",
+      "milestoneId": "M1",
+      "title": "[v1.2.0] Viewport Dimension Readout & Grid Unit Toggle (mm vs. cm)",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:viewport-ux", "area:3d-printing", "good first issue"],
+      "dependsOn": ["ISS-101"],
+      "blocks": ["ISS-201", "ISS-202"],
+      "targetFiles": [
+        "src/components/Viewport3D.tsx",
+        "src/components/MassPropertiesPanel.tsx",
+        "src/App.tsx"
+      ],
+      "description": "Allow makers to view bounding-box dimensions, grid spacing, and hover coordinates in **millimeters (`mm`)** by default in the 3D viewport and Mass Properties panel, while keeping internal OpenUSD `metersPerUnit = 0.01` (`cm`) compatibility.",
+      "acceptanceCriteria": [
+        "Global display unit toggle (`mm` / `cm`) in the top viewport bar defaults to `mm` for maker workflows",
+        "Bounding box dimensions and hover tooltip coordinates multiply by `10` when `mm` display mode is active",
+        "Unit conversion helper is covered by unit tests"
+      ]
+    },
+    {
+      "id": "ISS-103",
+      "epicId": "EPIC-1",
+      "milestoneId": "M1",
+      "title": "[v1.2.0] Standardize Production Gemini Model IDs & Simplify AI Harness Catalog",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:copilot-dfm", "priority:p0-blocker", "good first issue"],
+      "dependsOn": [],
+      "blocks": ["ISS-401"],
+      "targetFiles": [
+        "server.ts",
+        "src/services/geminiAgent.ts",
+        "src/services/appToolsAndSkills.ts",
+        "src/components/AiHarnessModal.tsx"
+      ],
+      "description": "Replace placeholder model IDs (`gemini-3.8-flash`, `gemini-4-argon`) with verified Google GenAI model IDs (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`) and consolidate duplicate AI harness options so every listed harness corresponds to a distinct execution protocol.",
+      "acceptanceCriteria": [
+        "`server.ts` and `geminiAgent.ts` default to `gemini-2.5-flash` with fallback to `gemini-2.5-pro`",
+        "All tests in `src/services/geminiAgent.test.ts` and `src/server.test.ts` pass with updated model IDs",
+        "AI Harness modal clearly badges Cloud SDK, Local Ollama/vLLM Socket, OpenAI-Compatible Gateway, and Deterministic Offline Engine"
+      ]
+    },
+    {
+      "id": "ISS-104",
+      "epicId": "EPIC-1",
+      "milestoneId": "M1",
+      "title": "[v1.2.0] Isolate Experimental AMD EDA Silicon Studio Behind Opt-In Mode",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:viewport-ux", "good first issue"],
+      "dependsOn": [],
+      "blocks": ["ISS-204"],
+      "targetFiles": [
+        "src/App.tsx",
+        "src/components/AmdEdaSiliconStudio.tsx"
+      ],
+      "description": "Keep the core workspace focused on 3D printing and CNC mechanical part design by moving the experimental 2.5D MCM Semiconductor Packaging Studio behind an explicit `Enable Experimental EDA Tools` setting rather than displaying it as a primary top-level workflow.",
+      "acceptanceCriteria": [
+        "Default workspace header prioritizes CAD Primitives, CSG Booleans, Overhang Inspector, and CAM/CNC & Slicer Studio",
+        "Experimental EDA Studio remains accessible via an opt-in toggle and passes existing `edaSiliconEngine.test.ts` suites"
+      ]
+    },
+    {
+      "id": "ISS-201",
+      "epicId": "EPIC-2",
+      "milestoneId": "M2",
+      "title": "[v1.3.0] Target-Scoped AST Dimension Mutation & Multi-Line CSG Boolean Parser",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:cad-kernel", "area:copilot-dfm", "priority:p0-blocker", "good first issue"],
+      "dependsOn": ["ISS-102"],
+      "blocks": ["ISS-202", "ISS-203", "ISS-401"],
+      "targetFiles": [
+        "src/services/parametricIntelligence.ts",
+        "src/services/parametricIntelligence.test.ts",
+        "src/services/csgEngine.ts",
+        "src/services/csgEngine.test.ts"
+      ],
+      "description": "Fix `mutateDimensionInCode()` in `parametricIntelligence.ts` so dimensional edits target only the variable bound to `intent.targetPart` (instead of replacing all cylinders/boxes globally), and fix `applyCsgBooleanToScript()` in `csgEngine.ts` to parse multi-line `return [...]` lists safely.",
+      "acceptanceCriteria": [
+        "Editing the radius or height of `boss_cyl` in a multi-cylinder script leaves all other cylinders unchanged",
+        "`injectBoreOrPocket()` centers the subtracted bore on the target part's `(cx, cy)` bounding center and spans its exact Z height",
+        "`applyCsgBooleanToScript()` succeeds on multi-line formatted `return [...]` arrays with trailing commas and inline comments"
+      ]
+    },
+    {
+      "id": "ISS-202",
+      "epicId": "EPIC-2",
+      "milestoneId": "M2",
+      "title": "[v1.3.0] Live Parametric Properties Inspector for Selected Part",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:viewport-ux", "priority:p0-blocker"],
+      "dependsOn": ["ISS-201"],
+      "blocks": ["ISS-203"],
+      "targetFiles": [
+        "src/components/Viewport3D.tsx",
+        "src/App.tsx",
+        "src/services/csgEngine.ts"
+      ],
+      "description": "Add a live **Part Dimensions & Transform** card in the right Engineering Inspector whenever a part is selected in the 3D viewport or parts tree, allowing users to type exact millimeter/centimeter values for `width`, `depth`, `height`, `radius`, and `[X, Y, Z]` position.",
+      "acceptanceCriteria": [
+        "Selecting a part populates numeric inputs parsed from its defining `sm.create_*` statement in `build_parts()`",
+        "Changing a numeric input immediately updates the Python script and re-evaluates the 3D mesh",
+        "Includes unit tests verifying round-trip UI-to-code dimension updates"
+      ]
+    },
+    {
+      "id": "ISS-203",
+      "epicId": "EPIC-2",
+      "milestoneId": "M2",
+      "title": "[v1.3.0] Interactive 3D Viewport Transform Gizmos (Translate / Rotate / Scale + Snap)",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:viewport-ux", "priority:p1-high"],
+      "dependsOn": ["ISS-201", "ISS-202"],
+      "blocks": ["ISS-402"],
+      "targetFiles": [
+        "src/components/Viewport3D.tsx",
+        "src/services/cadRuntime.ts"
+      ],
+      "description": "Integrate `TransformControls` from `three/examples/jsm/controls/TransformControls.js` into `Viewport3D.tsx` so clicking a part attaches a 3D gizmo with Translate (`G`), Rotate (`R`), and Scale (`S`) modes, configurable grid snapping (`1 mm`, `5 mm`, `10 mm`, `15°`), and automatic write-back to `sm.translate()` / `sm.rotate()` or primitive origin coordinates in code.",
+      "acceptanceCriteria": [
+        "Dragging the X/Y/Z translation handles moves the selected part smoothly while pausing orbit camera drag",
+        "Releasing the gizmo commits the new `[x, y, z]` coordinates or `sm.translate` / `sm.rotate` call into `build_parts()` and re-runs manifold/penetration checks",
+        "Grid snap toggle enforces exact millimeter/degree increments"
+      ]
+    },
+    {
+      "id": "ISS-204",
+      "epicId": "EPIC-2",
+      "milestoneId": "M2",
+      "title": "[v1.3.0] Decompose Monolithic src/App.tsx into Focused Workspace Modules",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:viewport-ux", "good first issue"],
+      "dependsOn": ["ISS-104"],
+      "blocks": [],
+      "targetFiles": [
+        "src/App.tsx",
+        "src/components/"
+      ],
+      "description": "Split the 1,700-line `src/App.tsx` monolith into clean, maintainable sub-components (`WorkspaceHeader.tsx`, `PresetAndFileSidebar.tsx`, `CopilotWorkbenchPane.tsx`, `EngineeringInspectorSidebar.tsx`) so contributors can work on UI panes without merge conflicts.",
+      "acceptanceCriteria": [
+        "`src/App.tsx` is reduced to under 450 lines of top-level state coordination",
+        "All existing Vitest and headless browser verification tests pass without regressions"
+      ]
+    },
+    {
+      "id": "ISS-301",
+      "epicId": "EPIC-3",
+      "milestoneId": "M3",
+      "title": "[v1.4.0] Structured Multi-Line Python Expression & Block Evaluator in cadRuntime.ts",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:cad-kernel", "priority:p0-blocker"],
+      "dependsOn": ["ISS-201"],
+      "blocks": ["ISS-302", "ISS-303", "ISS-304"],
+      "targetFiles": [
+        "src/services/cadRuntime.ts",
+        "src/services/cadRuntime.test.ts"
+      ],
+      "description": "Replace single-line regex matching in `parseScriptBlocks()` / `executeSingleLine()` (`src/services/cadRuntime.ts`) with a parenthesis-balanced statement tokenizer and expression evaluator that supports multi-line `sm.create_*` calls, keyword arguments, nested `for` loops, `if/else` conditionals, and tuple unpacking.",
+      "acceptanceCriteria": [
+        "Multi-line formatted `sm.create_box(...)`, `sm.create_cylinder(...)`, and `sm.boolean_difference(...)` calls evaluate identically to single-line calls",
+        "Variables defined via arithmetic expressions, `math.*` functions, and nested loops resolve accurately",
+        "Unit test suite in `cadRuntime.test.ts` covers multi-line scripts, keyword arguments, and nested loops"
+      ]
+    },
+    {
+      "id": "ISS-302",
+      "epicId": "EPIC-3",
+      "milestoneId": "M3",
+      "title": "[v1.4.0] In-Browser Chamfers (`sm.chamfer_edges`) & Fillets (`sm.fillet_edges`) via Manifold-3D",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:cad-kernel", "priority:p1-high"],
+      "dependsOn": ["ISS-301"],
+      "blocks": ["ISS-404"],
+      "targetFiles": [
+        "src/services/cadRuntime.ts",
+        "src/services/cadRuntime.test.ts",
+        "src/components/CsgBooleanToolbar.tsx"
+      ],
+      "description": "Implement client-side `sm.chamfer_edges(brep, edges, distance)` and `sm.fillet_edges(brep, edges, radius)` in `cadRuntime.ts` using `manifold-3d` cross-section offset/extrude beveling and CSG edge cutters so browser users see real beveled and rounded edges on boxes and cylinders.",
+      "acceptanceCriteria": [
+        "`sm.chamfer_edges(part, part.edges(), distance=0.3)` and `sm.fillet_edges(part, part.edges(), radius=0.4)` modify the part's `Manifold` solid and reduce sharp 90 deg edges",
+        "Resulting mesh remains 100% 2-manifold (`output_manifold = true`) for 3D printing slicing"
+      ]
+    },
+    {
+      "id": "ISS-303",
+      "epicId": "EPIC-3",
+      "milestoneId": "M3",
+      "title": "[v1.4.0] Metric Fastener, Counterbore, Heat-Set Insert & Extrusion Catalog",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:3d-printing", "area:cnc-cam", "priority:p0-blocker", "good first issue"],
+      "dependsOn": ["ISS-301"],
+      "blocks": ["ISS-404"],
+      "targetFiles": [
+        "src/services/csgEngine.ts",
+        "src/services/csgEngine.test.ts",
+        "src/components/CsgBooleanToolbar.tsx"
+      ],
+      "description": "Expand `PRIMITIVE_CATALOG` in `src/services/csgEngine.ts` with parametric generator helpers for standard 3D printing and CNC hardware: `M2`–`M8` clearance/tap holes, ISO 4762 SHCS counterbores, 90 deg flat-head countersinks, Voron/CNC Kitchen brass heat-set insert bosses, captive hex nut traps, and 2020 V-slot mounting profiles.",
+      "acceptanceCriteria": [
+        "Users can select `M2`, `M2.5`, `M3`, `M4`, `M5`, `M6`, or `M8` presets in the Add Primitive modal and insert positive bosses or negative subtraction cutters",
+        "Generated dimensions match standard metric clearance and counterbore tables within `+/-0.05 mm`"
+      ]
+    },
+    {
+      "id": "ISS-304",
+      "epicId": "EPIC-3",
+      "milestoneId": "M3",
+      "title": "[v1.4.0] Real 2D Profile Extrusion & Path Sweep in Browser Kernel",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:cad-kernel", "priority:p1-high"],
+      "dependsOn": ["ISS-301"],
+      "blocks": [],
+      "targetFiles": [
+        "src/services/cadRuntime.ts",
+        "src/services/cadRuntime.test.ts"
+      ],
+      "description": "Replace the hardcoded torus fallback in `sm.sweep_along_planar_path` (`src/services/cadRuntime.ts`) with actual `manifold-3d` `CrossSection` polygon extrusion and path segment lofting/revolving so custom 2D sketches, L-brackets, and piped sweeps evaluate accurately in browser mode.",
+      "acceptanceCriteria": [
+        "`sm.sweep_along_planar_path` follows the actual path vertices supplied in the Python script",
+        "Closed 2D polygon profiles extrude into watertight 2-manifold solids"
+      ]
+    },
+    {
+      "id": "ISS-401",
+      "epicId": "EPIC-4",
+      "milestoneId": "M4",
+      "title": "[v1.5.0] Pass 3D Viewport Selection & Surface Pin Context into Copilot Turn API",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:copilot-dfm", "area:viewport-ux", "priority:p0-blocker"],
+      "dependsOn": ["ISS-103", "ISS-201"],
+      "blocks": ["ISS-402", "ISS-403"],
+      "targetFiles": [
+        "src/services/geminiAgent.ts",
+        "server.ts",
+        "src/App.tsx"
+      ],
+      "description": "Extend `runAgenticCadTurn()` and `POST /api/agent/turn` to accept `selectedPartName`, selected part bounding box, and active 3D annotation pin coordinates/surface normals (`[x, y, z]`, `[nx, ny, nz]`), injecting them into the system prompt and offline parametric engine.",
+      "acceptanceCriteria": [
+        "Clicking a part or placing a 3D pin in the viewport displays a context chip (`@part_name` / `Pin [x, y, z]`) in the Copilot prompt bar",
+        "Prompting 'drill an M4 hole here' places the hole at the exact pin coordinate aligned with the surface normal"
+      ]
+    },
+    {
+      "id": "ISS-402",
+      "epicId": "EPIC-4",
+      "milestoneId": "M4",
+      "title": "[v1.5.0] Scoped Partial-Script Copilot Editing & Diff Preview",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:copilot-dfm", "priority:p1-high"],
+      "dependsOn": ["ISS-203", "ISS-401"],
+      "blocks": ["ISS-404"],
+      "targetFiles": [
+        "src/services/geminiAgent.ts",
+        "src/services/parametricIntelligence.ts",
+        "src/App.tsx"
+      ],
+      "description": "Prevent LLM turns from accidentally rewriting or dropping unrelated parts in multi-part assemblies by locking non-targeted part definitions and offering a side-by-side / inline diff preview with 1-click Undo/Redo in the Python code editor.",
+      "acceptanceCriteria": [
+        "Unselected anchor and component parts retain their exact code definitions during targeted copilot edits",
+        "Code editor includes an Undo/Redo stack (`Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`) across both manual and copilot edits"
+      ]
+    },
+    {
+      "id": "ISS-403",
+      "epicId": "EPIC-4",
+      "milestoneId": "M4",
+      "title": "[v1.5.0] Automated 3D Print & CNC DFM Validator in Copilot Self-Healing Loop",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:copilot-dfm", "area:3d-printing", "area:cnc-cam", "priority:p1-high"],
+      "dependsOn": ["ISS-401"],
+      "blocks": ["ISS-404"],
+      "targetFiles": [
+        "src/services/camService.ts",
+        "src/services/geminiAgent.ts",
+        "backend/cad_engine.py"
+      ],
+      "description": "Add deterministic Design-for-Manufacturing (DFM) checks to the copilot validation loop: minimum wall thickness (`>= 1.2 mm` for FDM), mating part clearance (`>= 0.25 mm`), unsupported overhang ratio (`> 45 deg`), and CNC minimum internal corner radius (`>= toolRadius`).",
+      "acceptanceCriteria": [
+        "DFM warnings appear in the Diagnostics panel alongside Euler manifoldness and AABB penetration checks",
+        "Copilot self-healing loop automatically adjusts wall thickness or adds a 45 deg support chamfer when DFM mode is enabled"
+      ]
+    },
+    {
+      "id": "ISS-404",
+      "epicId": "EPIC-4",
+      "milestoneId": "M4",
+      "title": "[v1.5.0] Canonical Maker Benchmark Fixture Suite (5 End-to-End Parts)",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:cad-kernel", "area:3d-printing", "area:cnc-cam", "priority:p0-blocker"],
+      "dependsOn": ["ISS-302", "ISS-303", "ISS-402", "ISS-403"],
+      "blocks": ["ISS-501"],
+      "targetFiles": [
+        "src/data/presetsData.ts",
+        "backend/presets.py",
+        "src/services/cadRuntime.test.ts"
+      ],
+      "description": "Add the 5 canonical maker benchmark parts defined in `ROADMAP.md` (NEMA 17 Stepper Bracket, Parametric Spur Gear, Electronics Enclosure with M3 Heat-Set Bosses, CNC Router Hold-Down Clamp, and Flanged Pipe Manifold) to the preset library and automated regression test suite.",
+      "acceptanceCriteria": [
+        "All 5 benchmark fixtures build with 100% 2-manifold geometry, 0 unintended penetrations, valid 1:1 mm STL output, and closed R12 DXF loops in both Python `usd-brep` and browser `manifold-3d` modes"
+      ]
+    },
+    {
+      "id": "ISS-501",
+      "epicId": "EPIC-5",
+      "milestoneId": "M5",
+      "title": "[v2.0.0] Multi-Z Feature Extraction for Stepped Pockets, Counterbores & Bosses",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:cnc-cam", "priority:p0-blocker"],
+      "dependsOn": ["ISS-404"],
+      "blocks": ["ISS-502", "ISS-503"],
+      "targetFiles": [
+        "src/services/camService.ts",
+        "src/services/camService.test.ts"
+      ],
+      "description": "Upgrade `generateCncGcode()` and `buildSimulatedToolpath()` in `src/services/camService.ts` from slicing at a single hardcoded height (`z = 1.0 mm`) to sampling multiple Z planes at every horizontal face transition so stepped shoulders, blind pockets, and counterbores are machined to their exact Z depths.",
+      "acceptanceCriteria": [
+        "Slicing a part with a 5 mm deep blind pocket and a 10 mm deep outer profile generates distinct Z-depth toolpath stages",
+        "3D toolpath simulator accurately renders multi-depth stepdowns"
+      ]
+    },
+    {
+      "id": "ISS-502",
+      "epicId": "EPIC-5",
+      "milestoneId": "M5",
+      "title": "[v2.0.0] True Concentric & Raster Interior Pocket Clearing Toolpaths",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:cnc-cam", "priority:p0-blocker"],
+      "dependsOn": ["ISS-501"],
+      "blocks": [],
+      "targetFiles": [
+        "src/services/camService.ts",
+        "src/services/camService.test.ts",
+        "src/components/CamCncModal.tsx"
+      ],
+      "description": "Implement iterative inward stepover offsetting (`stepOverPercent`: 10%–80% of `toolDiameterMm`) and zig-zag raster hatching inside closed pocket contours so `inside_pocket` removes all interior stock material rather than only cutting a single inner perimeter ring.",
+      "acceptanceCriteria": [
+        "Selecting `inside_pocket` generates concentric inward offset loops from the pocket center out to the final finish wall pass",
+        "Configurable stepover percentage in `CamCncModal.tsx` updates toolpath density and machining time estimate"
+      ]
+    },
+    {
+      "id": "ISS-503",
+      "epicId": "EPIC-5",
+      "milestoneId": "M5",
+      "title": "[v2.0.0] CNC Dogbone Corner Relief & G81/G83 Peck Drilling Cycles",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:cnc-cam", "priority:p1-high", "good first issue"],
+      "dependsOn": ["ISS-501"],
+      "blocks": [],
+      "targetFiles": [
+        "src/services/camService.ts",
+        "src/services/camService.test.ts",
+        "src/components/CamCncModal.tsx"
+      ],
+      "description": "Add optional dogbone/T-bone overcut fillets at sharp concave internal corners (`addDogboneRelief: boolean`) so rectangular tabs fit into CNC-routed mortises/pockets, and emit `G81` / `G83` peck-drilling cycles when circular hole loops match the tool diameter.",
+      "acceptanceCriteria": [
+        "Enabling Dogbone Corner Relief inserts tool-radius arc overcuts at internal 90 deg pocket corners",
+        "Circular bores matching drill/endmill diameter emit standard `G83` peck-drilling G-code blocks"
+      ]
+    },
+    {
+      "id": "ISS-504",
+      "epicId": "EPIC-5",
+      "milestoneId": "M5",
+      "title": "[v2.0.0] Multi-Part .3MF Slicer Archive & Backend ISO 10303-21 .STEP Export",
+      "status": "open",
+      "labels": ["type:sub-issue", "area:3d-printing", "area:cad-kernel", "priority:p1-high"],
+      "dependsOn": ["ISS-101"],
+      "blocks": [],
+      "targetFiles": [
+        "src/services/cadRuntime.ts",
+        "backend/cad_engine.py",
+        "src/App.tsx"
+      ],
+      "description": "Add client-side `.3mf` XML/ZIP archive generation bundling all assembly parts, RGB display colors, and `unit=\"millimeter\"` metadata for 1-click multi-color/multi-part opening in Bambu Studio and PrusaSlicer, plus `.step` / `.stp` B-Rep export when connected to the Python backend.",
+      "acceptanceCriteria": [
+        "Exported `.3mf` archive contains valid `3D/3dmodel.model` XML with `<model unit=\"millimeter\">` and per-part mesh objects",
+        "Python backend exposes `.step` export for exact NURBS B-Rep exchange with Fusion 360, FreeCAD, and SolidWorks"
+      ]
+    }
+  ]
+}
