@@ -21,8 +21,14 @@ import {
   resolvePbrFinish,
   PbrFinishMode,
 } from '../services/pbrMaterialService';
+import {
+  DisplayUnit,
+  convertCoordsCmToDisplayUnit,
+  getGridSpacingText,
+} from '../services/unitConverter';
 
 interface Viewport3DProps {
+  displayUnit?: DisplayUnit;
   parts: CadPartOutput[];
   selectedPartName: string | null;
   onSelectPart: (name: string | null) => void;
@@ -70,6 +76,7 @@ interface ProjectedAnnotation {
 }
 
 export const Viewport3D: React.FC<Viewport3DProps> = ({
+  displayUnit = 'mm',
   parts,
   selectedPartName,
   onSelectPart,
@@ -1330,13 +1337,18 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
                   </div>
 
                   {/* Part and Coordinates */}
-                  <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 font-mono">
-                    <span className="text-sky-400">/{ann.partName}</span>
-                    <span className="text-slate-600">•</span>
-                    <span>
-                      ({ann.position[0].toFixed(1)}, {ann.position[1].toFixed(1)}, {ann.position[2].toFixed(1)})
-                    </span>
-                  </div>
+                  {(() => {
+                    const [px, py, pz] = convertCoordsCmToDisplayUnit(ann.position, displayUnit);
+                    return (
+                      <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 font-mono">
+                        <span className="text-sky-400">/{ann.partName}</span>
+                        <span className="text-slate-600">•</span>
+                        <span>
+                          ({px.toFixed(1)}, {py.toFixed(1)}, {pz.toFixed(1)}) {displayUnit}
+                        </span>
+                      </div>
+                    );
+                  })()}
 
                   {/* Expanded Content on Hover or Select */}
                   {(isSelected || isHovered) && (
@@ -1435,10 +1447,14 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
             </span>
             <span className="font-mono text-slate-400">/{hoverTooltip.partName}</span>
           </div>
-          <div className="font-mono text-[10px] text-emerald-400">
-            ({hoverTooltip.coords[0].toFixed(2)}, {hoverTooltip.coords[1].toFixed(2)},{' '}
-            {hoverTooltip.coords[2].toFixed(2)}) cm
-          </div>
+          {(() => {
+            const [hx, hy, hz] = convertCoordsCmToDisplayUnit(hoverTooltip.coords, displayUnit);
+            return (
+              <div className="font-mono text-[10px] text-emerald-400">
+                ({hx.toFixed(2)}, {hy.toFixed(2)}, {hz.toFixed(2)}) {displayUnit}
+              </div>
+            );
+          })()}
           <div className="text-[10px] text-slate-400 font-medium">Click to place callout pin</div>
         </div>
       )}
@@ -1447,7 +1463,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       <div className="pointer-events-none absolute bottom-3 left-3 hidden xl:flex items-center gap-2.5 bg-slate-900/80 border border-slate-800/80 px-2.5 py-1 rounded-md text-[10px] text-slate-300 backdrop-blur-sm z-10">
         <span className="flex items-center gap-1.5 font-medium text-sky-400">
           <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
-          OpenUSD Z-Up Stage (1 unit = 1 cm)
+          OpenUSD Z-Up Stage ({getGridSpacingText(displayUnit)})
         </span>
         <span className="text-slate-600">|</span>
         <span>Left-Drag: Orbit</span>

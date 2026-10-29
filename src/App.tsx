@@ -84,6 +84,7 @@ import {
   MATERIAL_PRESETS,
 } from './services/massCalculator';
 import { PbrFinishMode, resolvePbrFinish } from './services/pbrMaterialService';
+import { DisplayUnit } from './services/unitConverter';
 import {
   BackendHealthStatus,
   checkBackendHealth,
@@ -193,6 +194,7 @@ export const App: React.FC = () => {
   );
 
   // Viewport Controls & PBR Rendering
+  const [displayUnit, setDisplayUnit] = useState<DisplayUnit>('mm');
   const [showWireframe, setShowWireframe] = useState<boolean>(false);
   const [showBounds, setShowBounds] = useState<boolean>(false);
   const [showGrid, setShowGrid] = useState<boolean>(true);
@@ -1375,6 +1377,32 @@ export const App: React.FC = () => {
 
         {/* 3. Right: Viewport Display, Vault, Unified Export & Inspector Toggle */}
         <div className="flex items-center gap-2">
+          {/* Global Display Unit Toggle (mm / cm) */}
+          <div className="flex items-center bg-[#14161b] border border-[#272a34] p-0.5 rounded-lg text-xs" title="Global Viewport Display Unit Mode (mm vs cm)">
+            <button
+              onClick={() => setDisplayUnit('mm')}
+              className={`px-2 py-0.5 rounded text-[11px] font-semibold transition ${
+                displayUnit === 'mm'
+                  ? 'bg-emerald-600 text-slate-950 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+              title="Display coordinates & bounding box dimensions in Millimeters (mm)"
+            >
+              mm
+            </button>
+            <button
+              onClick={() => setDisplayUnit('cm')}
+              className={`px-2 py-0.5 rounded text-[11px] font-semibold transition ${
+                displayUnit === 'cm'
+                  ? 'bg-emerald-600 text-slate-950 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+              title="Display coordinates & bounding box dimensions in Centimeters (cm)"
+            >
+              cm
+            </button>
+          </div>
+
           {/* Viewport Display Flyout */}
           <div className="relative" ref={viewportMenuRef}>
             <button
@@ -1448,6 +1476,29 @@ export const App: React.FC = () => {
                       {resolvePbrFinish(customDensity || selectedMaterial.density, selectedMaterial, pbrFinishMode).label}:
                     </span>{' '}
                     {resolvePbrFinish(customDensity || selectedMaterial.density, selectedMaterial, pbrFinishMode).description}
+                  </div>
+                </div>
+
+                {/* Display Unit Toggle */}
+                <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs bg-[#14161b] border border-[#272a34]">
+                  <span className="text-zinc-300">Display Units</span>
+                  <div className="flex items-center bg-[#181a20] p-0.5 rounded-md border border-[#272a34]">
+                    <button
+                      onClick={() => setDisplayUnit('mm')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition ${
+                        displayUnit === 'mm' ? 'bg-emerald-600 text-slate-950 font-bold shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      mm
+                    </button>
+                    <button
+                      onClick={() => setDisplayUnit('cm')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition ${
+                        displayUnit === 'cm' ? 'bg-emerald-600 text-slate-950 font-bold shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      cm
+                    </button>
                   </div>
                 </div>
 
@@ -2182,6 +2233,7 @@ export const App: React.FC = () => {
 
           {/* 3D Canvas */}
           <Viewport3D
+            displayUnit={displayUnit}
             parts={parts}
             selectedPartName={selectedPartName}
             onSelectPart={setSelectedPartName}
@@ -2619,6 +2671,7 @@ export const App: React.FC = () => {
 
               {activeRightTab === 'mass' && (
                 <MassPropertiesPanel
+                  displayUnit={displayUnit}
                   massProps={massProps}
                   selectedMaterial={selectedMaterial}
                   customDensity={customDensity}
