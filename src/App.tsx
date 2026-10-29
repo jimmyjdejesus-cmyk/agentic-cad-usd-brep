@@ -157,6 +157,13 @@ export const App: React.FC = () => {
   const [hardwareSpecs, setHardwareSpecs] = useState<SystemHardwareResources>(() =>
     detectSystemHardwareResources()
   );
+  const [enableExperimentalEda, setEnableExperimentalEda] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('apexcad_enable_experimental_eda') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [showHarnessModal, setShowHarnessModal] = useState<boolean>(false);
   const [showToolsetsModal, setShowToolsetsModal] = useState<boolean>(false);
   const [showAmdEdaStudio, setShowAmdEdaStudio] = useState<boolean>(false);
@@ -1123,7 +1130,7 @@ export const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen w-screen bg-[#121316] text-zinc-100 overflow-hidden font-sans">
       {/* Sleek Top Navigation Bar: Project Context, Workspace Switcher, Unified Export */}
-      <header className="h-12 border-b border-[#272a34] bg-[#181a20]/95 px-4 flex items-center justify-between shrink-0 z-20 backdrop-blur-md">
+      <header className="h-12 border-b border-[#272a34] bg-[#181a20]/95 px-4 flex items-center justify-between shrink-0 z-30 backdrop-blur-md">
         {/* 1. Left (Project Context): Brand, Kernel Status, Preset */}
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-emerald-500 to-sky-500 flex items-center justify-center shadow-md shadow-emerald-500/20">
@@ -1330,17 +1337,20 @@ export const App: React.FC = () => {
             <span>3D CAD Studio</span>
           </button>
 
-          <button
-            onClick={() => setShowAmdEdaStudio(true)}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
-              showAmdEdaStudio
-                ? 'bg-rose-600 text-white shadow-sm shadow-rose-600/30 ring-1 ring-rose-400/30'
-                : 'text-zinc-400 hover:text-rose-300 hover:bg-[#1e2028]'
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5 text-rose-400" />
-            <span>AMD Silicon EDA</span>
-          </button>
+          {enableExperimentalEda && (
+            <button
+              onClick={() => setShowAmdEdaStudio(true)}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                showAmdEdaStudio
+                  ? 'bg-rose-600 text-white shadow-sm shadow-rose-600/30 ring-1 ring-rose-400/30'
+                  : 'text-zinc-400 hover:text-rose-300 hover:bg-[#1e2028]'
+              }`}
+              title="Experimental 2.5D MCM Semiconductor Packaging Studio"
+            >
+              <Zap className="w-3.5 h-3.5 text-rose-400" />
+              <span>AMD Silicon EDA</span>
+            </button>
+          )}
 
           <button
             onClick={() => setShowDevDrawer((v) => !v)}
@@ -1521,6 +1531,27 @@ export const App: React.FC = () => {
                     <span>Snap Pins to Vertices</span>
                   </div>
                   <span className={`w-2 h-2 rounded-full ${snapToVertex ? 'bg-indigo-400 shadow-sm shadow-indigo-400' : 'bg-zinc-700'}`} />
+                </button>
+
+                <div className="h-px bg-[#272a34] my-1" />
+
+                {/* Enable Experimental EDA Tools Toggle */}
+                <button
+                  onClick={() => {
+                    const next = !enableExperimentalEda;
+                    setEnableExperimentalEda(next);
+                    try {
+                      localStorage.setItem('apexcad_enable_experimental_eda', String(next));
+                    } catch {}
+                  }}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs hover:bg-[#14161b] transition text-zinc-200"
+                  title="Opt-in to experimental 2.5D MCM Silicon Semiconductor Packaging Tools"
+                >
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Enable Experimental EDA Tools</span>
+                  </div>
+                  <span className={`w-2 h-2 rounded-full ${enableExperimentalEda ? 'bg-rose-400 shadow-sm shadow-rose-400' : 'bg-zinc-700'}`} />
                 </button>
               </div>
             )}
