@@ -23,7 +23,7 @@ import {
 } from '../services/pbrMaterialService';
 import {
   DisplayUnit,
-  convertCoordsCmToDisplayUnit,
+  formatCoords,
   getGridSpacingText,
 } from '../services/unitConverter';
 
@@ -1337,18 +1337,11 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
                   </div>
 
                   {/* Part and Coordinates */}
-                  {(() => {
-                    const [px, py, pz] = convertCoordsCmToDisplayUnit(ann.position, displayUnit);
-                    return (
-                      <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 font-mono">
-                        <span className="text-sky-400">/{ann.partName}</span>
-                        <span className="text-slate-600">•</span>
-                        <span>
-                          ({px.toFixed(1)}, {py.toFixed(1)}, {pz.toFixed(1)}) {displayUnit}
-                        </span>
-                      </div>
-                    );
-                  })()}
+                  <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 font-mono">
+                    <span className="text-sky-400">/{ann.partName}</span>
+                    <span className="text-slate-600">•</span>
+                    <span>{formatCoords(ann.position, displayUnit, 1)}</span>
+                  </div>
 
                   {/* Expanded Content on Hover or Select */}
                   {(isSelected || isHovered) && (
@@ -1447,14 +1440,9 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
             </span>
             <span className="font-mono text-slate-400">/{hoverTooltip.partName}</span>
           </div>
-          {(() => {
-            const [hx, hy, hz] = convertCoordsCmToDisplayUnit(hoverTooltip.coords, displayUnit);
-            return (
-              <div className="font-mono text-[10px] text-emerald-400">
-                ({hx.toFixed(2)}, {hy.toFixed(2)}, {hz.toFixed(2)}) {displayUnit}
-              </div>
-            );
-          })()}
+          <div className="font-mono text-[10px] text-emerald-400">
+            {formatCoords(hoverTooltip.coords, displayUnit, 2)}
+          </div>
           <div className="text-[10px] text-slate-400 font-medium">Click to place callout pin</div>
         </div>
       )}

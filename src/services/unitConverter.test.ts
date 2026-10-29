@@ -64,11 +64,11 @@ describe('Unit Conversion Service (mm vs cm)', () => {
 
   describe('getGridSpacingText', () => {
     it('returns grid spacing description for mm display mode', () => {
-      expect(getGridSpacingText('mm')).toContain('10 mm');
+      expect(getGridSpacingText('mm')).toBe('1 unit = 10 mm');
     });
 
     it('returns grid spacing description for cm display mode', () => {
-      expect(getGridSpacingText('cm')).toContain('1 cm');
+      expect(getGridSpacingText('cm')).toBe('1 unit = 1 cm');
     });
   });
 });

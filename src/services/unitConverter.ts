@@ -55,11 +55,12 @@ export function formatCoords(
 }
 
 /**
- * Returns a human-readable grid spacing label for 3D viewport overlays.
+ * Returns a human-readable stage unit scale label for 3D viewport overlays.
+ * Internal stage is modeled in OpenUSD centimeters (metersPerUnit = 0.01).
  */
 export function getGridSpacingText(unit: DisplayUnit): string {
   if (unit === 'mm') {
-    return 'Grid: 10 mm spacing (1 unit = 10 mm)';
+    return '1 unit = 10 mm';
   }
-  return 'Grid: 1 cm spacing (1 unit = 1 cm)';
+  return '1 unit = 1 cm';
 }

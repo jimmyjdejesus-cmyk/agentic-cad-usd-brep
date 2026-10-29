@@ -158,6 +158,13 @@ export const App: React.FC = () => {
   const [hardwareSpecs, setHardwareSpecs] = useState<SystemHardwareResources>(() =>
     detectSystemHardwareResources()
   );
+  const [enableExperimentalEda, setEnableExperimentalEda] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('apexcad_enable_experimental_eda') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [showHarnessModal, setShowHarnessModal] = useState<boolean>(false);
   const [showToolsetsModal, setShowToolsetsModal] = useState<boolean>(false);
   const [showAmdEdaStudio, setShowAmdEdaStudio] = useState<boolean>(false);
@@ -194,7 +201,19 @@ export const App: React.FC = () => {
   );
 
   // Viewport Controls & PBR Rendering
-  const [displayUnit, setDisplayUnit] = useState<DisplayUnit>('mm');
+  const [displayUnit, setDisplayUnit] = useState<DisplayUnit>(() => {
+    try {
+      const saved = localStorage.getItem('apexcad_display_unit');
+      if (saved === 'cm' || saved === 'mm') return saved;
+    } catch {}
+    return 'mm';
+  });
+  const handleSetDisplayUnit = (unit: DisplayUnit) => {
+    setDisplayUnit(unit);
+    try {
+      localStorage.setItem('apexcad_display_unit', unit);
+    } catch {}
+  };
   const [showWireframe, setShowWireframe] = useState<boolean>(false);
   const [showBounds, setShowBounds] = useState<boolean>(false);
   const [showGrid, setShowGrid] = useState<boolean>(true);
@@ -1125,7 +1144,7 @@ export const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen w-screen bg-[#121316] text-zinc-100 overflow-hidden font-sans">
       {/* Sleek Top Navigation Bar: Project Context, Workspace Switcher, Unified Export */}
-      <header className="h-12 border-b border-[#272a34] bg-[#181a20]/95 px-4 flex items-center justify-between shrink-0 z-20 backdrop-blur-md">
+      <header className="h-12 border-b border-[#272a34] bg-[#181a20]/95 px-4 flex items-center justify-between shrink-0 z-30 backdrop-blur-md">
         {/* 1. Left (Project Context): Brand, Kernel Status, Preset */}
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-emerald-500 to-sky-500 flex items-center justify-center shadow-md shadow-emerald-500/20">
@@ -1332,17 +1351,20 @@ export const App: React.FC = () => {
             <span>3D CAD Studio</span>
           </button>
 
-          <button
-            onClick={() => setShowAmdEdaStudio(true)}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
-              showAmdEdaStudio
-                ? 'bg-rose-600 text-white shadow-sm shadow-rose-600/30 ring-1 ring-rose-400/30'
-                : 'text-zinc-400 hover:text-rose-300 hover:bg-[#1e2028]'
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5 text-rose-400" />
-            <span>AMD Silicon EDA</span>
-          </button>
+          {enableExperimentalEda && (
+            <button
+              onClick={() => setShowAmdEdaStudio(true)}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                showAmdEdaStudio
+                  ? 'bg-rose-600 text-white shadow-sm shadow-rose-600/30 ring-1 ring-rose-400/30'
+                  : 'text-zinc-400 hover:text-rose-300 hover:bg-[#1e2028]'
+              }`}
+              title="Experimental 2.5D MCM Semiconductor Packaging Studio"
+            >
+              <Zap className="w-3.5 h-3.5 text-rose-400" />
+              <span>AMD Silicon EDA</span>
+            </button>
+          )}
 
           <button
             onClick={() => setShowDevDrawer((v) => !v)}
@@ -1378,9 +1400,17 @@ export const App: React.FC = () => {
         {/* 3. Right: Viewport Display, Vault, Unified Export & Inspector Toggle */}
         <div className="flex items-center gap-2">
           {/* Global Display Unit Toggle (mm / cm) */}
-          <div className="flex items-center bg-[#14161b] border border-[#272a34] p-0.5 rounded-lg text-xs" title="Global Viewport Display Unit Mode (mm vs cm)">
+          <div
+            role="radiogroup"
+            aria-label="Display units"
+            className="flex items-center bg-[#14161b] border border-[#272a34] p-0.5 rounded-lg text-xs"
+            title="Global Viewport Display Unit Mode (mm vs cm)"
+          >
             <button
-              onClick={() => setDisplayUnit('mm')}
+              role="radio"
+              aria-checked={displayUnit === 'mm'}
+              aria-label="Millimeters"
+              onClick={() => handleSetDisplayUnit('mm')}
               className={`px-2 py-0.5 rounded text-[11px] font-semibold transition ${
                 displayUnit === 'mm'
                   ? 'bg-emerald-600 text-slate-950 shadow-sm'
@@ -1391,7 +1421,10 @@ export const App: React.FC = () => {
               mm
             </button>
             <button
-              onClick={() => setDisplayUnit('cm')}
+              role="radio"
+              aria-checked={displayUnit === 'cm'}
+              aria-label="Centimeters"
+              onClick={() => handleSetDisplayUnit('cm')}
               className={`px-2 py-0.5 rounded text-[11px] font-semibold transition ${
                 displayUnit === 'cm'
                   ? 'bg-emerald-600 text-slate-950 shadow-sm'
@@ -1482,9 +1515,16 @@ export const App: React.FC = () => {
                 {/* Display Unit Toggle */}
                 <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs bg-[#14161b] border border-[#272a34]">
                   <span className="text-zinc-300">Display Units</span>
-                  <div className="flex items-center bg-[#181a20] p-0.5 rounded-md border border-[#272a34]">
+                  <div
+                    role="radiogroup"
+                    aria-label="Display units"
+                    className="flex items-center bg-[#181a20] p-0.5 rounded-md border border-[#272a34]"
+                  >
                     <button
-                      onClick={() => setDisplayUnit('mm')}
+                      role="radio"
+                      aria-checked={displayUnit === 'mm'}
+                      aria-label="Millimeters"
+                      onClick={() => handleSetDisplayUnit('mm')}
                       className={`px-2 py-0.5 rounded text-[10px] font-medium transition ${
                         displayUnit === 'mm' ? 'bg-emerald-600 text-slate-950 font-bold shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                       }`}
@@ -1492,7 +1532,10 @@ export const App: React.FC = () => {
                       mm
                     </button>
                     <button
-                      onClick={() => setDisplayUnit('cm')}
+                      role="radio"
+                      aria-checked={displayUnit === 'cm'}
+                      aria-label="Centimeters"
+                      onClick={() => handleSetDisplayUnit('cm')}
                       className={`px-2 py-0.5 rounded text-[10px] font-medium transition ${
                         displayUnit === 'cm' ? 'bg-emerald-600 text-slate-950 font-bold shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                       }`}
@@ -1572,6 +1615,33 @@ export const App: React.FC = () => {
                     <span>Snap Pins to Vertices</span>
                   </div>
                   <span className={`w-2 h-2 rounded-full ${snapToVertex ? 'bg-indigo-400 shadow-sm shadow-indigo-400' : 'bg-zinc-700'}`} />
+                </button>
+
+                <div className="h-px bg-[#272a34] my-1" />
+
+                {/* Enable Experimental EDA Tools Toggle */}
+                <button
+                  role="switch"
+                  aria-checked={enableExperimentalEda}
+                  aria-label="Enable experimental EDA silicon packaging tools"
+                  onClick={() => {
+                    const next = !enableExperimentalEda;
+                    setEnableExperimentalEda(next);
+                    if (!next) {
+                      setShowAmdEdaStudio(false);
+                    }
+                    try {
+                      localStorage.setItem('apexcad_enable_experimental_eda', String(next));
+                    } catch {}
+                  }}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs hover:bg-[#14161b] transition text-zinc-200"
+                  title="Opt-in to experimental 2.5D MCM Silicon Semiconductor Packaging Tools"
+                >
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Enable Experimental EDA Tools</span>
+                  </div>
+                  <span className={`w-2 h-2 rounded-full ${enableExperimentalEda ? 'bg-rose-400 shadow-sm shadow-rose-400' : 'bg-zinc-700'}`} />
                 </button>
               </div>
             )}
