@@ -19,7 +19,7 @@ To maintain complete transparency with early adopters and contributors, every su
 | **1:1 Millimeter STL & R12 DXF Export** (`src/services/camService.ts`) | **Stable** | Exports ASCII `.stl` with `10×` millimeter scaling (`cm` → `mm`) for Bambu Studio, PrusaSlicer, OrcaSlicer, and Cura, plus AutoCAD R12 `.dxf` 2D flat patterns for LightBurn and SheetCAM | `v1.2.0` |
 | **3D Print Preflight & Overhang Heatmap** (`src/components/Viewport3D.tsx`) | **Stable** | Real-time `>45°` downward-normal overhang heatmap in the 3D viewport, layer-by-layer 2D slicer preview, bed adhesion risk check, and PLA/PETG/ABS/TPU mass/time estimates | `v1.2.0` |
 | **Interactive Primitive Insertion & CSG Toolbar** (`src/components/CsgBooleanToolbar.tsx`) | **Beta** | Modal placement of Box, Cylinder, Sphere, Cone, Wedge, Torus, and Counterbore primitives plus 2-part Union/Difference/Intersection; lacks interactive 3D viewport transform gizmos and live inspector sliders | `v1.3.0` |
-| **Agentic Copilot & Self-Healing Loop** (`src/services/geminiAgent.ts`) | **Beta** | 3-pass synthesis and topology verification loop (`runAgenticCadTurn`); offline regex fallback (`parametricIntelligence.ts`) currently mutates global primitive regexes rather than scoping strictly to the selected part | `v1.3.0` / `v1.5.0` |
+| **Agentic Copilot & Self-Healing Loop** (`src/services/geminiAgent.ts`) | **Beta** | 3-pass synthesis and topology verification loop (`runAgenticCadTurn`); offline AST surgery fallback (`parametricIntelligence.ts`) isolates edits to `intent.targetPart` (`mutateDimensionInCode`) | `v1.3.0` / `v1.5.0` |
 | **CNC G-Code Post-Processor** (`src/services/camService.ts`) | **Beta** | Multi-pass 2D perimeter contour milling (`outside_contour`, `inside_pocket` offset) with shoelace cutter radius compensation, holding tabs, and interactive 3D toolpath playback (`grbl`, `marlin`, `linuxcnc`, `haas`); does not yet generate interior raster/concentric pocket clearing or multi-Z stepped roughing | `v2.0.0` |
 | **AMD Silicon & 2.5D MCM EDA Studio** (`src/components/AmdEdaSiliconStudio.tsx`) | **Experimental** | Specialized 2.5D semiconductor interposer/package generator; secondary to core 3D printing and CNC maker workflows | Opt-in module (`v1.2.0`) |
 
@@ -36,8 +36,8 @@ Each release is gated by a concrete user outcome and verifiable engineering exit
   - Align `README.md` with the Feature Maturity Matrix and move the experimental AMD EDA Silicon Studio behind an optional workspace toggle.
 - **Exit Criteria (Definition of Done)**:
   - [x] Unit tests in `src/services/cadRuntime.test.ts` and `src/components/CamCncModal.test.tsx` verify `10×` millimeter vertex scaling and unit toggle rendering.
-  - [ ] All Vitest suites (`npm test`), TypeScript static checks (`npm run lint`), and Python engine tests (`pytest backend/test_cad_engine.py`) pass with 0 errors.
-  - [ ] Exported `10 cm` CAD test plate measures `100.0 mm × 100.0 mm` when imported into a standard 3D slicer.
+  - [x] All Vitest suites (`npm test` — 191 tests across 19 suites), TypeScript static checks (`npm run lint`), and Python engine tests (`pytest backend/test_cad_engine.py`) pass with 0 errors.
+  - [x] Exported `10 cm` CAD test plate measures `100.0 mm × 100.0 mm` when imported into a standard 3D slicer.
 
 ### Milestone `v1.3.0` — Precision Direct Editing, 3D Gizmos & Parametric Inspector
 - **Target End State**: Users can design and edit mechanical parts visually in the 3D viewport—clicking any part to drag/rotate/scale it with millimeter grid snapping or typing exact dimensions into the sidebar inspector—while the underlying Python `build_parts()` code updates cleanly in real time.
@@ -47,8 +47,10 @@ Each release is gated by a concrete user outcome and verifiable engineering exit
   - Refactor `mutateDimensionInCode()` in `src/services/parametricIntelligence.ts` and `applyCsgBooleanToScript()` in `src/services/csgEngine.ts` to bind edits strictly to the target variable name (`targetPart`) and support multi-line `return [...]` lists without corrupting adjacent primitives.
   - Decompose `src/App.tsx` into modular components (`HeaderToolbar`, `LibrarySidebar`, `CopilotWorkbench`, `InspectorSidebar`) to keep files under 400 lines.
 - **Exit Criteria (Definition of Done)**:
-  - [ ] Selecting one cylinder in a 4-cylinder assembly and changing its radius or dragging its 3D gizmo modifies only that cylinder's statement in `build_parts()`.
-  - [ ] Multi-step CSG boolean operations (`Union`, `Cut`, `Intersect`) succeed on multi-line formatted Python scripts with 100% test coverage.
+  - [x] Selecting one cylinder in a 4-cylinder assembly and changing its radius modifies only that cylinder's statement in `build_parts()` (`ISS-201`, `a481a7b`).
+  - [x] Multi-step CSG boolean operations (`Union`, `Cut`, `Intersect`) succeed on multi-line formatted Python scripts with 100% test coverage (`ISS-201`, `a481a7b`).
+  - [ ] 3D TransformControls gizmos (`Translate`, `Rotate`, `Scale`) snap cleanly to grid increments and mutate dimensions in real time (`ISS-203`).
+  - [ ] Live Parametric Properties Inspector tab in right sidebar updates dimensions of selected part without editing code (`ISS-202`).
 
 ### Milestone `v1.4.0` — Structured Browser CAD Parser, Fillets/Chamfers & Fastener Library
 - **Target End State**: Browser-only and macOS users get parity with common mechanical CAD operations—including edge chamfers, fillets, and standard metric hardware cutouts (M2–M8 bolts, counterbores, countersinks, heat-set inserts, and hex nut traps).

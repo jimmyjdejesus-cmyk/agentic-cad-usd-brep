@@ -69,7 +69,7 @@ flowchart TD
 
 ### 2.1 Layer 1: Model-Agnostic AI Provider Router & Hardware Gate
 
-Located at [`src/services/agnosticRouter.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/agnosticRouter.ts) and [`src/services/hermesHardwareService.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/hermesHardwareService.ts).
+Located at [`server.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/server.ts), [`src/services/geminiAgent.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/geminiAgent.ts), and [`src/services/appToolsAndSkills.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/appToolsAndSkills.ts).
 
 1. **Provider Independence**:
    - **Google Gemini**: Uses `@google/genai` with `gemini-3.8-flash` cascading to `gemini-2.5-pro` for deep parametric design.
@@ -126,7 +126,7 @@ ApexCAD Studio employs a dual-runtime strategy to eliminate crashes across diffe
   - Tessellation into `PolyBrep` mesh arrays with chord-height tolerance controls.
 
 #### Mode B: Client-Side WebAssembly CSG Kernel (`manifold-3d`)
-- **Engine**: WebAssembly build of `manifold-3d` via [`src/services/manifoldEngine.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/manifoldEngine.ts).
+- **Engine**: WebAssembly build of `manifold-3d` via [`src/services/cadRuntime.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/cadRuntime.ts).
 - **Zero-Crash Resilience**: Runs 100% in-browser on macOS Apple Silicon, Windows, Linux, and Google AI Studio iframe previews without requiring a local Python C++ environment.
 - **Capabilities**:
   - Watertight polygon mesh booleans with guaranteed 2-manifold output.
@@ -138,7 +138,7 @@ ApexCAD Studio employs a dual-runtime strategy to eliminate crashes across diffe
 
 ### 2.4 Layer 4: CAM, Toolpathing & Manufacturing Pipeline
 
-Located at [`src/services/camService.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/camService.ts) and [`src/services/dxfExporter.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/dxfExporter.ts).
+Located at [`src/services/camService.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/camService.ts).
 
 1. **Toolpath Generation Modes**:
    - **2D Contour Profiling**: Follows outer part silhouettes with cutter radius compensation (`G41`/`G42`).
@@ -208,3 +208,70 @@ Located at [`src/services/appToolsAndSkills.ts`](file:///Users/jimmy/Documents/R
 - **Quality Verification & Governance**:
   - 19 Vitest test suites (191 tests, 100% pass rate in ~1.7s).
   - Project milestones, epics, and sub-issues tracked via manifest with automated GitHub issue sync (`npm run issues:sync`).
+
+---
+
+## 3. Subsystem Data Flow Diagrams
+
+### 3.1 Dual-Runtime Geometric Execution Flow
+ApexCAD Studio routes script execution between Mode A (native Python C++ kernel) and Mode B (client-side WebAssembly) to guarantee zero crashes across all development platforms:
+
+```mermaid
+flowchart LR
+    Script["Python build_parts() Script"] --> Detect{"FastAPI Backend\nHealthy on :8000?"}
+    Detect -->|Yes (Linux/Win x86_64)| ModeA["Mode A: usd-brep Native C++"]
+    ModeA --> BrepEval["SMLib NURBS Solids\n& Boolean Operations"]
+    BrepEval --> Tessellate["sm.tessellate() -> PolyBrep"]
+    Tessellate --> StageExport["OpenUSD BrepArray\n& .usda Stage"]
+    StageExport --> Viewport["Three.js 3D Viewport"]
+
+    Detect -->|No / macOS / Sandbox| ModeB["Mode B: manifold-3d Wasm"]
+    ModeB --> ClientParse["Client-Side Geometric\nBlock Evaluator"]
+    ClientParse --> WasmCSG["manifold-3d 2-Manifold\nWatertight CSG"]
+    WasmCSG --> Stl10x["10x mm STL Export\n& Mesh Geometry"]
+    Stl10x --> Viewport
+```
+
+### 3.2 Model-Agnostic AI Prompt & Self-Healing Pipeline
+Prompt execution flows through hardware safety gates, dynamic provider routing, and a 3-pass manifold self-healing repair loop:
+
+```mermaid
+flowchart TD
+    User["User Prompt / Viewport Edit"] --> Harness["AI Router (server.ts)"]
+    Harness --> Gate{"canRunOnSystem()\nMemory Gate"}
+    Gate -->|OOM Risk| Reject["Block Execution & Warn User"]
+    Gate -->|Sufficient RAM| ProviderDispatch{"Selected Provider"}
+    ProviderDispatch -->|Local| Ollama["Local Socket\n(Ollama / vLLM / LM Studio)"]
+    ProviderDispatch -->|Cloud| Gemini["Google Gemini\n(3.8 Flash / 2.5 Pro)"]
+    ProviderDispatch -->|Offline Micro-Edit| AST["Deterministic AST Surgery\n(mutateDimensionInCode)"]
+    Ollama --> TurnEval["Evaluate Geometry"]
+    Gemini --> TurnEval
+    AST --> TurnEval
+    TurnEval --> ManifoldCheck{"Topology & Volume\nManifold Valid?"}
+    ManifoldCheck -->|Valid| Render["Render in 3D Viewport"]
+    ManifoldCheck -->|Breach / Degenerate| Heal["3x Self-Healing Repair\n(Clamp dims, Z=0 Clearance)"]
+    Heal --> TurnEval
+```
+
+### 3.3 CAM & Digital Fabrication Pipeline
+CAD models seamlessly translate into shop-ready manufacturing artifacts for CNC machining, 2D profile cutting, and 3D printing:
+
+```mermaid
+flowchart TD
+    PartMesh["Selected Part Geometry (cm)"] --> UnitConv["Unit Converter (cm -> mm)"]
+    UnitConv --> CAMChoice{"Target Manufacturing Process"}
+
+    CAMChoice -->|CNC Milling| ToolpathGen["CAM Toolpath Planner\n(2D Contour, Pocketing, Tabs)"]
+    ToolpathGen --> SimSteps["buildCncToolpathSimulationSteps()"]
+    SimSteps --> SimViewer["3D Toolpath Simulator & Motion Playback"]
+    ToolpathGen --> PostProc["RS-274 Post-Processor\n(Grbl, Marlin, LinuxCNC, Haas M06)"]
+    PostProc --> GCodeFile[".gcode / .nc File"]
+
+    CAMChoice -->|Laser / Waterjet| DxfGen["generateDxfProfile()\n(z=0 or sliceZ plane)"]
+    DxfGen --> DxfFile["AutoCAD R12 .dxf Vector Cut-Sheet"]
+
+    CAMChoice -->|3D Printing| SlicerCheck["Preflight Slicer & Overhang Analysis"]
+    SlicerCheck --> Heatmap[">45° Overhang Downward Normal Heatmap"]
+    SlicerCheck --> LayerPreview["2D Slicer Layer Breakdown"]
+    SlicerCheck --> Stl10x["10x Millimeter Watertight STL Export"]
+```

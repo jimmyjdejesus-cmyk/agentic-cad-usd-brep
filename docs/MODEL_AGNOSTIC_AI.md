@@ -4,7 +4,7 @@
 
 ApexCAD Studio is engineered with complete **AI Provider Independence**. While Google Gemini 3.8 Flash serves as the primary high-speed cloud orchestrator, the studio natively connects to local LLM engines, private OpenAI-compatible endpoints, and on-device WebGPU models.
 
-All provider routing and configuration is managed through [`src/services/agnosticRouter.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/agnosticRouter.ts) and the **AI Harness Modal** ([`src/components/AiHarnessModal.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/AiHarnessModal.tsx)).
+All provider routing and configuration is managed through [`server.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/server.ts), [`src/services/geminiAgent.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/geminiAgent.ts), and the **AI Harness Modal** ([`src/components/AiHarnessModal.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/AiHarnessModal.tsx)).
 
 ---
 
@@ -25,7 +25,7 @@ All provider routing and configuration is managed through [`src/services/agnosti
 
 ## 3. Hardware-Gated Memory Protection (`canRunOnSystem`)
 
-Located in [`src/services/hermesHardwareService.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/hermesHardwareService.ts).
+Located in [`src/services/appToolsAndSkills.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/appToolsAndSkills.ts).
 
 ### 3.1 The Problem: Host OOM Crashes
 Running large 7B, 14B, or 70B parameter models alongside WebGL/Three.js 3D CAD viewports can exhaust system memory, causing OS kernel page thrashing, browser crashes, or WebGL context loss.

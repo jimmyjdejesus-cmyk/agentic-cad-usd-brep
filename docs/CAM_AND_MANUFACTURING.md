@@ -4,7 +4,7 @@
 
 ApexCAD Studio features a native **Computer-Aided Manufacturing (CAM) and Digital Fabrication Engine** that transforms 3D CAD geometry into machine-ready toolpaths, CNC G-code, 2D vector DXF cut-sheets, and 3D printing preflight data.
 
-All CAM operations are accessible directly through the in-app **CAM Studio Modal** ([`src/components/CamModal.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/CamModal.tsx)) or programmatically via the agent tool `cad_generate_cam_toolpaths` ([`src/services/appToolsAndSkills.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/appToolsAndSkills.ts)).
+All CAM operations are accessible directly through the in-app **CAM Studio Modal** ([`src/components/CamCncModal.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/CamCncModal.tsx)) or programmatically via the agent tool `cad_generate_cam_toolpaths` ([`src/services/appToolsAndSkills.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/appToolsAndSkills.ts)).
 
 ---
 
@@ -75,7 +75,7 @@ Implemented via `buildCncToolpathSimulationSteps()` in [`src/services/camService
 
 ## 4. 2D Vector DXF Cut-Sheet Exporter
 
-Implemented in [`src/services/dxfExporter.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/dxfExporter.ts).
+Implemented in [`src/services/camService.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/camService.ts).
 
 ### 4.1 Format & Compatibility
 - Outputs standard **AutoCAD Release 12 (R12) DXF**, widely supported by:

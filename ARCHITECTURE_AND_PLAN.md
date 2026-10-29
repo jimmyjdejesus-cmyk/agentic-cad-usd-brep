@@ -48,12 +48,12 @@ flowchart TD
     end
 
     subgraph ServiceLayer["Client Service Layer (TypeScript)"]
-        Router["Model-Agnostic Provider Router (src/services/agnosticRouter.ts)"]
-        HardwareGate["Hardware & Memory Gate (src/services/hermesHardwareService.ts)"]
+        Router["Model-Agnostic Provider Router (server.ts & src/services/geminiAgent.ts)"]
+        HardwareGate["Hardware & Memory Gate (src/services/appToolsAndSkills.ts)"]
         ParametricAI["Parametric Intelligence & AST Surgery (src/services/parametricIntelligence.ts)"]
         CsgEngine["CSG Boolean Engine & Multi-Line Parser (src/services/csgEngine.ts)"]
         UnitConverter["Unit Converter Service (src/services/unitConverter.ts)"]
-        ManifoldCSG["Manifold-3D WebAssembly Engine (src/services/manifoldEngine.ts)"]
+        ManifoldCSG["Manifold-3D WebAssembly CSG Kernel (src/services/cadRuntime.ts)"]
         CAMService["CAM & 3D Simulation Service (src/services/camService.ts)"]
         RuntimeBridge["CAD Runtime Bridge (src/services/cadRuntime.ts)"]
     end

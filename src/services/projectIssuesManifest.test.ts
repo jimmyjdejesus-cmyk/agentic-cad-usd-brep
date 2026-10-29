@@ -45,7 +45,15 @@ describe('Project Milestones, Epics & Sub-Issues Manifest Suite', () => {
     const epic1 = manifest.epics.find((e: any) => e.id === 'EPIC-1');
     const ms1 = manifest.milestones.find((m: any) => m.id === 'M1');
     const epicMd = formatEpicMarkdown(epic1, ms1, manifest.subIssues, subMap);
+    // Both completed sub-issues in EPIC-1 render with checked boxes
     expect(epicMd).toContain('- [x] #11 — **`ISS-101`**');
-    expect(epicMd).toContain('- [ ] #12 — **`ISS-102`**');
+    expect(epicMd).toContain('- [x] #12 — **`ISS-102`**');
+
+    // Open sub-issues in EPIC-2 render with unchecked boxes
+    const epic2 = manifest.epics.find((e: any) => e.id === 'EPIC-2');
+    const ms2 = manifest.milestones.find((m: any) => m.id === 'M2');
+    const subMap2 = new Map([['ISS-202', 22]]);
+    const epic2Md = formatEpicMarkdown(epic2, ms2, manifest.subIssues, subMap2);
+    expect(epic2Md).toContain('- [ ] #22 — **`ISS-202`**');
   });
 });
