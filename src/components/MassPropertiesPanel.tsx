@@ -17,8 +17,10 @@ import {
 import { AssemblyMassProperties, MaterialPreset } from '../types/cad';
 import { MATERIAL_PRESETS } from '../services/massCalculator';
 import { MaterialDatabaseModal } from './MaterialDatabaseModal';
+import { DisplayUnit, convertCoordsCmToDisplayUnit } from '../services/unitConverter';
 
 interface MassPropertiesPanelProps {
+  displayUnit?: DisplayUnit;
   massProps: AssemblyMassProperties;
   selectedMaterial: MaterialPreset;
   customDensity: number | null;
@@ -29,6 +31,7 @@ interface MassPropertiesPanelProps {
 }
 
 export const MassPropertiesPanel: React.FC<MassPropertiesPanelProps> = ({
+  displayUnit = 'mm',
   massProps,
   selectedMaterial,
   customDensity,
@@ -44,8 +47,8 @@ export const MassPropertiesPanel: React.FC<MassPropertiesPanelProps> = ({
     customDensity ? String(customDensity) : String(selectedMaterial.density)
   );
 
-  const [comX, comY, comZ] = massProps.centerOfMass;
-  const [dimX, dimY, dimZ] = massProps.boundingBox.dimensions;
+  const [comX, comY, comZ] = convertCoordsCmToDisplayUnit(massProps.centerOfMass, displayUnit);
+  const [dimX, dimY, dimZ] = convertCoordsCmToDisplayUnit(massProps.boundingBox.dimensions, displayUnit);
 
   // Quick 4 materials explicitly highlighted by user
   const quickMaterials = [
@@ -255,7 +258,7 @@ export const MassPropertiesPanel: React.FC<MassPropertiesPanelProps> = ({
                   Center of Mass (Z-up)
                 </span>
                 <span className="text-[10px] text-amber-400/90 font-mono">
-                  [X, Y, Z] cm
+                  [X, Y, Z] {displayUnit}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-1 text-center font-mono text-xs">
@@ -282,21 +285,21 @@ export const MassPropertiesPanel: React.FC<MassPropertiesPanelProps> = ({
                   Bounding Box Dimensions
                 </span>
                 <span className="text-[10px] text-emerald-400/90 font-mono">
-                  W × D × H
+                  W × D × H ({displayUnit})
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-1 text-center font-mono text-xs">
                 <div className="bg-slate-950/80 rounded px-1.5 py-1 border border-slate-800">
                   <span className="text-[10px] text-slate-400 block">W (X)</span>
-                  <span className="text-slate-100 font-medium">{dimX.toFixed(1)} cm</span>
+                  <span className="text-slate-100 font-medium">{dimX.toFixed(1)} {displayUnit}</span>
                 </div>
                 <div className="bg-slate-950/80 rounded px-1.5 py-1 border border-slate-800">
                   <span className="text-[10px] text-slate-400 block">D (Y)</span>
-                  <span className="text-slate-100 font-medium">{dimY.toFixed(1)} cm</span>
+                  <span className="text-slate-100 font-medium">{dimY.toFixed(1)} {displayUnit}</span>
                 </div>
                 <div className="bg-slate-950/80 rounded px-1.5 py-1 border border-slate-800">
                   <span className="text-[10px] text-slate-400 block">H (Z)</span>
-                  <span className="text-slate-100 font-medium">{dimZ.toFixed(1)} cm</span>
+                  <span className="text-slate-100 font-medium">{dimZ.toFixed(1)} {displayUnit}</span>
                 </div>
               </div>
               <div className="text-[10px] text-slate-400 font-mono flex items-center justify-between pt-0.5">
