@@ -156,4 +156,12 @@ describe('CamCncModal Accessibility Suite', () => {
     expect(html).toContain('aria-describedby="cam-holding-tabs-desc"');
     expect(html).toContain('id="cam-holding-tabs-desc"');
   });
+
+  it('renders 3D printing export controls and slicer compatibility elements', () => {
+    const html = renderToStaticMarkup(
+      <CamCncModal {...defaultProps} isOpen={true} />
+    );
+    expect(html).toContain('3. 3D Print Preparation (STL)');
+    expect(html).toContain('tab-3d_printing');
+  });
 });

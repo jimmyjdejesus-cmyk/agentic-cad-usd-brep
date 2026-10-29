@@ -1,0 +1,48 @@
+name: Sync Project Milestones, Epics & Sub-Issues
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run in dry-run mode without mutating GitHub Issues/Milestones'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+  push:
+    branches: [main, dev]
+    paths:
+      - 'scripts/project-issues-manifest.json'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sync-issues-and-milestones:
+    name: Verify & Sync Milestones, Epics & Sub-Issues
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify Manifest Integrity & Dependency Graph
+        run: node scripts/sync-project-issues.mjs verify
+
+      - name: Sync Labels, Milestones, Epics & Linked Sub-Issues to GitHub
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            node scripts/sync-project-issues.mjs sync --dry-run
+          else
+            node scripts/sync-project-issues.mjs sync
+          fi

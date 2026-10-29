@@ -16,7 +16,10 @@
     "test:visual": "node scripts/full-visual-and-frontend-test.mjs",
     "release:check": "node scripts/release-manager.mjs check",
     "release:changelog": "node scripts/release-manager.mjs changelog",
-    "release:bump": "node scripts/release-manager.mjs bump"
+    "release:bump": "node scripts/release-manager.mjs bump",
+    "issues:list": "node scripts/sync-project-issues.mjs list",
+    "issues:verify": "node scripts/sync-project-issues.mjs verify",
+    "issues:sync": "node scripts/sync-project-issues.mjs sync"
   },
   "dependencies": {
     "@google/genai": "^2.3.0",

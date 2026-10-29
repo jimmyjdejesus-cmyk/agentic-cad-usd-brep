@@ -73,13 +73,13 @@ ApexCAD Studio is engineered for agility, crash resilience, and cross-platform f
 - **3D Surface & Vertex Annotations**: Place interactive 3D pins on geometric features with snap-to-vertex, leader lines, resolution toggling, and camera focus.
 
 ### 3. CAM, CNC G-Code & Digital Fabrication Studio
-- **Toolpath Strategies**: 2D Contour Profiling (`G41`/`G42` cutter radius compensation), Pocket Clearing (raster and concentric stepovers), Waterline Z-Level Roughing, and Ballnose Surface Finishing.
-- **CNC G-Code Post-Processor**: Standard RS-274 / LinuxCNC compliant G-code generation with configurable feed rates, spindle speed (`M03`), and tool clearance planes.
-- **2D Vector DXF Cut-Sheet Exporter**: AutoCAD R12 DXF output for CNC laser, plasma, and waterjet cutters.
-- **3D Printing Preflight**: Automated slicing preflight with layer counts ($0.12 - 0.28\text{ mm}$), build time estimates, and filament mass calculation.
+- **2.5D Perimeter Toolpaths (Beta)**: Multi-pass 2D outside contour and inside pocket perimeter offset milling with shoelace cutter radius compensation, holding tabs, and interactive 3D toolpath simulation (*full interior raster/concentric pocket clearing and multi-Z waterline roughing scheduled for `v2.0.0` — see [ROADMAP.md](ROADMAP.md)*).
+- **CNC G-Code Post-Processor (Beta)**: Standard RS-274 (`Grbl`, `Marlin`, `LinuxCNC`, `Haas`) G-code generation with configurable feed rates, plunge rates, spindle speed (`M03`), and safe Z clearance planes.
+- **2D Vector DXF Cut-Sheet Exporter (Stable)**: AutoCAD R12 ASCII DXF output (`mm` units) for CNC laser, plasma, waterjet, and router tables.
+- **True-Scale 3D Printing Preflight & STL Export (Stable)**: `10×` millimeter STL scaling (`cm` → `mm`) for direct 1:1 import into Bambu Studio, PrusaSlicer, OrcaSlicer, and Cura, plus real-time `>45°` overhang heatmaps, 2D layer slicing preview, and PLA/PETG/ABS/TPU mass estimates.
 
-### 4. AMD Silicon & EDA Multi-Chip Module (MCM) Studio
-- Synthesize 2.5D semiconductor packaging assemblies including organic substrate BGA, silicon interposer, logic core die, HBM3 cache stacks, and copper integrated heat spreader (IHS) from circuit netlists.
+### 4. AMD Silicon & EDA Multi-Chip Module (MCM) Studio *(Experimental)*
+- Optional domain module for synthesizing 2.5D semiconductor packaging assemblies (organic substrate BGA, silicon interposer, logic core die, HBM3 cache stacks, and copper IHS) from circuit netlists.
 
 ### 5. Official NVIDIA `usd-brep` Guide Explorer
 - Bundles all **36 official guides, skills, `.pyi` type stubs, and example scripts** from [`NVIDIA-Omniverse/usd-brep`](https://github.com/NVIDIA-Omniverse/usd-brep) inside [`docs/nvidia-usd-brep/`](docs/nvidia-usd-brep/), searchable directly in-app.
@@ -204,12 +204,15 @@ Continuous Integration is automated via GitHub Actions in [`.github/workflows/ci
 
 ---
 
-## Documentation Links
+## Documentation & Maintainer Governance
 
+- 🗺️ [Product Roadmap & Release End States (`ROADMAP.md`)](ROADMAP.md) — Feature Maturity Matrix (`Stable`, `Beta`, `Experimental`, `Planned`), release milestones (`v1.2.0` → `v2.0.0`), exit criteria, and maker benchmark fixtures.
+- 🎯 [Project Milestones, Epics, Sub-Issues & Dependency Tracker (`docs/PROJECT_MILESTONES_AND_ISSUES.md`)](docs/PROJECT_MILESTONES_AND_ISSUES.md) — Full 5-milestone, 5-epic, 20-sub-issue tracking matrix with cross-issue dependency graph and GitHub sync CLI (`npm run issues:sync`).
+- 🤝 [Contributor Guide (`CONTRIBUTING.md`)](CONTRIBUTING.md) — Local setup, `cm` vs. `mm` unit conventions, `dev` → `main` PR rules, and high-impact "Good First Issues".
 - 🌿 [Branching Strategy & Release Lifecycle Guide](docs/BRANCHING_AND_RELEASES.md) — Dual-branch flow (`dev` & `main`), no-commit policy, automated scheduled releases, SemVer calculation, and publishing.
 - 🏛️ [System Architecture Specification](docs/ARCHITECTURE.md) — Comprehensive layer-by-layer architectural breakdown, hardware memory gating formulas, and kernel interfaces.
-- 🧪 [TDD & Quality Assurance Guide](docs/TDD_AND_TESTING.md) — Test-Driven Development methodology, detailed catalog of all 15 test suites (160 tests), and regression testing protocols.
-- ⚙️ [CAM, CNC G-Code & Digital Fabrication Guide](docs/CAM_AND_MANUFACTURING.md) — Toolpath strategies (Profiling, Pocketing, Waterline, Finishing), RS-274 G-Code dialect, and 2D DXF cut-sheet export.
+- 🧪 [TDD & Quality Assurance Guide](docs/TDD_AND_TESTING.md) — Test-Driven Development methodology, detailed catalog of all 15 test suites (162 unit tests), and regression testing protocols.
+- ⚙️ [CAM, CNC G-Code & Digital Fabrication Guide](docs/CAM_AND_MANUFACTURING.md) — Toolpath strategies, RS-274 G-Code dialect, and 2D DXF cut-sheet export.
 - 🧠 [Model-Agnostic AI & Hardware Gating Guide](docs/MODEL_AGNOSTIC_AI.md) — Multi-provider configuration (Ollama, LM Studio, vLLM, Groq, Together, Hugging Face Hub), memory gating calculations, and OOM prevention.
 - 📋 [Pull Request Template](.github/pull_request_template.md) — Engineering validation checklist and testing requirements for PR submissions.
 
