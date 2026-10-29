@@ -1373,6 +1373,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
                                   : 'text-slate-400 hover:text-emerald-400 bg-slate-800'
                               }`}
                               title={ann.resolved ? 'Mark Unresolved' : 'Mark Inspected / Resolved'}
+                              aria-label={ann.resolved ? 'Mark Unresolved' : 'Mark Inspected / Resolved'}
                             >
                               <Check className="w-3 h-3" />
                             </button>
@@ -1385,6 +1386,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
                               }}
                               className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 transition"
                               title="Edit Annotation"
+                              aria-label="Edit Annotation"
                             >
                               <Edit2 className="w-3 h-3" />
                             </button>
@@ -1397,6 +1399,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
                               }}
                               className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-rose-400 transition"
                               title="Delete Annotation"
+                              aria-label="Delete Annotation"
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
