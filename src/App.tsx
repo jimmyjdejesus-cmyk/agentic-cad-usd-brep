@@ -1537,9 +1537,15 @@ export const App: React.FC = () => {
 
                 {/* Enable Experimental EDA Tools Toggle */}
                 <button
+                  role="switch"
+                  aria-checked={enableExperimentalEda}
+                  aria-label="Enable experimental EDA silicon packaging tools"
                   onClick={() => {
                     const next = !enableExperimentalEda;
                     setEnableExperimentalEda(next);
+                    if (!next) {
+                      setShowAmdEdaStudio(false);
+                    }
                     try {
                       localStorage.setItem('apexcad_enable_experimental_eda', String(next));
                     } catch {}
