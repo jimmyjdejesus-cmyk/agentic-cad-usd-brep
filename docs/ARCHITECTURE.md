@@ -10,15 +10,19 @@ flowchart TD
         UI_Prompt["Agentic Chat & Prompt Workbench"]
         UI_Tabs["Engineering Inspector\n(Parts, Mass, Annotations, Explode)"]
         UI_Viewport["Three.js 3D Viewport (Z-Up, Orbit, Wireframe)"]
-        UI_CAM["CAM Studio & Fabrication Modal"]
+        UI_Dim["Floating Dimension Readout & Unit Toggle\n(mm vs. cm)"]
+        UI_CAM["CAM Studio & Fabrication Modal\n(3D Toolpath Sim, Overhang Heatmap, Slicer)"]
         UI_Harness["Model-Agnostic AI Harness & Hardware Gate"]
+        UI_EDA["Opt-In Experimental EDA Studio\n(2.5D MCM Semiconductor Packaging)"]
     end
 
     subgraph Intelligence_Layer["AI & Parametric Intelligence Engine"]
         Router["Model-Agnostic Provider Router\n(Gemini 3.8 Flash, Ollama, vLLM, LM Studio, Groq, Together)"]
-        HardwareGate["Hardware & Memory Gate\n(RAM, VRAM, 1.5GB Viewport Reservation)"]
-        AST_Surgery["Parametric Intelligence Engine\n(NLU Intent Decomposition & AST-like Surgery)"]
+        HardwareGate["Hermes Hardware & Memory Gate\n(RAM, VRAM, 1.5GB Viewport Reservation)"]
+        AST_Surgery["Parametric Intelligence & AST Surgery\n(Target-Scoped mutateDimensionInCode)"]
+        CSG_Engine["CSG Boolean Engine\n(applyCsgBooleanToScript Multi-Line Return Parser)"]
         SelfHealing["3x Manifold Self-Healing Loop\n(Dimension Clamping, Z=0 Clearance)"]
+        UnitConverter["Unit Converter Service\n(Bidirectional mm <-> cm, formatting)"]
     end
 
     subgraph Kernel_Layer["Dual-Runtime Geometric Solid Modeling"]
@@ -30,28 +34,33 @@ flowchart TD
         subgraph Mode_B["Mode B: Client-Side CSG Kernel (Wasm)"]
             ManifoldWasm["Manifold-3D WebAssembly CSG Engine"]
             ThreeSynth["Client-Side Three.js Geometric Evaluator"]
-            StlExport["Watertight Binary STL Exporter (Exact Normals)"]
+            StlExport["Watertight Binary STL Exporter (Exact Normals, 10x mm Scaling)"]
         end
     end
 
     subgraph Manufacturing_Layer["CAM & Digital Fabrication Pipeline"]
         Toolpaths["CAM Toolpath Generator\n(2D Profiling, Pocketing, Waterline, Finishing)"]
-        GCode["RS-274 / LinuxCNC G-Code Post-Processor"]
-        DXF["2D Vector DXF Cut-Sheet Exporter"]
-        Slicer["3D Printing Preflight & Layer Slicing Estimator"]
+        SimToolpaths["3D Toolpath Simulator & Motion Path Builder\n(Rapid G00, Feed G01, Holding Tabs)"]
+        GCode["RS-274 / LinuxCNC / Haas G-Code Post-Processor"]
+        DXF["2D Vector DXF Cut-Sheet Exporter (AutoCAD R12)"]
+        Slicer["3D Printing Preflight & Layer Slicing Estimator\n(>45° Overhang Heatmap, Slicer Layers)"]
     end
 
     UI_Prompt --> Router
     Router --> HardwareGate
     HardwareGate --> AST_Surgery
-    AST_Surgery --> SelfHealing
+    AST_Surgery --> CSG_Engine
+    CSG_Engine --> SelfHealing
     SelfHealing --> Mode_A
     SelfHealing --> Mode_B
     Mode_A --> UI_Viewport
     Mode_B --> UI_Viewport
+    UI_Viewport --> UI_Dim
+    UI_Dim --> UnitConverter
     UI_Viewport --> UI_Tabs
     UI_Viewport --> Manufacturing_Layer
     Manufacturing_Layer --> UI_CAM
+    Toolpaths --> SimToolpaths
 ```
 
 ---
@@ -77,19 +86,23 @@ Located at [`src/services/agnosticRouter.ts`](file:///Users/jimmy/Documents/Repo
 
 ---
 
-### 2.2 Layer 2: Parametric Intelligence & Self-Healing Loop
+### 2.2 Layer 2: Parametric Intelligence, AST Code Surgery & CSG Booleans
 
-Located at [`src/services/parametricIntelligence.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/parametricIntelligence.ts) and [`src/services/geminiAgent.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/geminiAgent.ts).
+Located at [`src/services/parametricIntelligence.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/parametricIntelligence.ts), [`src/services/csgEngine.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/csgEngine.ts), and [`src/services/geminiAgent.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/geminiAgent.ts).
 
 1. **Natural Language Intent Decomposition**:
-   - Parses engineering modifications from natural language (e.g., "enlarge bore to 25mm", "bore 4 mounting holes through flanges", "scale height by 1.5x", "remove internal ribs").
+   - Parses engineering modifications from natural language prompts (e.g., "enlarge bore to 25mm", "bore 4 mounting holes through flanges", "scale height of boss_cyl by 1.5x", "remove internal ribs").
    - Identifies operations: `SCALE_DIMENSION`, `BORE_HOLE`, `ADD_FEATURE`, `ROTATE_AXIS`, `TRANSLATE_OFFSET`, `DELETE_PART`.
 
-2. **AST-Like Script Surgery**:
-   - Operates on both Python `usd_brep` syntax (`sm.make_cylinder(...)`, `sm.boolean_difference(...)`) and client-side geometric generator definitions.
-   - Performs clean parameter substitution while maintaining syntactic validity and import statements.
+2. **Target-Scoped AST-Like Code Surgery (`mutateDimensionInCode`)**:
+   - Isolates the exact variable assignment bound to `intent.targetPart` (e.g., `boss_cyl = sm.make_cylinder(...)`), ensuring that modifications to a part in a multi-part assembly leave sibling parts intact.
+   - Centers subtractive operations (`injectBoreOrPocket()`) on the target part's computed bounding center $(c_x, c_y)$ across its full vertical $Z$ span.
 
-3. **Autonomous 3-Stage Manifold Self-Healing**:
+3. **Multi-Line CSG Boolean Engine (`applyCsgBooleanToScript`)**:
+   - Safely parses and modifies multi-line `return [...]` array lists with trailing commas, line breaks, and inline comments.
+   - Computes constructive solid geometry combinations (`sm.boolean_union()`, `sm.boolean_difference()`, `sm.boolean_intersection()`) with dictionary key remapping for explosion and timeline animations.
+
+4. **Autonomous 3-Stage Manifold Self-Healing**:
    - If a solid operation produces an unclosed or non-manifold mesh, non-positive volume, or interpenetration breach:
      - **Stage 1 (Dimension Clamping)**: Adjusts degenerate parameters ($d \le 0$) to minimum physical thresholds ($1.0\text{ cm}$) while preserving origin coordinate tuples.
      - **Stage 2 (Penetration Clearance Elevation)**: Preserves ground-plane anchors ($z=0$) while adjusting upper stacked components upward to clear interpenetration collisions.
@@ -118,7 +131,7 @@ ApexCAD Studio employs a dual-runtime strategy to eliminate crashes across diffe
 - **Capabilities**:
   - Watertight polygon mesh booleans with guaranteed 2-manifold output.
   - Computes exact outward facet normals for clean 3D printing slicing.
-  - Generates binary and ASCII `.stl` files directly from memory buffers.
+  - **True-Scale Slicer Scaling**: Generates binary and ASCII `.stl` files with `10×` millimeter scaling (`unitScale = 10.0`) for direct 1:1 import into Bambu Studio, PrusaSlicer, OrcaSlicer, and Cura.
   - Supports individual part isolation and per-part download.
 
 ---
@@ -133,20 +146,26 @@ Located at [`src/services/camService.ts`](file:///Users/jimmy/Documents/Repos/CA
    - **Waterline Z-Level Roughing**: Slices 3D geometry into discrete horizontal $Z$ planes with incremental stepdown.
    - **Ballnose 3D Surface Finishing**: Scans continuous complex curved surfaces for high surface finish.
 
-2. **CNC G-Code Post-Processor**:
-   - Produces standard RS-274 / LinuxCNC compliant G-code:
+2. **3D CNC Toolpath Simulation & Motion Path Builder**:
+   - Generates simulated motion steps with feed, speed, and axis bounds tracking.
+   - Visualizes rapid positioning (`G00`), linear feeds (`G01`), spindle activations (`M03`), and holding tabs in the 3D viewport.
+
+3. **CNC G-Code Post-Processor**:
+   - Produces standard RS-274 / LinuxCNC / Haas compliant G-code:
      - Rapid positioning: `G00`
      - Linear feed moves: `G01`
      - Arc interpolation: `G02` (CW), `G03` (CCW)
      - Spindle and coolant controls: `M03`, `M05`, `M08`, `M09`, `M30`
+     - Industrial controller dialect support: Grbl, Marlin, LinuxCNC, and Haas (with `M06` tool change sequences).
    - Incorporates tool diameter, spindle RPM, plunge feed rate, and cutting feed rate parameters.
 
-3. **2D Vector DXF Cut-Sheet Exporter**:
+4. **2D Vector DXF Cut-Sheet Exporter**:
    - Projects 3D B-Rep horizontal cross-sections onto 2D $XY$ plane.
    - Outputs industry-standard AutoCAD Release 12 (R12) DXF with `ENTITIES` section containing `LINE` and `POLYLINE` blocks for laser, plasma, and waterjet cutters.
 
-4. **3D Printing Preflight & Slicing Estimator**:
+5. **3D Printing Preflight & Slicing Estimator**:
    - Analyzes watertight manifoldness, overhang angles ($>45^\circ$), and bounding volume.
+   - Real-time downward normal heatmap highlights overhang regions requiring support structures.
    - Computes layer counts for $0.12\text{ mm}$, $0.20\text{ mm}$, and $0.28\text{ mm}$ layer heights.
    - Estimates print duration, filament mass (grams), and bed temperatures based on material presets.
 
@@ -154,22 +173,26 @@ Located at [`src/services/camService.ts`](file:///Users/jimmy/Documents/Repos/CA
 
 ### 2.5 Layer 5: Interactive 3D Viewport & Engineering Workspace
 
-Located at [`src/components/Viewport3D.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/Viewport3D.tsx) and [`src/App.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/App.tsx).
+Located at [`src/components/Viewport3D.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/Viewport3D.tsx), [`src/services/unitConverter.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/unitConverter.ts), and [`src/App.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/App.tsx).
 
 - **Three.js Z-Up Coordinate System**: Matches standard CAD conventions ($Z$ pointing upward, $XY$ ground plane).
+- **Floating Dimension Readout & Unit Toggle (`mm` vs. `cm`)**:
+  - Live floating overlay displaying part bounding dimensions ($W \times D \times H$) in real time.
+  - Interactive unit switch (`mm` default for makers vs. `cm` OpenUSD default) with dynamic coordinate formatting.
 - **Interactive OrbitControls**: Smooth dampening, pan, zoom, and orthographic camera views (Top, Front, Right, Isometric).
 - **Physical PBR Rendering**: Realistic metallic and dielectric materials with roughness, normal maps, and ambient occlusion.
 - **Docked Tabbed Inspector**:
   - **Parts Tree**: Per-part visibility toggle, isolation mode, and synchronized multi-layer renaming.
   - **Mass Properties Calculator**: Dynamic center-of-mass (CoM) marker, volume, and mass for 8 industrial materials.
-  - **3D Annotations Dock**: Interactive vertex-snapped annotation pins with leader lines and camera focus.
+  - **3D Annotations Dock**: Interactive vertex-snapped annotation pins with leader lines, WAI-ARIA labels, and camera focus.
   - **Explosion Timeline**: Keyframe-scrubbed assembly disassembly animation.
+- **Opt-In Experimental EDA Studio**: Modular 2.5D semiconductor packaging module (BGA substrate, silicon interposer, logic core die, HBM3 cache stacks, copper IHS) isolated behind workspace settings.
 
 ---
 
 ### 2.6 Layer 6: In-App Agent Tools & API Automation
 
-Located at [`src/services/appToolsAndSkills.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/appToolsAndSkills.ts) and [`server.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/server.ts).
+Located at [`src/services/appToolsAndSkills.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/appToolsAndSkills.ts), [`server.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/server.ts), and [`scripts/sync-project-issues.mjs`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/scripts/sync-project-issues.mjs).
 
 - **Tool Calling Catalog**: Agent tools registered for autonomous invocation:
   - `cad_synthesize_geometry`: Generates B-Rep CAD assets from prompts.
@@ -182,3 +205,6 @@ Located at [`src/services/appToolsAndSkills.ts`](file:///Users/jimmy/Documents/R
   - `POST /api/agent/turn`: Multi-provider LLM inference endpoint with `testOnly` connectivity probe mode.
   - `GET /api/hardware/profile`: Returns host CPU cores, memory stats, and platform architecture.
   - `GET /api/huggingface/search`: Proxies Hugging Face Hub searches for local GGUF models.
+- **Quality Verification & Governance**:
+  - 19 Vitest test suites (191 tests, 100% pass rate in ~1.7s).
+  - Project milestones, epics, and sub-issues tracked via manifest with automated GitHub issue sync (`npm run issues:sync`).

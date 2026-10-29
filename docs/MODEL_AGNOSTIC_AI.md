@@ -77,3 +77,22 @@ Users can search for any GGUF model directly within the CAD Studio UI:
 - Queries the Hugging Face Hub API via backend proxy: `GET /api/huggingface/search?q={query}&limit=12`.
 - Automatically parses file names to detect quantization tiers (`Q4_K_M`, `Q5_K_M`, `Q8_0`, `FP16`).
 - Computes estimated download sizes and hardware compatibility scores on the fly.
+
+---
+
+## 6. Target-Scoped AST Code Surgery & Deterministic Offline Fallback
+
+When operating without an active cloud LLM or when performing rapid micro-edits directly from viewport interactions:
+- **`mutateDimensionInCode`**: Injects parametric dimension changes by locating the exact variable bound to `intent.targetPart` (e.g. `cyl_2 = sm.make_cylinder(...)`), eliminating cross-part side effects.
+- **`injectBoreOrPocket`**: Automatically centers subtractive operations on the target part's computed bounding center $(c_x, c_y)$ across its full vertical span.
+- **`applyCsgBooleanToScript`**: Parses multi-line formatted `return [...]` lists, dictionary remappings, and trailing commas without breaking Python syntax or assembly explosion animations.
+
+---
+
+## 7. Testing & Verification Suites
+
+Model-agnostic routing, hardware gating, and offline AST surgery are validated across dedicated Vitest suites:
+- [`src/server.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/server.test.ts) (16 tests): Validates multi-provider endpoints, `testOnly` connection probing, and Hugging Face Hub search proxying.
+- [`src/services/appToolsAndSkills.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/appToolsAndSkills.test.ts) (27 tests): Validates Hermes hardware estimators, memory saturation gates, and agent tool registrations.
+- [`src/services/geminiAgent.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/geminiAgent.test.ts) (10 tests): Validates model cascading, 3x self-healing prompt loops, and error injection.
+- [`src/services/parametricIntelligence.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/parametricIntelligence.test.ts) (17 tests): Validates target-scoped AST surgery and auto-repair.

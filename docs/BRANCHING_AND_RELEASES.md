@@ -22,7 +22,7 @@ flowchart TD
     end
 
     subgraph Integration_Branch["Active Integration Branch"]
-        DEV["dev branch (protected)\n• 15+ Vitest suites\n• TypeScript lint (0 errors)\n• Python pytest\n• Security audit"]
+        DEV["dev branch (protected)\n• 19 Vitest suites (191 tests)\n• TypeScript lint (0 errors)\n• Python pytest\n• Security audit"]
     end
 
     subgraph Scheduled_Automation["Automated Scheduled Release System"]

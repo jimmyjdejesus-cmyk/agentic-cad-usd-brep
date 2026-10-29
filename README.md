@@ -1,7 +1,7 @@
 # ApexCAD Studio — NVIDIA `usd-brep` Agentic CAD Studio
 
 [![CI Matrix](https://github.com/jimmyjdejesus-cmyk/agentic-cad-usd-brep/actions/workflows/ci.yml/badge.svg)](https://github.com/jimmyjdejesus-cmyk/agentic-cad-usd-brep/actions/workflows/ci.yml)
-[![Vitest](https://img.shields.io/badge/Vitest-160%20Tests%20Passing-brightgreen.svg)](docs/TDD_AND_TESTING.md)
+[![Vitest](https://img.shields.io/badge/Vitest-191%20Tests%20Passing-brightgreen.svg)](docs/TDD_AND_TESTING.md)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18.3-cyan.svg)](https://react.dev/)
 [![OpenUSD](https://img.shields.io/badge/OpenUSD-24.08-green.svg)](https://openusd.org/)
@@ -22,11 +22,13 @@ ApexCAD Studio is engineered for agility, crash resilience, and cross-platform f
 ├───────────────────────┬──────────────────────────┬─────────────────────────┤
 │  Pane 1: CAD Library  │  Pane 2: Agentic Workbench│  Pane 3: 3D USD Viewport│
 │  • Geometric Archetypes│ • Gemini 3.8 Flash Agent│  • Three.js Orbit/Grid  │
-│  • Parametric Gallery │ • Model-Agnostic Router  │  • Docked Inspector:    │
-│  • Versioned Designs  │ • Hardware Memory Gate   │    Parts, Mass, 3D Pins │
-│  • In-App Agent Tools │ • 3x Self-Healing Loop   │  • CAM & G-Code Studio  │
-│  • Primitive Shaper   │ • Python Code Editor     │  • 1-Click Export:      │
-│    (Box, Cyl, Sphere) │ • Topology Diagnostics   │    USD, STL, DXF, GCode │
+│  • Parametric Gallery │ • Model-Agnostic Router  │  • Dimension Readout:   │
+│  • Versioned Designs  │ • Hardware Memory Gate   │    Floating (mm vs. cm) │
+│  • In-App Agent Tools │ • 3x Self-Healing Loop   │  • Overhang Heatmap >45°│
+│  • Primitive Shaper   │ • Target-Scoped AST Edit │  • Slicer Layer Preflight│
+│    (Box, Cyl, Sphere) │ • Multi-Line CSG Boolean │  • Docked Inspector:    │
+│  • Opt-In EDA Studio  │ • Python Code Editor     │    Parts, Mass, 3D Pins │
+│    (2.5D MCM Package) │ • Topology Diagnostics   │  • CAM & G-Code Studio  │
 └───────────┬───────────┴─────────────┬────────────┴────────────┬────────────┘
             │                         │                         │
             ▼                         ▼                         ▼
@@ -36,9 +38,9 @@ ApexCAD Studio is engineered for agility, crash resilience, and cross-platform f
    │ Runs in `.venv-usd-brep` (Py 3.12) │      │ Runs 100% in-browser        │
    │ • Real `import usd_brep as sm`     │      │ • Watertight 2-manifold CSG │
    │ • Exact NURBS booleans, fillets,   │      │ • Exact outward normals     │
-   │   sweeps, curves, surfaces         │      │ • Individual part download  │
-   │ • `sm.tessellate()` → `PolyBrep`   │      │ • Zero-crash offline        │
-   │ • `sm.usd.export_brep()` & `.usda` │      │   reliability               │
+   │   sweeps, curves, surfaces         │      │ • 10x Millimeter Slicer STL │
+   │ • `sm.tessellate()` → `PolyBrep`   │      │ • Individual part download  │
+   │ • `sm.usd.export_brep()` & `.usda` │      │ • Zero-crash offline        │
    └────────────────────────────────────┘      └─────────────────────────────┘
 ```
 
@@ -47,7 +49,7 @@ ApexCAD Studio is engineered for agility, crash resilience, and cross-platform f
    - Computes exact analytic NURBS boundary representations, circular filleting, sweeps, boolean operations, OpenUSD `BrepArray` export, and tolerance-controlled tessellation.
 2. **Mode B: Client-Side WebAssembly CSG Kernel (`manifold-3d`)**:
    - Executes 100% in-browser on macOS (Apple Silicon), Linux, Windows, or within Google AI Studio preview sandboxes without requiring a local Python C++ toolchain.
-   - Computes watertight constructive solid geometry (CSG), exact outward facet normals for clean 3D printing slicing, and per-part STL downloads.
+   - Computes watertight constructive solid geometry (CSG), exact outward facet normals for clean 3D printing slicing, and per-part STL downloads with `10×` millimeter scaling.
 3. **Model-Agnostic Copilot Routing**:
    - **Google Gemini (`gemini-3.8-flash`)**: Cloud-orchestrated synthesis with 3x self-healing manifold repair loop.
    - **Local Sockets**: Direct connection to local Ollama (`http://127.0.0.1:11434`), LM Studio (`http://127.0.0.1:1234`), or vLLM (`http://127.0.0.1:8000/v1`).
@@ -62,10 +64,13 @@ ApexCAD Studio is engineered for agility, crash resilience, and cross-platform f
 ### 1. Parametric CAD & Templates
 - **Geometric Archetypes**: Rapid initialization from **Box / Enclosure**, **Cylinder / Rotor**, **Triangular Prism**, or **Blank Canvas** templates.
 - **Direct Canvas Primitive Insertion**: One-click placement of Box, Cylinder, Sphere, Wedge, Cone, and Torus primitives directly into the 3D viewport.
+- **Target-Scoped AST Surgery (`mutateDimensionInCode`)**: Parametric dimension modifications isolate the exact variable bound to `intent.targetPart` rather than replacing all primitives globally.
+- **Multi-Line CSG Boolean Engine (`applyCsgBooleanToScript`)**: Parses multi-line formatted `return [...]` lists, dictionary mappings, and trailing commas without corrupting adjacent geometry.
 - **Dynamic SVG Shape Thumbnails**: Isometric, orthographic, and schematic previews rendered dynamically.
 - **Persistent File Management**: Save, duplicate, rename, export, and load designs across browser storage and optional cloud vaults.
 
 ### 2. Engineering Inspector & UX
+- **Floating Viewport Dimension Readout & Unit Toggle (`mm` vs. `cm`)**: Real-time bounding box readout ($W \times D \times H$) in the 3D viewport with instant millimeter / centimeter grid toggle, backed by `unitConverter.ts`.
 - **Docked Multi-Tab Sidebar**: Switch cleanly between **Parts Hierarchy**, **Mass Properties**, **3D Annotations**, and **Explosion Timeline**.
 - **Part Isolation & Renaming**: Single-click part isolation, hide/show toggling, and synchronized part renaming that propagates across Python code, OpenUSD prim paths, and 3D annotation pins.
 - **Mass Properties Calculator**: Dynamic mass, volume, bounding box, and 3D Center-of-Mass (CoM) calculated dynamically across 8 PBR industrial materials (Steel, Aluminum, Titanium, Brass, ABS, PEEK, Delrin, Carbon Fiber).
@@ -74,12 +79,14 @@ ApexCAD Studio is engineered for agility, crash resilience, and cross-platform f
 
 ### 3. CAM, CNC G-Code & Digital Fabrication Studio
 - **2.5D Perimeter Toolpaths (Beta)**: Multi-pass 2D outside contour and inside pocket perimeter offset milling with shoelace cutter radius compensation, holding tabs, and interactive 3D toolpath simulation (*full interior raster/concentric pocket clearing and multi-Z waterline roughing scheduled for `v2.0.0` — see [ROADMAP.md](ROADMAP.md)*).
+- **3D CNC Toolpath Simulation**: Real-time motion path builder rendering rapid moves (`G00`), linear feeds (`G01`), spindle activations (`M03`), and holding tabs with 3D tool coordinate playback.
 - **CNC G-Code Post-Processor (Beta)**: Standard RS-274 (`Grbl`, `Marlin`, `LinuxCNC`, `Haas`) G-code generation with configurable feed rates, plunge rates, spindle speed (`M03`), and safe Z clearance planes.
 - **2D Vector DXF Cut-Sheet Exporter (Stable)**: AutoCAD R12 ASCII DXF output (`mm` units) for CNC laser, plasma, waterjet, and router tables.
 - **True-Scale 3D Printing Preflight & STL Export (Stable)**: `10×` millimeter STL scaling (`cm` → `mm`) for direct 1:1 import into Bambu Studio, PrusaSlicer, OrcaSlicer, and Cura, plus real-time `>45°` overhang heatmaps, 2D layer slicing preview, and PLA/PETG/ABS/TPU mass estimates.
+- **WAI-ARIA Accessibility**: Accessible CAM modal with dedicated tablist/tabpanel roles, aria-live status announcements, and labeled parameter inputs.
 
 ### 4. AMD Silicon & EDA Multi-Chip Module (MCM) Studio *(Experimental)*
-- Optional domain module for synthesizing 2.5D semiconductor packaging assemblies (organic substrate BGA, silicon interposer, logic core die, HBM3 cache stacks, and copper IHS) from circuit netlists.
+- Optional domain module for synthesizing 2.5D semiconductor packaging assemblies (organic substrate BGA, silicon interposer, logic core die, HBM3 cache stacks, and copper IHS) from circuit netlists, cleanly isolated behind an explicit opt-in workspace setting.
 
 ### 5. Official NVIDIA `usd-brep` Guide Explorer
 - Bundles all **36 official guides, skills, `.pyi` type stubs, and example scripts** from [`NVIDIA-Omniverse/usd-brep`](https://github.com/NVIDIA-Omniverse/usd-brep) inside [`docs/nvidia-usd-brep/`](docs/nvidia-usd-brep/), searchable directly in-app.
@@ -175,7 +182,7 @@ See the [Branching Strategy & Release Lifecycle Guide](docs/BRANCHING_AND_RELEAS
 The repository features comprehensive automated test coverage across frontend, backend, browser, and security dimensions:
 
 ```bash
-# 1. Frontend Unit Tests (Vitest — 160 tests across 15 test suites, ~1.2s)
+# 1. Frontend Unit Tests (Vitest — 191 tests across 19 test suites, ~1.7s)
 npm test
 
 # 2. TypeScript Static Analysis (0 errors)
@@ -211,7 +218,7 @@ Continuous Integration is automated via GitHub Actions in [`.github/workflows/ci
 - 🤝 [Contributor Guide (`CONTRIBUTING.md`)](CONTRIBUTING.md) — Local setup, `cm` vs. `mm` unit conventions, `dev` → `main` PR rules, and high-impact "Good First Issues".
 - 🌿 [Branching Strategy & Release Lifecycle Guide](docs/BRANCHING_AND_RELEASES.md) — Dual-branch flow (`dev` & `main`), no-commit policy, automated scheduled releases, SemVer calculation, and publishing.
 - 🏛️ [System Architecture Specification](docs/ARCHITECTURE.md) — Comprehensive layer-by-layer architectural breakdown, hardware memory gating formulas, and kernel interfaces.
-- 🧪 [TDD & Quality Assurance Guide](docs/TDD_AND_TESTING.md) — Test-Driven Development methodology, detailed catalog of all 15 test suites (162 unit tests), and regression testing protocols.
+- 🧪 [TDD & Quality Assurance Guide](docs/TDD_AND_TESTING.md) — Test-Driven Development methodology, detailed catalog of all 19 test suites (191 unit tests), and regression testing protocols.
 - ⚙️ [CAM, CNC G-Code & Digital Fabrication Guide](docs/CAM_AND_MANUFACTURING.md) — Toolpath strategies, RS-274 G-Code dialect, and 2D DXF cut-sheet export.
 - 🧠 [Model-Agnostic AI & Hardware Gating Guide](docs/MODEL_AGNOSTIC_AI.md) — Multi-provider configuration (Ollama, LM Studio, vLLM, Groq, Together, Hugging Face Hub), memory gating calculations, and OOM prevention.
 - 📋 [Pull Request Template](.github/pull_request_template.md) — Engineering validation checklist and testing requirements for PR submissions.

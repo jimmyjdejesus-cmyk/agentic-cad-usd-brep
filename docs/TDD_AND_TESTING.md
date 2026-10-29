@@ -4,7 +4,7 @@
 
 ApexCAD Studio enforces a **Strict Test-Driven Development (TDD)** engineering standard:
 1. **Zero Untested Logic**: Every geometric transformer, parser, CAM post-processor, AI router, and UI state transition is backed by deterministic automated tests.
-2. **Fast Feedback**: The entire Vitest suite executes in **~1.1 seconds**, enabling instant verification during iterative development.
+2. **Fast Feedback**: The entire Vitest suite executes in **~1.7 seconds**, enabling instant verification during iterative development.
 3. **Multi-Dimensional Verification**: Testing spans unit, integration, end-to-end browser automation, and security leak scanning.
 4. **Resilience & Graceful Fallback**: Tests explicitly verify offline behavior, missing API keys, connection timeouts, and degenerate CAD dimensions to prevent uncaught runtime exceptions.
 
@@ -12,7 +12,7 @@ ApexCAD Studio enforces a **Strict Test-Driven Development (TDD)** engineering s
 
 ## 2. Testing Verification Matrix
 
-ApexCAD Studio's test suite consists of **160 frontend tests across 15 test suites**, a Python pytest backend engine suite, and a Headless Chrome CDP browser automation runner.
+ApexCAD Studio's test suite consists of **191 frontend tests across 19 test suites**, a Python pytest backend engine suite, and a Headless Chrome CDP browser automation runner.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -22,9 +22,10 @@ ApexCAD Studio's test suite consists of **160 frontend tests across 15 test suit
 ├────────────────────────────────┼───────────────┼───────────────────────┤
 │ src/server.test.ts             │ 16 tests      │ Express API & Routing │
 │ src/services/appToolsAndSkills │ 27 tests      │ Agent Tools & Hermes  │
-│ src/services/camService        │  9 tests      │ CAM, G-Code, DXF      │
+│ src/services/camService        │ 12 tests      │ CAM, G-Code, DXF, Sim │
+│ src/components/CamCncModal     │  8 tests      │ WAI-ARIA & CAM Modal  │
 │ src/services/parametricIntel.. │ 17 tests      │ NLU AST Surgery & Heal│
-│ src/services/cadRuntime        │ 23 tests      │ Hybrid & B-Rep Runtime│
+│ src/services/cadRuntime        │ 24 tests      │ Hybrid & B-Rep Runtime│
 │ src/services/cadFileManager    │  5 tests      │ File Retention & Cloud│
 │ src/services/edaSiliconEngine  │  7 tests      │ MCM 2.5D Semiconductor│
 │ src/services/firebase          │  3 tests      │ Offline Auth Security │
@@ -35,8 +36,11 @@ ApexCAD Studio's test suite consists of **160 frontend tests across 15 test suit
 │ src/services/releaseManager    │  5 tests      │ SemVer Bump & Release │
 │ src/components/CadShapeThumb.. │ 11 tests      │ SVG Vector Thumbnails │
 │ src/components/OnboardingTut.. │  5 tests      │ Interactive Walkthru  │
+│ src/services/unitConverter     │ 10 tests      │ Viewport Unit Toggle  │
+│ src/services/csgEngine         │  6 tests      │ Multi-Line CSG Engine │
+│ src/services/projectIssuesMani │  3 tests      │ Issues & Milestones   │
 ├────────────────────────────────┼───────────────┼───────────────────────┤
-│ Total Frontend (Vitest)        │ 160 tests     │ 100% Pass Rate (~1.2s)│
+│ Total Frontend (Vitest)        │ 191 tests     │ 100% Pass Rate (~1.7s)│
 ├────────────────────────────────┼───────────────┼───────────────────────┤
 │ backend/test_cad_engine.py     │ 18 tests      │ Pytest FastAPI Engine │
 │ scripts/verify-browser.mjs     │ 9 scenarios   │ Headless Chrome CDP   │
@@ -64,73 +68,103 @@ ApexCAD Studio's test suite consists of **160 frontend tests across 15 test suit
   - Parameter calculation formulas for quantized GGUF weights (`Q4_K_M`, `Q8_0`, `FP16`).
   - Memory saturation detection and WebGPU device capability querying.
 
-### 3.3 [`src/services/camService.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/camService.test.ts) (9 tests)
+### 3.3 [`src/services/camService.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/camService.test.ts) (12 tests)
 - **Toolpath Generation**:
   - 2D Profiling: Verifies contour generation and cutter radius compensation.
   - Pocket Clearing: Verifies zig-zag and concentric raster paths within boundary bounds.
   - Waterline Roughing: Slices geometry at incremental Z-levels.
 - **Post-Processor & Exporter**:
-  - G-Code generation: Validates RS-274 format, feed rates, spindle speed (`M03`), and tool retracts (`G00 Z...`).
+  - G-Code generation: Validates RS-274 format, feed rates, spindle speed (`M03`), holding tabs, and tool retracts (`G00 Z...`).
+  - Controller dialect support: Validates Haas dialect formatting with `M06` tool changes.
   - 2D DXF export: Validates AutoCAD R12 DXF header, `ENTITIES` section, and polyline coordinates.
-  - 3D Printing Preflight: Computes layer counts and print time estimates.
+  - 3D Printing Preflight: Computes layer counts, overhang angles, and print time estimates.
+- **3D CNC Toolpath Simulation**:
+  - Validates simulation motion step generation with rapid moves, feed moves, and axis bounds.
 
-### 3.4 [`src/services/parametricIntelligence.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/parametricIntelligence.test.ts) (17 tests)
+### 3.4 [`src/components/CamCncModal.test.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/CamCncModal.test.tsx) (8 tests)
+- **WAI-ARIA Accessibility & Modal UX**:
+  - Renders ARIA live status region for assistive technology announcements.
+  - Tab navigation utilizing WAI-ARIA `tablist`, `tab`, and `tabpanel` semantics.
+  - Explicit form label and `aria-describedby` associations for numeric inputs and units.
+  - Holding tab configuration controls with label associations.
+  - 3D printing export unit selection and slicer compatibility elements.
+
+### 3.5 [`src/services/parametricIntelligence.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/parametricIntelligence.test.ts) (17 tests)
 - **NLU Intent Decomposition**:
   - Extracts parameters and operations from natural language prompts.
 - **AST Code Surgery**:
-  - Correctly substitutes numeric dimensions in `sm.make_box(...)`, `sm.make_cylinder(...)`.
+  - Correctly substitutes numeric dimensions bound to the specific target part variable (`mutateDimensionInCode`).
 - **Autonomous Manifold Auto-Repair**:
-  - Clamps non-positive dimensions ($d \le 0$) to physical minimums ($1.0\text{ cm}$) while preserving coordinate tuples.
+  - Clamps non-positive dimensions ($d \le 0$) to physical minimums ($1.0\text{ cm}$) while preserving origin coordinate tuples.
   - Preserves ground-plane anchors ($z=0$) during multi-part penetration clearance adjustments.
 
-### 3.5 [`src/services/cadRuntime.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/cadRuntime.test.ts) (23 tests)
+### 3.6 [`src/services/cadRuntime.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/cadRuntime.test.ts) (24 tests)
 - **Hybrid Execution Engine**:
   - Evaluates CAD scripts against client-side geometric generator when backend is unavailable.
   - Validates watertight mesh checks, bounding boxes, face counts, and vertex normals.
+  - Verifies `10×` millimeter STL scaling (`unitScale = 10.0`) for direct 1:1 slicer import.
 
-### 3.6 [`src/services/cadFileManager.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/cadFileManager.test.ts) (5 tests)
+### 3.7 [`src/services/cadFileManager.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/cadFileManager.test.ts) (5 tests)
 - **Design Retention & Storage**:
   - LocalStorage serialization, design duplication, versioning, and optional cloud vault synchronization.
 
-### 3.7 [`src/services/edaSiliconEngine.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/edaSiliconEngine.test.ts) (7 tests)
+### 3.8 [`src/services/edaSiliconEngine.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/edaSiliconEngine.test.ts) (7 tests)
 - **Semiconductor Multi-Chip Module (MCM) Synthesis**:
   - Validates BGA substrate, silicon interposer, logic core die, HBM3 memory stacks, and copper IHS lid.
 
-### 3.8 [`src/services/firebase.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/firebase.test.ts) (3 tests)
+### 3.9 [`src/services/firebase.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/firebase.test.ts) (3 tests)
 - **Security & Unconfigured Fallback**:
   - Verifies that missing or dummy Firebase credentials do not trigger uncaught fatal exceptions.
   - Tests offline connection fallback and security state notification.
 
-### 3.9 [`src/services/geminiAgent.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/geminiAgent.test.ts) (10 tests)
+### 3.10 [`src/services/geminiAgent.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/geminiAgent.test.ts) (10 tests)
 - **AI Agent Orchestration**:
   - Model cascading from `gemini-3.8-flash` to backup candidates.
   - 3x self-healing prompt framing with diagnostic error injection (`SM_ERR_*`).
 
-### 3.10 [`src/services/partRenamingService.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/partRenamingService.test.ts) (11 tests)
+### 3.11 [`src/services/partRenamingService.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/partRenamingService.test.ts) (11 tests)
 - **Synchronized Multi-Layer Renaming**:
   - Synchronizes part rename across Python script variables, OpenUSD prim paths, and 3D annotation leader lines.
 
-### 3.11 [`src/services/pbrMaterialService.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/pbrMaterialService.test.ts) (5 tests)
+### 3.12 [`src/services/pbrMaterialService.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/pbrMaterialService.test.ts) (5 tests)
 - **PBR Physics Presets**:
   - Verifies physical densities, roughness, metalness, and color hex values for 8 engineering materials.
 
-### 3.12 [`src/services/massCalculator.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/massCalculator.test.ts) (6 tests)
+### 3.13 [`src/services/massCalculator.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/massCalculator.test.ts) (6 tests)
 - **Mass Properties Calculator**:
   - Computes volume, mass ($\text{mass} = \text{volume} \times \text{density}$), and center-of-mass (CoM) coordinates.
 
-### 3.13 [`src/components/CadShapeThumbnail.test.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/CadShapeThumbnail.test.tsx) (11 tests)
+### 3.14 [`src/components/CadShapeThumbnail.test.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/CadShapeThumbnail.test.tsx) (11 tests)
 - **SVG Vector Thumbnails**:
   - Validates dynamic SVG rendering of isometric, orthographic, and schematic previews for CAD archetypes.
 
-### 3.14 [`src/components/OnboardingTutorial.test.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/OnboardingTutorial.test.tsx) (5 tests)
+### 3.15 [`src/components/OnboardingTutorial.test.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/OnboardingTutorial.test.tsx) (5 tests)
 - **Interactive Onboarding**:
   - Step progression, UI spotlight highlights, dismiss, and completion persistence in localStorage.
 
-### 3.15 [`src/services/releaseManager.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/releaseManager.test.ts) (5 tests)
+### 3.16 [`src/services/releaseManager.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/releaseManager.test.ts) (5 tests)
 - **Release Versioning & Changelog Automation**:
   - Evaluates SemVer version bumps (`patch`, `minor`, `major`) based on Conventional Commits.
   - Generates categorized markdown changelog sections with commit scopes, descriptions, and hashes.
   - Honors forced bump overrides.
+
+### 3.17 [`src/services/unitConverter.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/unitConverter.test.ts) (10 tests)
+- **Viewport Unit Conversion**:
+  - Validates bidirectional millimeter and centimeter unit conversion.
+  - Tests bounding box dimension formatting and scale multipliers.
+  - Validates numeric string conversions and boundary values.
+
+### 3.18 [`src/services/csgEngine.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/csgEngine.test.ts) (6 tests)
+- **Multi-Line CSG Boolean Engine**:
+  - Evaluates multi-line formatted `return [...]` array lists with trailing commas and inline comments.
+  - Injects `sm.boolean_union()`, `sm.boolean_difference()`, and `sm.boolean_intersection()` operations into Python scripts without breaking return structures.
+  - Updates assembly explosion metadata dictionary mappings.
+
+### 3.19 [`src/services/projectIssuesManifest.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/projectIssuesManifest.test.ts) (3 tests)
+- **Project Milestones, Epics & Sub-Issues Governance**:
+  - Validates structural and referential integrity of `scripts/project-issues-manifest.json` (5 milestones, 5 epics, 20 sub-issues).
+  - Enforces 1:1 mapping between milestones and epics, and verifies all sub-issues reference valid parent epics.
+  - Verifies markdown rendering with resolved GitHub `#issue` cross-links and task lists.
 
 ---
 
@@ -138,7 +172,7 @@ ApexCAD Studio's test suite consists of **160 frontend tests across 15 test suit
 
 ### 4.1 Running Frontend Vitest Suite
 ```bash
-# Run all 155 tests once
+# Run all 191 tests once
 npm test
 
 # Run tests in interactive watch mode
@@ -209,4 +243,4 @@ When implementing new CAD features or AI routing capabilities, follow this stand
 
 3. **Verify and Refactor**:
    - Re-run `npm test` and `npm run lint`.
-   - Ensure the new test passes without regressions across the other 13 test suites.
+   - Ensure the new test passes without regressions across the other 18 test suites.
