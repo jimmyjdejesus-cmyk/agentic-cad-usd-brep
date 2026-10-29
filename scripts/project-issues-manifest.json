@@ -91,9 +91,9 @@
     {
       "id": "EPIC-1",
       "milestoneId": "M1",
-      "title": "[EPIC v1.2.0] True-Scale Maker Baseline, Model ID Standardization & UI Focus",
+      "title": "[EPIC v1.2.0] True-Scale Maker Baseline, Model-Agnostic AI Harness & UI Focus",
       "labels": ["type:epic", "area:3d-printing", "priority:p0-blocker"],
-      "summary": "Establish a rock-solid baseline for 3D printing and laser/CNC makers by shipping 10x millimeter STL scaling, accurate model IDs, clean preset switching, and an opt-in toggle for experimental non-maker modules.",
+      "summary": "Establish a rock-solid baseline for 3D printing and laser/CNC makers by shipping 10x millimeter STL scaling, model-agnostic local/cloud AI harness standardization, clean preset switching, and an opt-in toggle for experimental non-maker modules.",
       "subIssueIds": ["ISS-101", "ISS-102", "ISS-103", "ISS-104"]
     },
     {
@@ -178,7 +178,7 @@
       "id": "ISS-103",
       "epicId": "EPIC-1",
       "milestoneId": "M1",
-      "title": "[v1.2.0] Standardize Production Gemini Model IDs & Simplify AI Harness Catalog",
+      "title": "[v1.2.0] Model-Agnostic & Harness-Agnostic AI Router (Local Sockets & Cloud Gateways)",
       "status": "open",
       "labels": ["type:sub-issue", "area:copilot-dfm", "priority:p0-blocker", "good first issue"],
       "dependsOn": [],
@@ -189,11 +189,12 @@
         "src/services/appToolsAndSkills.ts",
         "src/components/AiHarnessModal.tsx"
       ],
-      "description": "Replace placeholder model IDs (`gemini-3.8-flash`, `gemini-4-argon`) with verified Google GenAI model IDs (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`) and consolidate duplicate AI harness options so every listed harness corresponds to a distinct execution protocol.",
+      "description": "Standardize the model-agnostic and harness-agnostic AI copilot router in `server.ts` and `appToolsAndSkills.ts` to seamlessly support local open-weights engines (Ollama, LM Studio, vLLM, Qwen 2.5 Coder, DeepSeek) and cloud endpoints (Groq, Together AI, OpenAI-compatible, Gemini) with verified model identifiers, hardware-gated OOM prevention, and deterministic offline fallback.",
       "acceptanceCriteria": [
-        "`server.ts` and `geminiAgent.ts` default to `gemini-2.5-flash` with fallback to `gemini-2.5-pro`",
-        "All tests in `src/services/geminiAgent.test.ts` and `src/server.test.ts` pass with updated model IDs",
-        "AI Harness modal clearly badges Cloud SDK, Local Ollama/vLLM Socket, OpenAI-Compatible Gateway, and Deterministic Offline Engine"
+        "`server.ts` routes dynamically across local engines (Ollama/LM Studio/vLLM) and cloud gateways without single-vendor hardcoding",
+        "AI Harness modal clearly badges and configures Local Ollama/vLLM Sockets, OpenAI-Compatible Gateways (Groq/Together/DeepSeek), Cloud SDKs, and Deterministic Offline Engine",
+        "Hardware gating checks (`canRunOnSystem`) prevent system freeze or OOM by validating RAM, VRAM, and context sizes before model dispatch",
+        "All tests in `src/services/geminiAgent.test.ts` and `src/server.test.ts` pass with agnostic model routing and fallback tiers"
       ]
     },
     {

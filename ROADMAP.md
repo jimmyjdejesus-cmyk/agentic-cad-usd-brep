@@ -32,7 +32,7 @@ Each release is gated by a concrete user outcome and verifiable engineering exit
 - **Core Scope**:
   - Ship `10×` millimeter STL scaling (`unitScale = 10.0`) across the main export menu (`src/App.tsx`), individual part downloads, and the CAM/3D Print Studio (`src/components/CamCncModal.tsx`).
   - Restore quick switching between **My Custom Designs** and **Factory Presets** in the top header selector.
-  - Standardize default cloud model identifiers in `server.ts` and `src/services/appToolsAndSkills.ts` to verified production models (`gemini-2.5-flash` and `gemini-2.5-pro`) while preserving model-agnostic local Ollama, LM Studio, vLLM, and OpenAI-compatible routing.
+  - Standardize model-agnostic and harness-agnostic local/cloud AI routing in `server.ts` and `src/services/appToolsAndSkills.ts` (Ollama, LM Studio, vLLM, Groq, Together AI, OpenAI-compatible endpoints, and Gemini) with verified model identifiers, hardware-gated OOM prevention, and deterministic offline fallback.
   - Align `README.md` with the Feature Maturity Matrix and move the experimental AMD EDA Silicon Studio behind an optional workspace toggle.
 - **Exit Criteria (Definition of Done)**:
   - [x] Unit tests in `src/services/cadRuntime.test.ts` and `src/components/CamCncModal.test.tsx` verify `10×` millimeter vertex scaling and unit toggle rendering.

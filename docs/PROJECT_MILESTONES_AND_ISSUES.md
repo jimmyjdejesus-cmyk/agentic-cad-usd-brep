@@ -9,7 +9,7 @@ flowchart LR
     subgraph M1["M1: v1.2.0 Maker Baseline"]
         ISS101["ISS-101: 10x mm STL Scaling ✅"]
         ISS102["ISS-102: Viewport mm/cm Toggle"]
-        ISS103["ISS-103: Production Gemini Model IDs"]
+        ISS103["ISS-103: Agnostic AI Router & Local/Cloud Sockets"]
         ISS104["ISS-104: Isolate Experimental EDA Studio"]
     end
 
@@ -78,14 +78,14 @@ flowchart LR
 ## 3. Detailed Epics, Sub-Issues & Linking Specifications
 
 ### Milestone M1 (`v1.2.0`) — True-Scale Maker Baseline & Honesty Pass
-- **Parent Epic (`EPIC-1`)**: `[EPIC v1.2.0] True-Scale Maker Baseline, Model ID Standardization & UI Focus`
-- **Target End State**: Zero-surprise 1:1 millimeter STL and R12 DXF exports for 3D printing slicers and laser/CNC cutters, backed by accurate model IDs and transparent feature maturity documentation.
+- **Parent Epic (`EPIC-1`)**: `[EPIC v1.2.0] True-Scale Maker Baseline, Model-Agnostic AI Harness & UI Focus`
+- **Target End State**: Zero-surprise 1:1 millimeter STL and R12 DXF exports for 3D printing slicers and laser/CNC cutters, backed by model-agnostic local/cloud AI routing and transparent feature maturity documentation.
 
 | Sub-Issue ID | Title | Status | Priority & Labels | Depends On | Blocks | Target Files |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`ISS-101`** | **10x Millimeter Slicer STL Scaling & Export Unit Toggle** | ✅ **Done** (`5594ac2`) | `priority:p0-blocker`, `area:3d-printing` | *None* | `ISS-102`, `ISS-504` | `src/services/cadRuntime.ts`, `src/components/CamCncModal.tsx`, `src/App.tsx` |
 | **`ISS-102`** | **Viewport Dimension Readout & Grid Unit Toggle (`mm` vs. `cm`)** | ⬜ Open | `good first issue`, `area:viewport-ux`, `area:3d-printing` | `ISS-101` | `ISS-201`, `ISS-202` | `src/components/Viewport3D.tsx`, `src/components/MassPropertiesPanel.tsx`, `src/App.tsx` |
-| **`ISS-103`** | **Standardize Production Gemini Model IDs & Simplify AI Harness Catalog** | ⬜ Open | `priority:p0-blocker`, `area:copilot-dfm`, `good first issue` | *None* | `ISS-401` | `server.ts`, `src/services/geminiAgent.ts`, `src/services/appToolsAndSkills.ts`, `src/components/AiHarnessModal.tsx` |
+| **`ISS-103`** | **Model-Agnostic & Harness-Agnostic AI Router (Local Sockets & Cloud Gateways)** | ⬜ Open | `priority:p0-blocker`, `area:copilot-dfm`, `good first issue` | *None* | `ISS-401` | `server.ts`, `src/services/geminiAgent.ts`, `src/services/appToolsAndSkills.ts`, `src/components/AiHarnessModal.tsx` |
 | **`ISS-104`** | **Isolate Experimental AMD EDA Silicon Studio Behind Opt-In Mode** | ⬜ Open | `good first issue`, `area:viewport-ux` | *None* | `ISS-204` | `src/App.tsx`, `src/components/AmdEdaSiliconStudio.tsx` |
 
 ### Milestone M2 (`v1.3.0`) — Precision Direct Editing, 3D Gizmos & Parametric Inspector
