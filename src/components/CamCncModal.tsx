@@ -96,6 +96,7 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
   const [sliceZMm, setSliceZMm] = useState<number>(1.0);
   const [copiedGcode, setCopiedGcode] = useState(false);
   const [cncViewMode, setCncViewMode] = useState<'simulator' | 'gcode'>('simulator');
+  const [stlExportUnits, setStlExportUnits] = useState<'mm' | 'cm'>('mm');
 
   const getStatusText = (tab: ActiveTab, partName?: string, dialect?: string, sliceZ?: number) => {
     if (tab === 'cnc_gcode') {
@@ -168,10 +169,11 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
 
   const handleDownloadStl = () => {
     if (!activePart) return;
-    const stl = activePart.stl_text || generatePartAsciiStl(activePart, activePart.name);
-    const filename = `${activePart.name}.stl`;
+    const unitScale = stlExportUnits === 'mm' ? 10.0 : 1.0;
+    const stl = generatePartAsciiStl(activePart, activePart.name, unitScale);
+    const filename = `${activePart.name}_${stlExportUnits}.stl`;
     onDownloadFile(stl, filename);
-    setStatusMessage(`Downloading ${filename}.`);
+    setStatusMessage(`Downloading ${filename} scaled to ${stlExportUnits}.`);
   };
 
   return (
@@ -666,7 +668,7 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
                 </div>
 
                 {/* Build Footprint & Export */}
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between space-y-2.5">
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -684,11 +686,42 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
                       className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition shadow-md shrink-0 cursor-pointer"
                     >
                       <Download className="w-4 h-4" />
-                      <span>Download STL</span>
+                      <span>Download STL ({stlExportUnits.toUpperCase()})</span>
                     </button>
                   </div>
-                  <div className="text-[10px] text-slate-500 font-mono">
-                    Ready for Bambu Studio, OrcaSlicer, PrusaSlicer, and Cura
+
+                  {/* Slicer Unit Selection */}
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-900 text-xs">
+                    <span className="text-[11px] text-slate-400 font-medium">Export Scale Units:</span>
+                    <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-lg border border-slate-800">
+                      <button
+                        onClick={() => setStlExportUnits('mm')}
+                        className={`px-2.5 py-1 rounded text-[10px] font-semibold transition ${
+                          stlExportUnits === 'mm'
+                            ? 'bg-emerald-600 text-slate-950 shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                        title="Millimeter scale (10x CAD units) - Standard for Bambu, Prusa, Cura, Orca"
+                      >
+                        Millimeters (10× Slicer Std)
+                      </button>
+                      <button
+                        onClick={() => setStlExportUnits('cm')}
+                        className={`px-2.5 py-1 rounded text-[10px] font-semibold transition ${
+                          stlExportUnits === 'cm'
+                            ? 'bg-amber-600 text-slate-950 shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                        title="Centimeter scale (1x) - Native CAD OpenUSD coordinate units"
+                      >
+                        Centimeters (1× CAD)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="text-[10px] text-slate-500 font-mono flex items-center justify-between">
+                    <span>Target Slicer: Bambu Studio, OrcaSlicer, PrusaSlicer, Cura</span>
+                    <span className="text-emerald-400/90 font-semibold">{stlExportUnits === 'mm' ? '1:1 True Scale' : '0.1x Scale'}</span>
                   </div>
                 </div>
               </div>

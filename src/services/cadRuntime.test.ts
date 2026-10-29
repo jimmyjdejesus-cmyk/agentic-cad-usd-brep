@@ -159,6 +159,53 @@ def build_parts():
     expect(stl).toContain('endsolid MyTriangle');
   });
 
+  it('supports unitScale in generatePartAsciiStl for 10x millimeter 3D printing slicer export', () => {
+    const mockPart = {
+      name: 'plate_10cm',
+      kind: 'component',
+      color: [0.5, 0.5, 0.5] as [number, number, number],
+      diagnostics: {
+        faces: 1,
+        edges: 3,
+        vertices: 3,
+        manifold: true,
+        volume: 0,
+        area: 50.0,
+        solid_count: 1,
+        void_count: 0,
+        bounds: [[0, 0, 0], [10, 10, 0]] as [[number, number, number], [number, number, number]],
+        center: [3.33, 3.33, 0] as [number, number, number],
+        tessellation: {
+          vertex_count: 3,
+          triangle_count: 1,
+          output_manifold: true,
+          lamina_edge_count: 0,
+          failure_count: 0,
+        },
+      },
+      mesh: {
+        points: [
+          [0.0, 0.0, 0.0],
+          [10.0, 0.0, 0.0],
+          [0.0, 10.0, 0.0],
+        ] as [number, number, number][],
+        normals: [[0, 0, 1], [0, 0, 1], [0, 0, 1]] as [number, number, number][],
+        triangles: [0, 1, 2],
+        face_vertex_counts: [3],
+        face_vertex_indices: [0, 1, 2],
+      },
+    };
+
+    // 10x unit scale converts 10 cm to 100 mm for 3D printer slicing
+    const stlMm = generatePartAsciiStl(mockPart, 'Plate100mm', 10.0);
+    expect(stlMm).toContain('solid Plate100mm');
+    expect(stlMm).toContain('facet normal 0.000000 0.000000 1.000000');
+    expect(stlMm).toContain('vertex 0.0000 0.0000 0.0000');
+    expect(stlMm).toContain('vertex 100.0000 0.0000 0.0000');
+    expect(stlMm).toContain('vertex 0.0000 100.0000 0.0000');
+    expect(stlMm).toContain('endsolid Plate100mm');
+  });
+
   it('correctly parses named explosion stages and translation vectors from CAD scripts', async () => {
     const code = `import usd_brep as sm
 def build_parts():

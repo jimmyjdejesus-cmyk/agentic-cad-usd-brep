@@ -91,7 +91,9 @@ import {
   fetchGuideSummaries,
   fetchGuideDetail,
   generatePartAsciiStl,
+  generateAsciiStlClient,
 } from './services/cadRuntime';
+import { DEFAULT_PRESETS } from './data/presetsData';
 import {
   validatePartName,
   renamePartInCode,
@@ -544,18 +546,21 @@ export const App: React.FC = () => {
       const h = await checkBackendHealth();
       setHealth(h);
 
-      // Check if user previously had an active file
+      // Check if user previously had an active file or preset
       const lastActiveId = localStorage.getItem('cad_last_active_id');
       const activeCustom = loadedUserFiles.find((f) => f.id === lastActiveId);
+      const activePreset = DEFAULT_PRESETS.find((p) => p.id === lastActiveId);
 
       const targetToLoad =
         activeCustom ||
-        (loadedUserFiles.length > 0 ? loadedUserFiles[0] : null);
+        (loadedUserFiles.length > 0 ? loadedUserFiles[0] : null) ||
+        activePreset ||
+        DEFAULT_PRESETS[0];
 
       if (targetToLoad) {
         setSelectedPresetId(targetToLoad.id);
         setCode(targetToLoad.code);
-        setEnvelope(targetToLoad.envelope);
+        setEnvelope(targetToLoad.envelope || [20, 20, 20]);
 
         let customRenames: Record<string, string> = {};
         try {
@@ -576,9 +581,9 @@ export const App: React.FC = () => {
           setAnnotations([]);
         }
 
-        await handleExecuteCode(targetToLoad.code, targetToLoad.name, targetToLoad.envelope, customRenames);
+        await handleExecuteCode(targetToLoad.code, targetToLoad.name, targetToLoad.envelope || [20, 20, 20], customRenames);
       } else {
-        // Clean zero-state: start empty
+        // Fallback to empty if no presets exist
         setSelectedPresetId('');
         setCode('');
         setExecResult(null);
@@ -689,6 +694,27 @@ export const App: React.FC = () => {
       setIsAnnotating(false);
 
       await handleExecuteCode(custom.code, custom.name, custom.envelope, customRenames);
+      return;
+    }
+
+    // Check if it's one of the factory presets
+    const preset = DEFAULT_PRESETS.find((p) => p.id === designId);
+    if (preset) {
+      setSelectedPresetId(preset.id);
+      setCode(preset.code);
+      setEnvelope(preset.envelope || [20, 20, 20]);
+      setSelectedPartName(null);
+      setHiddenPartNames([]);
+      setExplodeFactor(0);
+      setPartOffsets({});
+      setEditingPartName(null);
+      setRenameError(null);
+      setPartRenames({});
+      setAnnotations([]);
+      setSelectedAnnotationId(null);
+      setIsAnnotating(false);
+
+      await handleExecuteCode(preset.code, preset.name, preset.envelope);
     }
   };
 
@@ -1078,15 +1104,17 @@ export const App: React.FC = () => {
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
+    document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
-  const handleDownloadPartStl = (part: CadPartOutput) => {
-    const solidName = `${selectedPresetId}_${part.name}`;
-    const stlContent = part.stl_text || generatePartAsciiStl(part, solidName);
-    downloadFile(stlContent, `${solidName}.stl`);
+  const handleDownloadPartStl = (part: CadPartOutput, unitScale = 10.0) => {
+    const solidName = `${selectedPresetId || 'part'}_${part.name}`;
+    const stlContent = generatePartAsciiStl(part, solidName, unitScale);
+    const suffix = unitScale === 10.0 ? '_mm' : '';
+    downloadFile(stlContent, `${solidName}${suffix}.stl`);
   };
 
   const parts = execResult?.parts || [];
@@ -1253,17 +1281,22 @@ export const App: React.FC = () => {
                 onChange={(e) => handleSelectDesign(e.target.value)}
                 className="bg-transparent font-medium text-zinc-100 focus:outline-none cursor-pointer text-xs max-w-[150px] sm:max-w-[210px] truncate"
               >
-                {userFiles.length === 0 ? (
-                  <option value="" className="bg-[#181a20] text-zinc-400 italic">
-                    (No Saved Designs)
-                  </option>
-                ) : (
-                  userFiles.map((f) => (
-                    <option key={f.id} value={f.id} className="bg-[#181a20] text-zinc-100 font-normal">
-                      {f.name} {f.cloudSynced ? '☁' : '●'}
-                    </option>
-                  ))
+                {userFiles.length > 0 && (
+                  <optgroup label="My Custom Designs" className="bg-[#181a20] text-zinc-400 font-semibold">
+                    {userFiles.map((f) => (
+                      <option key={f.id} value={f.id} className="bg-[#181a20] text-zinc-100 font-normal">
+                        {f.name} {f.cloudSynced ? '☁' : '●'}
+                      </option>
+                    ))}
+                  </optgroup>
                 )}
+                <optgroup label="Factory Presets" className="bg-[#181a20] text-zinc-400 font-semibold">
+                  {DEFAULT_PRESETS.map((p) => (
+                    <option key={p.id} value={p.id} className="bg-[#181a20] text-zinc-100 font-normal">
+                      {p.name}
+                    </option>
+                  ))}
+                </optgroup>
               </select>
 
               {/* If current file is custom, show quick delete icon */}
@@ -1621,17 +1654,34 @@ export const App: React.FC = () => {
                 </button>
 
                 <button
-                  disabled={!execResult?.stl_text}
+                  disabled={!execResult?.parts || execResult.parts.length === 0}
                   onClick={() => {
-                    if (execResult?.stl_text) {
-                      downloadFile(execResult.stl_text, `${selectedPresetId}.stl`);
+                    if (execResult?.parts && execResult.parts.length > 0) {
+                      const stl = generateAsciiStlClient(execResult.parts, selectedPresetId, 10.0);
+                      downloadFile(stl, `${selectedPresetId}_mm.stl`);
                       setIsExportMenuOpen(false);
                     }
                   }}
                   className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-zinc-200 hover:bg-[#14161b] disabled:opacity-40 transition"
+                  title="Export 3D printable STL scaled to millimeters (10x) for Bambu Studio, PrusaSlicer, Cura, OrcaSlicer"
                 >
-                  <span className="font-medium">3D Triangle Mesh (Assembly)</span>
+                  <span className="font-medium">3D Printable STL (Millimeters 10×)</span>
                   <span className="text-[10px] text-amber-400 font-mono">.stl</span>
+                </button>
+
+                <button
+                  disabled={!execResult?.stl_text}
+                  onClick={() => {
+                    if (execResult?.stl_text) {
+                      downloadFile(execResult.stl_text, `${selectedPresetId}_cm.stl`);
+                      setIsExportMenuOpen(false);
+                    }
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-zinc-200 hover:bg-[#14161b] disabled:opacity-40 transition"
+                  title="Export 3D mesh in native CAD units (Centimeters 1x)"
+                >
+                  <span className="font-medium">3D Mesh (Centimeters 1×)</span>
+                  <span className="text-[10px] text-zinc-400 font-mono">.stl</span>
                 </button>
 
                 {parts.length > 0 && (
@@ -1643,11 +1693,11 @@ export const App: React.FC = () => {
                       <button
                         key={p.name}
                         onClick={() => {
-                          handleDownloadPartStl(p);
+                          handleDownloadPartStl(p, 10.0);
                           setIsExportMenuOpen(false);
                         }}
                         className="w-full text-left px-2.5 py-1 rounded text-xs flex items-center justify-between text-zinc-300 hover:bg-[#14161b] hover:text-amber-300 transition"
-                        title={`Download 3D printable STL for /${p.name}`}
+                        title={`Download 3D printable STL for /${p.name} (Millimeters 10x)`}
                       >
                         <span className="font-mono truncate mr-2">/{p.name}</span>
                         <span className="text-[10px] text-amber-400/80 font-mono shrink-0">.stl</span>

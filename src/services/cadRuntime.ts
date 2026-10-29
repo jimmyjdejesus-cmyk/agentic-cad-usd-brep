@@ -436,7 +436,11 @@ export function generateMeshUsdaClient(parts: CadPartOutput[], assetName = 'CadA
  * Generates an ASCII STL file string for an individual part with mathematically exact
  * outward surface normals (u x v) suitable for direct 3D printing and slicing.
  */
-export function generatePartAsciiStl(part: CadPartOutput, solidName?: string): string {
+export function generatePartAsciiStl(
+  part: CadPartOutput,
+  solidName?: string,
+  unitScale: number = 1.0
+): string {
   const safeName = sanitizePrimName(solidName || part.name, 0);
   const lines: string[] = [`solid ${safeName}`];
   const pts = part.mesh.points;
@@ -449,12 +453,12 @@ export function generatePartAsciiStl(part: CadPartOutput, solidName?: string): s
     if (!p0 || !p1 || !p2) continue;
 
     // Calculate outward face normal via cross product: (p1 - p0) x (p2 - p0)
-    const ux = p1[0] - p0[0];
-    const uy = p1[1] - p0[1];
-    const uz = p1[2] - p0[2];
-    const vx = p2[0] - p0[0];
-    const vy = p2[1] - p0[1];
-    const vz = p2[2] - p0[2];
+    const ux = (p1[0] - p0[0]) * unitScale;
+    const uy = (p1[1] - p0[1]) * unitScale;
+    const uz = (p1[2] - p0[2]) * unitScale;
+    const vx = (p2[0] - p0[0]) * unitScale;
+    const vy = (p2[1] - p0[1]) * unitScale;
+    const vz = (p2[2] - p0[2]) * unitScale;
 
     let nx = uy * vz - uz * vy;
     let ny = uz * vx - ux * vz;
@@ -473,9 +477,15 @@ export function generatePartAsciiStl(part: CadPartOutput, solidName?: string): s
 
     lines.push(`  facet normal ${nx.toFixed(6)} ${ny.toFixed(6)} ${nz.toFixed(6)}`);
     lines.push('    outer loop');
-    lines.push(`      vertex ${p0[0].toFixed(4)} ${p0[1].toFixed(4)} ${p0[2].toFixed(4)}`);
-    lines.push(`      vertex ${p1[0].toFixed(4)} ${p1[1].toFixed(4)} ${p1[2].toFixed(4)}`);
-    lines.push(`      vertex ${p2[0].toFixed(4)} ${p2[1].toFixed(4)} ${p2[2].toFixed(4)}`);
+    lines.push(
+      `      vertex ${(p0[0] * unitScale).toFixed(4)} ${(p0[1] * unitScale).toFixed(4)} ${(p0[2] * unitScale).toFixed(4)}`
+    );
+    lines.push(
+      `      vertex ${(p1[0] * unitScale).toFixed(4)} ${(p1[1] * unitScale).toFixed(4)} ${(p1[2] * unitScale).toFixed(4)}`
+    );
+    lines.push(
+      `      vertex ${(p2[0] * unitScale).toFixed(4)} ${(p2[1] * unitScale).toFixed(4)} ${(p2[2] * unitScale).toFixed(4)}`
+    );
     lines.push('    endloop');
     lines.push('  endfacet');
   }
@@ -487,8 +497,13 @@ export function generatePartAsciiStl(part: CadPartOutput, solidName?: string): s
 /**
  * Generates an ASCII STL file string for an entire multi-body assembly with mathematically
  * exact facet normals calculated per triangle for slicer compatibility.
+ * Supports unitScale (e.g. 10.0 for converting cm to mm for 3D printing slicers).
  */
-export function generateAsciiStlClient(parts: CadPartOutput[], assetName = 'CadAsset'): string {
+export function generateAsciiStlClient(
+  parts: CadPartOutput[],
+  assetName = 'CadAsset',
+  unitScale: number = 1.0
+): string {
   const safeName = sanitizePrimName(assetName, 0);
   const lines: string[] = [`solid ${safeName}`];
 
@@ -501,12 +516,12 @@ export function generateAsciiStlClient(parts: CadPartOutput[], assetName = 'CadA
       const p2 = pts[tris[i + 2]];
       if (!p0 || !p1 || !p2) continue;
 
-      const ux = p1[0] - p0[0];
-      const uy = p1[1] - p0[1];
-      const uz = p1[2] - p0[2];
-      const vx = p2[0] - p0[0];
-      const vy = p2[1] - p0[1];
-      const vz = p2[2] - p0[2];
+      const ux = (p1[0] - p0[0]) * unitScale;
+      const uy = (p1[1] - p0[1]) * unitScale;
+      const uz = (p1[2] - p0[2]) * unitScale;
+      const vx = (p2[0] - p0[0]) * unitScale;
+      const vy = (p2[1] - p0[1]) * unitScale;
+      const vz = (p2[2] - p0[2]) * unitScale;
 
       let nx = uy * vz - uz * vy;
       let ny = uz * vx - ux * vz;
@@ -525,9 +540,15 @@ export function generateAsciiStlClient(parts: CadPartOutput[], assetName = 'CadA
 
       lines.push(`  facet normal ${nx.toFixed(6)} ${ny.toFixed(6)} ${nz.toFixed(6)}`);
       lines.push('    outer loop');
-      lines.push(`      vertex ${p0[0].toFixed(4)} ${p0[1].toFixed(4)} ${p0[2].toFixed(4)}`);
-      lines.push(`      vertex ${p1[0].toFixed(4)} ${p1[1].toFixed(4)} ${p1[2].toFixed(4)}`);
-      lines.push(`      vertex ${p2[0].toFixed(4)} ${p2[1].toFixed(4)} ${p2[2].toFixed(4)}`);
+      lines.push(
+        `      vertex ${(p0[0] * unitScale).toFixed(4)} ${(p0[1] * unitScale).toFixed(4)} ${(p0[2] * unitScale).toFixed(4)}`
+      );
+      lines.push(
+        `      vertex ${(p1[0] * unitScale).toFixed(4)} ${(p1[1] * unitScale).toFixed(4)} ${(p1[2] * unitScale).toFixed(4)}`
+      );
+      lines.push(
+        `      vertex ${(p2[0] * unitScale).toFixed(4)} ${(p2[1] * unitScale).toFixed(4)} ${(p2[2] * unitScale).toFixed(4)}`
+      );
       lines.push('    endloop');
       lines.push('  endfacet');
     }
