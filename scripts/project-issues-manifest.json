@@ -659,7 +659,7 @@
       "epicId": "EPIC-4",
       "milestoneId": "M4",
       "title": "[v1.5.0] Canonical Maker Benchmark Fixture Suite (5 End-to-End Parts)",
-      "status": "open",
+      "status": "completed",
       "labels": [
         "type:sub-issue",
         "area:cad-kernel",
@@ -684,7 +684,8 @@
       "description": "Add the 5 canonical maker benchmark parts defined in `ROADMAP.md` (NEMA 17 Stepper Bracket, Parametric Spur Gear, Electronics Enclosure with M3 Heat-Set Bosses, CNC Router Hold-Down Clamp, and Flanged Pipe Manifold) to the preset library and automated regression test suite.",
       "acceptanceCriteria": [
         "All 5 benchmark fixtures build with 100% 2-manifold geometry, 0 unintended penetrations, valid 1:1 mm STL output, and closed R12 DXF loops in both Python `usd-brep` and browser `manifold-3d` modes"
-      ]
+      ],
+      "githubIssueNumber": 34
     },
     {
       "id": "ISS-501",

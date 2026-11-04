@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_PRESETS } from '../data/presetsData';
+import { CANONICAL_BENCHMARK_PRESET_IDS, DEFAULT_PRESETS } from '../data/presetsData';
 import { evaluateClientSideUsdBrep, executeCadScript, generatePartAsciiStl } from './cadRuntime';
+import { generateDxfProfile } from './camService';
 
 describe('Client-side usd_brep solid evaluator & Manifold WASM Engine', () => {
   it.each(DEFAULT_PRESETS.map((p) => [p.id, p] as const))(
@@ -695,4 +696,63 @@ def build_parts():
       expect(part.diagnostics.bounds[1][1]).toBeGreaterThanOrEqual(8.0);
     });
   });
+
+  describe('Canonical Maker Benchmark Fixture Suite (ROADMAP ISS-404)', () => {
+    it('verifies all 5 canonical benchmark fixture presets exist in DEFAULT_PRESETS', () => {
+      expect(CANONICAL_BENCHMARK_PRESET_IDS).toHaveLength(5);
+      for (const id of CANONICAL_BENCHMARK_PRESET_IDS) {
+        const found = DEFAULT_PRESETS.find((p) => p.id === id);
+        expect(found, `Expected benchmark preset ${id} to exist`).toBeDefined();
+        expect(found?.category).toBe('Canonical Maker Benchmarks');
+      }
+    });
+
+    it.each(CANONICAL_BENCHMARK_PRESET_IDS)(
+      'evaluates canonical benchmark %s with 100%% manifoldness, 0 penetrations, valid STL and closed R12 DXF loops',
+      async (presetId) => {
+        const preset = DEFAULT_PRESETS.find((p) => p.id === presetId)!;
+        expect(preset).toBeDefined();
+
+        const res = await evaluateClientSideUsdBrep(preset.code, preset.id, preset.envelope);
+        expect(res.success, `Benchmark ${presetId} failed to evaluate: ${res.error}`).toBe(true);
+        expect(res.parts).toBeDefined();
+        expect((res.parts || []).length).toBeGreaterThanOrEqual(2);
+
+        // 1. Manifoldness verification
+        expect(res.summary?.all_manifold).toBe(true);
+        for (const part of res.parts || []) {
+          expect(part.diagnostics.manifold, `Part ${part.name} is not manifold`).toBe(true);
+          expect(part.diagnostics.volume).toBeGreaterThan(0);
+        }
+
+        // 2. Non-penetration verification
+        expect(res.summary?.penetration_count).toBe(0);
+        expect(res.sanity_warnings).toEqual([]);
+
+        // 3. Valid 1:1 mm watertight STL export verification
+        for (const part of res.parts || []) {
+          const stl = generatePartAsciiStl(part, part.name, 10.0);
+          expect(stl).toContain(`solid ${part.name}`);
+          expect(stl).toContain(`endsolid ${part.name}`);
+          expect(stl).toMatch(/facet normal [-\d.]+ [-\d.]+ [-\d.]+/);
+        }
+
+        // 4. Closed AutoCAD R12 DXF loops verification
+        for (const part of res.parts || []) {
+          const dxf = generateDxfProfile(part);
+          expect(dxf).toContain('SECTION');
+          expect(dxf).toContain('HEADER');
+          expect(dxf).toContain('$ACADVER');
+          expect(dxf).toContain('AC1009'); // AutoCAD Release 12
+          expect(dxf).toContain('$INSUNITS');
+          expect(dxf).toContain('4'); // Millimeters
+          expect(dxf).toContain('POLYLINE');
+          expect(dxf).toContain('VERTEX');
+          expect(dxf).toContain('SEQEND');
+          expect(dxf).toContain('EOF');
+        }
+      }
+    );
+  });
 });
+
