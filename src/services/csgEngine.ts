@@ -667,3 +667,119 @@ export function updatePartParametricProperties(
   const updatedCode = code.replace(lineRegex, `${indent}${newCall}`);
   return { updatedCode, success: true };
 }
+
+export interface GizmoTransformDelta {
+  translation?: [number, number, number]; // [dx, dy, dz] in cm
+  rotation?: [number, number, number];    // [rx, ry, rz] Euler angles in degrees
+  scale?: [number, number, number];       // [sx, sy, sz] scale factors
+}
+
+/**
+ * Commits interactive 3D gizmo transforms (translation, rotation, scale) back into the Python CAD script.
+ *
+ * Strategy:
+ * 1. If translation is provided and the part is defined directly via an origin-supporting primitive
+ *    (and without prior sm.rotate/sm.translate chained after it), updates its origin coordinate tuple directly.
+ * 2. If rotation or scale is present, or if direct origin editing cannot be applied, injects or appends
+ *    `sm.translate(...)`, `sm.rotate(...)`, or `sm.scale(...)` on the part's variable immediately before
+ *    the `return [...]` statement in `build_parts()`.
+ */
+export function applyGizmoTransformToScript(
+  code: string,
+  partName: string,
+  transform: GizmoTransformDelta
+): { updatedCode: string; success: boolean } {
+  if (!code || !partName) return { updatedCode: code, success: false };
+
+  const { translation, rotation, scale } = transform;
+  const hasTrans = translation && (Math.abs(translation[0]) > 1e-4 || Math.abs(translation[1]) > 1e-4 || Math.abs(translation[2]) > 1e-4);
+  const hasRot = rotation && (Math.abs(rotation[0]) > 1e-4 || Math.abs(rotation[1]) > 1e-4 || Math.abs(rotation[2]) > 1e-4);
+  const hasScale = scale && (Math.abs(scale[0] - 1.0) > 1e-4 || Math.abs(scale[1] - 1.0) > 1e-4 || Math.abs(scale[2] - 1.0) > 1e-4);
+
+  if (!hasTrans && !hasRot && !hasScale) {
+    return { updatedCode: code, success: true };
+  }
+
+  // 1. Locate targetVar from partName in return [...]
+  const returnRegex = /(\s+)return\s*\[(.*?)\]/s;
+  const returnMatch = code.match(returnRegex);
+  let targetVar = partName;
+
+  if (returnMatch) {
+    const returnBody = returnMatch[2];
+    const tupleRegex = /\(\s*["']([^"']+)["']\s*,\s*([A-Za-z0-9_]+)\s*,/g;
+    let tm;
+    while ((tm = tupleRegex.exec(returnBody)) !== null) {
+      if (tm[1] === partName) {
+        targetVar = tm[2];
+        break;
+      }
+    }
+  }
+
+  // If translation only (no rotation or scale), check if we can update the primitive origin in-place
+  if (hasTrans && !hasRot && !hasScale) {
+    const currentProps = parsePartParametricProperties(code, partName);
+    if (currentProps) {
+      // Check if code has existing sm.translate or sm.rotate on this variable
+      const hasPostTransforms = new RegExp(`sm\\.(?:translate|rotate)\\(\\s*${targetVar}\\b`).test(code);
+      if (!hasPostTransforms) {
+        const newPos: [number, number, number] = [
+          Number((currentProps.position[0] + translation![0]).toFixed(3)),
+          Number((currentProps.position[1] + translation![1]).toFixed(3)),
+          Number((currentProps.position[2] + translation![2]).toFixed(3)),
+        ];
+        const res = updatePartParametricProperties(code, partName, { position: newPos });
+        if (res.success) {
+          return { updatedCode: res.updatedCode, success: true };
+        }
+      }
+    }
+  }
+
+  // If we have rotation, scale, or translation on a composite / non-primitive part,
+  // inject sm.translate / sm.rotate / sm.scale calls before return [...]
+  if (!returnMatch) {
+    return { updatedCode: code, success: false };
+  }
+
+  const indent = returnMatch[1];
+  const statements: string[] = [];
+
+  if (hasTrans && translation) {
+    const dx = Number(translation[0].toFixed(3));
+    const dy = Number(translation[1].toFixed(3));
+    const dz = Number(translation[2].toFixed(3));
+    statements.push(`${indent}sm.translate(${targetVar}, (${dx}, ${dy}, ${dz}))`);
+  }
+
+  if (hasRot && rotation) {
+    // Rotation angles around X, Y, Z
+    if (Math.abs(rotation[0]) > 1e-4) {
+      statements.push(`${indent}sm.rotate(${targetVar}, ref_point=(0.0, 0.0, 0.0), axis=(1.0, 0.0, 0.0), angle_deg=${Number(rotation[0].toFixed(2))})`);
+    }
+    if (Math.abs(rotation[1]) > 1e-4) {
+      statements.push(`${indent}sm.rotate(${targetVar}, ref_point=(0.0, 0.0, 0.0), axis=(0.0, 1.0, 0.0), angle_deg=${Number(rotation[1].toFixed(2))})`);
+    }
+    if (Math.abs(rotation[2]) > 1e-4) {
+      statements.push(`${indent}sm.rotate(${targetVar}, ref_point=(0.0, 0.0, 0.0), axis=(0.0, 0.0, 1.0), angle_deg=${Number(rotation[2].toFixed(2))})`);
+    }
+  }
+
+  if (hasScale && scale) {
+    const sx = Number(scale[0].toFixed(3));
+    const sy = Number(scale[1].toFixed(3));
+    const sz = Number(scale[2].toFixed(3));
+    statements.push(`${indent}sm.scale(${targetVar}, (${sx}, ${sy}, ${sz}))`);
+  }
+
+  if (statements.length === 0) {
+    return { updatedCode: code, success: true };
+  }
+
+  const codeBeforeReturn = code.slice(0, returnMatch.index);
+  const codeReturnAndAfter = code.slice(returnMatch.index!);
+  const updatedCode = `${codeBeforeReturn}${statements.join('\n')}\n${codeReturnAndAfter}`;
+
+  return { updatedCode, success: true };
+}

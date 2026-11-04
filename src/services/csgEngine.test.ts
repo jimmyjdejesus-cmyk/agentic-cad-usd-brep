@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyCsgBooleanToScript,
+  applyGizmoTransformToScript,
   generatePrimitiveCodeSnippet,
   insertPrimitiveIntoScript,
   parsePartParametricProperties,
@@ -311,6 +312,35 @@ def build_parts():
       });
       expect(resTorus.success).toBe(true);
       expect(resTorus.updatedCode).toContain('retaining_ring = sm.create_torus((0.00, 0.00, 8.00), 7.00, 2.00)');
+    });
+
+    describe('applyGizmoTransformToScript write-back', () => {
+      it('translates primitive in-place when no rotation or prior transforms exist', () => {
+        const res = applyGizmoTransformToScript(multiPartScript, 'center_shaft', {
+          translation: [1.5, -2.0, 0.5],
+        });
+        expect(res.success).toBe(true);
+        expect(res.updatedCode).toContain('center_shaft = sm.create_cylinder((1.50, -2.00, 4.00), 4.25, 12.00)');
+      });
+
+      it('injects sm.rotate and sm.translate when rotation is present', () => {
+        const res = applyGizmoTransformToScript(multiPartScript, 'top_knob', {
+          rotation: [0, 45, 90],
+          translation: [0, 0, 2.0],
+        });
+        expect(res.success).toBe(true);
+        expect(res.updatedCode).toContain('sm.translate(top_knob, (0, 0, 2))');
+        expect(res.updatedCode).toContain('sm.rotate(top_knob, ref_point=(0.0, 0.0, 0.0), axis=(0.0, 1.0, 0.0), angle_deg=45)');
+        expect(res.updatedCode).toContain('sm.rotate(top_knob, ref_point=(0.0, 0.0, 0.0), axis=(0.0, 0.0, 1.0), angle_deg=90)');
+      });
+
+      it('injects sm.scale when scale factor is present', () => {
+        const res = applyGizmoTransformToScript(multiPartScript, 'base_plate', {
+          scale: [1.2, 1.2, 1.0],
+        });
+        expect(res.success).toBe(true);
+        expect(res.updatedCode).toContain('sm.scale(base_plate, (1.2, 1.2, 1))');
+      });
     });
   });
 });

@@ -96,7 +96,7 @@ flowchart LR
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`ISS-201`** | **Target-Scoped AST Dimension Mutation & Multi-Line CSG Boolean Parser** | ✅ **Done** (`a481a7b`) | `priority:p0-blocker`, `area:cad-kernel`, `good first issue` | `ISS-102` | `ISS-202`, `ISS-203`, `ISS-301`, `ISS-401` | `src/services/parametricIntelligence.ts`, `src/services/csgEngine.ts` |
 | **`ISS-202`** | **Live Parametric Properties Inspector for Selected Part** | ⬜ Open | `priority:p0-blocker`, `area:viewport-ux` | `ISS-201` | `ISS-203` | `src/components/Viewport3D.tsx`, `src/App.tsx`, `src/services/csgEngine.ts` |
-| **`ISS-203`** | **Interactive 3D Viewport Transform Gizmos (Translate / Rotate / Scale + Snap)** | ⬜ Open | `priority:p1-high`, `area:viewport-ux` | `ISS-201`, `ISS-202` | `ISS-402` | `src/components/Viewport3D.tsx`, `src/services/cadRuntime.ts` |
+| **`ISS-203`** | **Interactive 3D Viewport Transform Gizmos (Translate / Rotate / Scale + Snap)** | ✅ **Done** | `priority:p1-high`, `area:viewport-ux` | `ISS-201`, `ISS-202` | `ISS-402` | `src/components/Viewport3D.tsx`, `src/services/cadRuntime.ts` |
 | **`ISS-204`** | **Decompose Monolithic `src/App.tsx` into Focused Workspace Modules** | ⬜ Open | `good first issue`, `area:viewport-ux` | `ISS-104` | *None* | `src/App.tsx`, `src/components/` |
 
 ### Milestone M3 (`v1.4.0`) — Structured Browser CAD Parser, Fillets/Chamfers & Fastener Library

@@ -55,9 +55,11 @@ describe('Project Milestones, Epics & Sub-Issues Manifest Suite', () => {
     const subMap2 = new Map([
       ['ISS-202', 22],
       ['ISS-203', 23],
+      ['ISS-204', 24],
     ]);
     const epic2Md = formatEpicMarkdown(epic2, ms2, manifest.subIssues, subMap2);
     expect(epic2Md).toContain('- [x] #22 — **`ISS-202`**');
-    expect(epic2Md).toContain('- [ ] #23 — **`ISS-203`**');
+    expect(epic2Md).toContain('- [x] #23 — **`ISS-203`**');
+    expect(epic2Md).toContain('- [ ] #24 — **`ISS-204`**');
   });
 });
