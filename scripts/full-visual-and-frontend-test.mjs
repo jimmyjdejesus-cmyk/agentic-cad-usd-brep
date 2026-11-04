@@ -317,7 +317,7 @@ async function runVisualAndFrontendTests() {
 
     // Close modal
     await cdp.eval(`(() => {
-      const closeBtn = document.querySelector('button[aria-label="Close"]');
+      const closeBtn = document.querySelector('button[aria-label="Close Material Database"]') || document.querySelector('button[aria-label="Close"]');
       if (closeBtn) closeBtn.click();
     })()`);
     await delay(500);
@@ -401,7 +401,7 @@ async function runVisualAndFrontendTests() {
 
     // Switch to G-Code tab
     await cdp.eval(`(() => {
-      const gcodeTab = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('CNC G-Code'));
+      const gcodeTab = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('CNC G-Code') || b.textContent?.includes('CNC Milling'));
       if (gcodeTab) gcodeTab.click();
     })()`);
     await delay(500);
@@ -409,7 +409,7 @@ async function runVisualAndFrontendTests() {
 
     // Switch to 3D Printing Preflight tab
     await cdp.eval(`(() => {
-      const preflightTab = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('3D Printing Preflight'));
+      const preflightTab = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('3D Printing Preflight') || b.textContent?.includes('3D Print Preparation'));
       if (preflightTab) preflightTab.click();
     })()`);
     await delay(500);
@@ -417,7 +417,7 @@ async function runVisualAndFrontendTests() {
 
     // Close CAM modal
     await cdp.eval(`(() => {
-      const closeBtn = document.querySelector('button[aria-label="Close CAM modal"]') || document.querySelector('button[aria-label="Close"]');
+      const closeBtn = document.querySelector('button[aria-label="Close CAM Modal"]') || document.querySelector('button[aria-label="Close CAM modal"]') || document.querySelector('button[aria-label="Close"]');
       if (closeBtn) closeBtn.click();
     })()`);
     await delay(500);
@@ -435,13 +435,13 @@ async function runVisualAndFrontendTests() {
 
     await cdp.captureScreenshot('09_ai_harness_modal_specs.png', 'AI Harness Modal: Host Hardware Specs & Memory Reservation');
 
-    // Switch to Local GGUF models tab
+    // Switch to Agent Harnesses tab
     await cdp.eval(`(() => {
-      const ggufTab = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('Local GGUF'));
-      if (ggufTab) ggufTab.click();
+      const harnessTab = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('Agent Harnesses') || b.textContent?.includes('Local GGUF'));
+      if (harnessTab) harnessTab.click();
     })()`);
     await delay(500);
-    await cdp.captureScreenshot('09_ai_harness_modal_gguf.png', 'AI Harness Modal: Curated Local GGUF Model Explorer');
+    await cdp.captureScreenshot('09_ai_harness_modal_gguf.png', 'AI Harness Modal: Curated Agent Harness Explorer');
 
     // Switch to Cloud & Agnostic Providers tab
     await cdp.eval(`(() => {
@@ -453,7 +453,7 @@ async function runVisualAndFrontendTests() {
 
     // Close AI Harness modal
     await cdp.eval(`(() => {
-      const closeBtn = document.querySelector('button[aria-label="Close AI Harness modal"]') || document.querySelector('button[aria-label="Close"]');
+      const closeBtn = document.querySelector('button[aria-label="Close AI Harness Modal"]') || document.querySelector('button[aria-label="Close AI Harness modal"]') || document.querySelector('button[aria-label="Close"]');
       if (closeBtn) closeBtn.click();
     })()`);
     await delay(500);
@@ -473,7 +473,7 @@ async function runVisualAndFrontendTests() {
 
     // Close AMD EDA modal
     await cdp.eval(`(() => {
-      const closeBtn = document.querySelector('button[aria-label="Close EDA Studio modal"]') || document.querySelector('button[aria-label="Close"]');
+      const closeBtn = document.querySelector('button[aria-label="Close AMD EDA Studio"]') || document.querySelector('button[aria-label="Close EDA Studio modal"]') || document.querySelector('button[aria-label="Close"]');
       if (closeBtn) closeBtn.click();
     })()`);
     await delay(500);
@@ -493,7 +493,7 @@ async function runVisualAndFrontendTests() {
 
     // Close Tools modal
     await cdp.eval(`(() => {
-      const closeBtn = document.querySelector('button[aria-label="Close In-App Toolsets modal"]') || document.querySelector('button[aria-label="Close"]');
+      const closeBtn = document.querySelector('button[aria-label="Close In-App Toolsets"]') || document.querySelector('button[aria-label="Close In-App Toolsets modal"]') || document.querySelector('button[aria-label="Close"]');
       if (closeBtn) closeBtn.click();
     })()`);
     await delay(500);

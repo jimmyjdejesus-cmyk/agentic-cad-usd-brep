@@ -87,6 +87,17 @@ export const AmdEdaSiliconStudio: React.FC<AmdEdaSiliconStudioProps> = ({
     };
   }, []);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const gateCount = netlist.gates.filter((g) => !g.type.startsWith('PAD_')).length;
@@ -134,8 +145,8 @@ export const AmdEdaSiliconStudio: React.FC<AmdEdaSiliconStudioProps> = ({
             </button>
             <button
               onClick={onClose}
-              aria-label="Close"
-              title="Close"
+              aria-label="Close AMD EDA Studio"
+              title="Close AMD EDA Studio"
               className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
             >
               <X className="w-5 h-5" />

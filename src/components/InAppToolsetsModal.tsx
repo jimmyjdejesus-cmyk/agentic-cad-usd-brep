@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   CheckCircle2,
   Cpu,
@@ -31,6 +31,17 @@ export const InAppToolsetsModal: React.FC<InAppToolsetsModalProps> = ({
   const [selectedToolsetId, setSelectedToolsetId] = useState<string>(IN_APP_TOOLSETS[0].id);
   const [testResult, setTestResult] = useState<ToolExecutionResponse | null>(null);
   const [isRunning, setIsRunning] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -75,8 +86,8 @@ export const InAppToolsetsModal: React.FC<InAppToolsetsModalProps> = ({
 
           <button
             onClick={onClose}
-            aria-label="Close"
-            title="Close"
+            aria-label="Close In-App Toolsets"
+            title="Close In-App Toolsets"
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
           >
             <X className="w-5 h-5" />

@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Check,
   ChevronRight,
@@ -39,6 +40,17 @@ export const MaterialDatabaseModal: React.FC<MaterialDatabaseModalProps> = ({
   const [customDensityInput, setCustomDensityInput] = useState<string>(
     customDensity ? String(customDensity) : '2.50'
   );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   const filteredMaterials = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -87,8 +99,13 @@ export const MaterialDatabaseModal: React.FC<MaterialDatabaseModalProps> = ({
     return { g, kg, lbs };
   };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="material-database-modal-title"
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+    >
       <div className="bg-[#0b0f19] border border-slate-800 rounded-2xl max-w-3xl w-full max-h-[88vh] flex flex-col shadow-2xl overflow-hidden font-sans text-slate-100 animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-800/80 flex items-center justify-between bg-slate-950/80">
@@ -97,7 +114,7 @@ export const MaterialDatabaseModal: React.FC<MaterialDatabaseModalProps> = ({
               <Database className="w-4 h-4 text-amber-400" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+              <h2 id="material-database-modal-title" className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
                 <span>Engineering Material Database</span>
                 <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-mono">
                   {MATERIAL_PRESETS.length} Materials
@@ -110,8 +127,8 @@ export const MaterialDatabaseModal: React.FC<MaterialDatabaseModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            aria-label="Close"
-            title="Close"
+            aria-label="Close Material Database"
+            title="Close Material Database"
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
           >
             <X className="w-4 h-4" />
@@ -315,6 +332,7 @@ export const MaterialDatabaseModal: React.FC<MaterialDatabaseModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
