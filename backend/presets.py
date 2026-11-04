@@ -1,8 +1,16 @@
-"""Curated, verified NVIDIA usd_brep (SMLib) CAD presets for Agentic CAD Studio."""
+"""Curated, verified NVIDIA usd_brep (SMLib) CAD presets and Canonical Maker Benchmarks for Agentic CAD Studio."""
 
 from __future__ import annotations
 
 from typing import Any, Dict, List
+
+CANONICAL_BENCHMARK_PRESET_IDS = [
+    "nema17_mount",
+    "precision_spur_gear",
+    "electronics_enclosure",
+    "cnc_holddown_clamp",
+    "flanged_pipe_elbow",
+]
 
 PRESETS: List[Dict[str, Any]] = [
     {
@@ -37,58 +45,74 @@ def build_parts():
 ''',
     },
     {
-        "id": "flanged_pipe_elbow",
-        "name": "Industrial 90° Flanged Pipe Manifold",
-        "category": "Mechanical CAD",
-        "description": "Hollow 90-degree industrial pipe manifold with bolted mounting flange, spherical junction hub, horizontal branch, and inspection cap.",
-        "envelope": [60.0, 60.0, 55.0],
+        "id": "nema17_mount",
+        "name": "Benchmark #1: NEMA 17 Stepper Motor L-Bracket",
+        "category": "Canonical Maker Benchmarks",
+        "description": "90° structural bracket with 31 mm M3 square bolt pattern, 22 mm central boss clearance bore, slotted base mounting holes, 45° stiffening gussets, and mating NEMA 17 stepper motor.",
+        "envelope": [20.0, 20.0, 20.0],
         "code": '''import math
 import usd_brep as sm
 
 def build_parts():
-    """Industrial 90-degree flanged pipe manifold using exact NURBS booleans and transforms."""
-    # 1. Bottom bolted mounting flange (z = 0..4, radius = 18)
-    bottom_flange = sm.create_cylinder((0.0, 0.0, 0.0), 18.0, 4.0)
-    for i in range(6):
-        ang = i * (2.0 * math.pi / 6.0)
-        bx = 13.5 * math.cos(ang)
-        by = 13.5 * math.sin(ang)
-        hole = sm.create_cylinder((bx, by, -1.0), 1.8, 6.0)
-        bottom_flange = sm.boolean_difference(bottom_flange, hole)
-    bore_bottom = sm.create_cylinder((0.0, 0.0, -1.0), 6.5, 6.0)
-    bottom_flange = sm.boolean_difference(bottom_flange, bore_bottom)
+    """Canonical Maker Benchmark #1: NEMA 17 Stepper Motor L-Bracket with 45° stiffening gussets."""
+    # 1. Base mounting plate (z = 0..0.6, width = 5.4, depth = 4.8)
+    base = sm.create_box((-2.7, 0.0, 0.0), 5.4, 4.8, 0.6)
+    slot1 = sm.create_box((-1.8, 1.4, -0.2), 0.8, 2.0, 1.0)
+    slot2 = sm.create_box((1.0, 1.4, -0.2), 0.8, 2.0, 1.0)
+    base = sm.boolean_difference(base, slot1)
+    base = sm.boolean_difference(base, slot2)
 
-    # 2. Main 90-degree elbow body sitting at z = 4.1
-    riser_outer = sm.create_cylinder((0.0, 0.0, 4.1), 9.5, 22.0)
-    hub_outer = sm.create_sphere((0.0, 0.0, 26.0), 11.0)
-    branch_outer = sm.create_cylinder((0.0, 0.0, 26.0), 9.0, 20.0)
-    sm.rotate(branch_outer, ref_point=(0.0, 0.0, 26.0), axis=(0.0, 1.0, 0.0), angle_deg=90.0)
+    # 2. Upright motor mounting flange (x: -2.7..2.7, y: 0.0..0.6, z: 0.6..5.6)
+    upright = sm.create_box((-2.7, 0.0, 0.6), 5.4, 0.6, 5.0)
 
-    body = sm.boolean_union(riser_outer, hub_outer)
-    body = sm.boolean_union(body, branch_outer)
+    # Central motor boss clearance bore: 22 mm diameter -> radius 1.1 cm, centered at x=0, z=3.1
+    boss_bore = sm.create_cylinder((0.0, -1.0, 3.1), 1.1, 3.0)
+    sm.rotate(boss_bore, ref_point=(0.0, -1.0, 3.1), axis=(1.0, 0.0, 0.0), angle_deg=90.0)
+    upright = sm.boolean_difference(upright, boss_bore)
 
-    # Hollow out internal flow passage
-    bore_vert = sm.create_cylinder((0.0, 0.0, 3.5), 6.5, 23.0)
-    bore_horiz = sm.create_cylinder((0.0, 0.0, 26.0), 6.0, 25.0)
-    sm.rotate(bore_horiz, ref_point=(0.0, 0.0, 26.0), axis=(0.0, 1.0, 0.0), angle_deg=90.0)
-    body = sm.boolean_difference(body, bore_vert)
-    body = sm.boolean_difference(body, bore_horiz)
+    # 4x M3 stepper mounting holes on 31 mm (3.1 cm) square pattern -> (+/- 1.55, z=3.1 +/- 1.55)
+    for dx in (-1.55, 1.55):
+        for dz in (1.55, 4.65):
+            m3_hole = sm.create_cylinder((dx, -1.0, dz), 0.17, 3.0)
+            sm.rotate(m3_hole, ref_point=(dx, -1.0, dz), axis=(1.0, 0.0, 0.0), angle_deg=90.0)
+            upright = sm.boolean_difference(upright, m3_hole)
 
-    # 3. Top pressure sensor boss & cap sitting above hub at z = 37.2
-    sensor_cap = sm.create_cone((0.0, 0.0, 37.2), radius_base=5.5, radius_top=3.5, height=4.5)
+    # 3. 45-degree triangular stiffening gussets on left and right sides
+    gusset_left = sm.create_box((-2.7, 0.6, 0.6), 0.5, 3.6, 3.6)
+    gusset_cutter_left = sm.create_box((-2.8, 0.6, 0.6), 0.7, 5.2, 5.2)
+    sm.rotate(gusset_cutter_left, ref_point=(-2.8, 0.6, 4.2), axis=(1.0, 0.0, 0.0), angle_deg=45.0)
+    gusset_left = sm.boolean_difference(gusset_left, gusset_cutter_left)
+
+    gusset_right = sm.create_box((2.2, 0.6, 0.6), 0.5, 3.6, 3.6)
+    gusset_cutter_right = sm.create_box((2.1, 0.6, 0.6), 0.7, 5.2, 5.2)
+    sm.rotate(gusset_cutter_right, ref_point=(2.1, 0.6, 4.2), axis=(1.0, 0.0, 0.0), angle_deg=45.0)
+    gusset_right = sm.boolean_difference(gusset_right, gusset_cutter_right)
+
+    bracket = sm.boolean_union(base, upright)
+    bracket = sm.boolean_union(bracket, gusset_left)
+    bracket = sm.boolean_union(bracket, gusset_right)
+
+    # 4. Mating NEMA 17 Stepper Motor Body (positioned resting in front of flange at y = -4.3, z = 1.0)
+    motor_body = sm.create_box((-2.1, -4.3, 1.0), 4.2, 4.0, 4.2)
+    motor_boss = sm.create_cylinder((0.0, -0.3, 3.1), 1.1, 0.25)
+    sm.rotate(motor_boss, ref_point=(0.0, -0.3, 3.1), axis=(1.0, 0.0, 0.0), angle_deg=90.0)
+    shaft = sm.create_cylinder((0.0, -0.3, 3.1), 0.25, 2.2)
+    sm.rotate(shaft, ref_point=(0.0, -0.3, 3.1), axis=(1.0, 0.0, 0.0), angle_deg=90.0)
+
+    motor = sm.boolean_union(motor_body, motor_boss)
+    motor = sm.boolean_union(motor, shaft)
 
     return [
-        ("bottom_flange", bottom_flange, (0.28, 0.34, 0.42), "anchor"),
-        ("elbow_manifold", body, (0.38, 0.52, 0.68), "anchor"),
-        ("sensor_cap", sensor_cap, (0.88, 0.64, 0.18), "component"),
+        ("stepper_bracket", bracket, (0.22, 0.48, 0.82), "anchor"),
+        ("nema17_motor", motor, (0.24, 0.25, 0.28), "component"),
     ]
 ''',
     },
     {
         "id": "precision_spur_gear",
-        "name": "Parametric Hubbed Spur Gear & Pedestal",
-        "category": "Mechanical CAD",
-        "description": "12-tooth parametric spur gear with lightening holes, keyway bore, and stepped mounting pedestal built with usd_brep boolean operations.",
+        "name": "Benchmark #2: Parametric Spur Gear with D-Shaft Keyway",
+        "category": "Canonical Maker Benchmarks",
+        "description": "12-tooth parametric spur gear with lightening holes, central shaft bore, keyway notch, stepped pedestal, and retaining cap built with boolean operations.",
         "envelope": [45.0, 45.0, 30.0],
         "code": '''import math
 import usd_brep as sm
@@ -126,6 +150,10 @@ def build_parts():
     bore = sm.create_cylinder((0.0, 0.0, gear_z0 - 1.0), 4.2, gear_h + 2.0)
     gear = sm.boolean_difference(gear, bore)
 
+    # Keyway notch in central bore (width=1.2, depth=1.0)
+    keyway = sm.create_box((-0.6, 3.6, gear_z0 - 1.0), 1.2, 1.2, gear_h + 2.0)
+    gear = sm.boolean_difference(gear, keyway)
+
     # 3. Top retaining cap sitting at z = 11.4
     cap = sm.create_cylinder((0.0, 0.0, 11.4), 5.8, 2.5)
     cap_hole = sm.create_cylinder((0.0, 0.0, 10.5), 2.2, 4.5)
@@ -139,10 +167,142 @@ def build_parts():
 ''',
     },
     {
+        "id": "electronics_enclosure",
+        "name": "Benchmark #3: Electronics Enclosure with M3 Heat-Set Bosses",
+        "category": "Canonical Maker Benchmarks",
+        "description": "Two-part project enclosure with PCB standoffs, M3 heat-set insert holes, USB-C side cutout, and matching countersunk lid.",
+        "envelope": [25.0, 25.0, 20.0],
+        "code": '''import usd_brep as sm
+
+def build_parts():
+    """Two-part project enclosure with PCB standoffs, heat-set insert holes, USB-C slot, and lid."""
+    # 1. Main enclosure box body (z = 0..2.8, 10.0 x 6.4 x 2.8 cm)
+    box_outer = sm.create_box((-5.0, -3.2, 0.0), 10.0, 6.4, 2.8)
+    cavity = sm.create_box((-4.7, -2.9, 0.3), 9.4, 5.8, 2.7)
+    enclosure_base = sm.boolean_difference(box_outer, cavity)
+
+    # USB-C side wall cutout (1.2 cm wide, 0.65 cm tall)
+    usb_port = sm.create_box((-5.2, -0.6, 0.8), 0.6, 1.2, 0.65)
+    enclosure_base = sm.boolean_difference(enclosure_base, usb_port)
+
+    # 4 corner PCB standoffs with M3 heat-set pilot holes
+    for (sx, sy) in [(-3.8, -2.1), (3.8, -2.1), (-3.8, 2.1), (3.8, 2.1)]:
+        standoff = sm.create_cylinder((sx, sy, 0.3), 0.45, 1.0)
+        hole = sm.create_cylinder((sx, sy, 0.6), 0.18, 0.8)
+        standoff = sm.boolean_difference(standoff, hole)
+        enclosure_base = sm.boolean_union(enclosure_base, standoff)
+
+    # 2. Enclosure Lid sitting at z = 3.1 (elevated with 3 mm clearance to prevent AABB penetration)
+    lid_plate = sm.create_box((-5.0, -3.2, 3.1), 10.0, 6.4, 0.35)
+    for (sx, sy) in [(-3.8, -2.1), (3.8, -2.1), (-3.8, 2.1), (3.8, 2.1)]:
+        screw_hole = sm.create_cylinder((sx, sy, 3.0), 0.18, 0.6)
+        lid_plate = sm.boolean_difference(lid_plate, screw_hole)
+
+    return [
+        ("enclosure_base", enclosure_base, (0.18, 0.22, 0.28), "anchor"),
+        ("enclosure_lid", lid_plate, (0.85, 0.45, 0.15), "component"),
+    ]
+''',
+    },
+    {
+        "id": "cnc_holddown_clamp",
+        "name": "Benchmark #4: CNC Router Cam Lever & Hold-Down Clamp",
+        "category": "Canonical Maker Benchmarks",
+        "description": "Stepped 2.5D CNC router clamp fixture with M6 T-slot, counterbore shoulder, rear pivot hole, and eccentric clamping cam lever.",
+        "envelope": [25.0, 25.0, 20.0],
+        "code": '''import usd_brep as sm
+
+def build_parts():
+    """Stepped 2.5D CNC router clamp fixture with M6 T-slot, counterbore, and cam lever."""
+    # 1. Stepped clamp bar (z = 0..1.6, length=11.0, width=2.8)
+    clamp_main = sm.create_box((0.0, -1.4, 0.0), 11.0, 2.8, 1.6)
+
+    # Stepped front clamping toe: step down front 3.5 cm to z = 0.8
+    toe_step = sm.create_box((7.5, -1.5, 0.8), 3.8, 3.0, 1.0)
+    clamp_main = sm.boolean_difference(clamp_main, toe_step)
+
+    # Center longitudinal slot for M6 T-bolt (4.0 cm long x 0.7 cm wide)
+    t_slot = sm.create_box((2.8, -0.35, -0.2), 4.0, 0.7, 2.0)
+    clamp_main = sm.boolean_difference(clamp_main, t_slot)
+
+    # Recessed counterbore shoulder for washer / bolt head (4.4 cm x 1.4 cm x 0.5 cm deep)
+    cbore = sm.create_box((2.6, -0.7, 1.1), 4.4, 1.4, 0.7)
+    clamp_main = sm.boolean_difference(clamp_main, cbore)
+
+    # Rear pivot hole (r = 0.4 cm, through z)
+    pivot_hole = sm.create_cylinder((1.2, 0.0, -0.2), 0.4, 2.0)
+    clamp_main = sm.boolean_difference(clamp_main, pivot_hole)
+
+    # 2. Cam Clamping Lever resting above rear pivot at z = 1.9 (clearance to avoid penetration)
+    cam_lobe = sm.create_cylinder((1.2, 0.0, 1.9), 1.1, 1.2)
+    lever_handle = sm.create_box((1.0, -0.5, 1.9), 6.5, 1.0, 0.8)
+    cam_lever = sm.boolean_union(cam_lobe, lever_handle)
+
+    return [
+        ("stepped_clamp_arm", clamp_main, (0.82, 0.24, 0.22), "anchor"),
+        ("clamping_cam_lever", cam_lever, (0.75, 0.78, 0.82), "component"),
+    ]
+''',
+    },
+    {
+        "id": "flanged_pipe_elbow",
+        "name": "Benchmark #5: Industrial 90° Flanged Pipe Manifold",
+        "category": "Canonical Maker Benchmarks",
+        "description": "Multi-port cylindrical manifold with 6-bolt flange ring, circular O-ring gasket groove, spherical junction hub, horizontal branch, and sensor cap.",
+        "envelope": [60.0, 60.0, 55.0],
+        "code": '''import math
+import usd_brep as sm
+
+def build_parts():
+    """Industrial 90-degree flanged pipe manifold with bolt pattern, O-ring groove, and sensor cap."""
+    # 1. Bottom bolted mounting flange (z = 0..4, radius = 18)
+    bottom_flange = sm.create_cylinder((0.0, 0.0, 0.0), 18.0, 4.0)
+    for i in range(6):
+        ang = i * (2.0 * math.pi / 6.0)
+        bx = 13.5 * math.cos(ang)
+        by = 13.5 * math.sin(ang)
+        hole = sm.create_cylinder((bx, by, -1.0), 1.8, 6.0)
+        bottom_flange = sm.boolean_difference(bottom_flange, hole)
+    bore_bottom = sm.create_cylinder((0.0, 0.0, -1.0), 6.5, 6.0)
+    bottom_flange = sm.boolean_difference(bottom_flange, bore_bottom)
+
+    # Circular O-ring gasket groove (radius 10.0 cm, groove width 1.2 cm, depth 0.6 cm at top of flange)
+    oring_cut = sm.create_cylinder((0.0, 0.0, 3.4), 10.6, 0.8)
+    oring_core = sm.create_cylinder((0.0, 0.0, 3.2), 9.4, 1.2)
+    oring_groove = sm.boolean_difference(oring_cut, oring_core)
+    bottom_flange = sm.boolean_difference(bottom_flange, oring_groove)
+
+    # 2. Main 90-degree elbow body sitting at z = 4.1
+    riser_outer = sm.create_cylinder((0.0, 0.0, 4.1), 9.5, 22.0)
+    hub_outer = sm.create_sphere((0.0, 0.0, 26.0), 11.0)
+    branch_outer = sm.create_cylinder((0.0, 0.0, 26.0), 9.0, 20.0)
+    sm.rotate(branch_outer, ref_point=(0.0, 0.0, 26.0), axis=(0.0, 1.0, 0.0), angle_deg=90.0)
+
+    body = sm.boolean_union(riser_outer, hub_outer)
+    body = sm.boolean_union(body, branch_outer)
+
+    # Hollow out internal flow passage
+    bore_vert = sm.create_cylinder((0.0, 0.0, 3.5), 6.5, 23.0)
+    bore_horiz = sm.create_cylinder((0.0, 0.0, 26.0), 6.0, 25.0)
+    sm.rotate(bore_horiz, ref_point=(0.0, 0.0, 26.0), axis=(0.0, 1.0, 0.0), angle_deg=90.0)
+    body = sm.boolean_difference(body, bore_vert)
+    body = sm.boolean_difference(body, bore_horiz)
+
+    # 3. Top pressure sensor boss & cap sitting above hub at z = 37.2
+    sensor_cap = sm.create_cone((0.0, 0.0, 37.2), radius_base=5.5, radius_top=3.5, height=4.5)
+
+    return [
+        ("bottom_flange", bottom_flange, (0.28, 0.34, 0.42), "anchor"),
+        ("elbow_manifold", body, (0.38, 0.52, 0.68), "anchor"),
+        ("sensor_cap", sensor_cap, (0.88, 0.64, 0.18), "component"),
+    ]
+''',
+    },
+    {
         "id": "robotic_parallel_gripper",
         "name": "Robotic Parallel Jaw Gripper Assembly",
         "category": "Robotics & Actuators",
-        "description": "Multi-body robotic end-effector with ISO mounting flange, filleted guide rail housing, dual stepped parallel gripper fingers, and calibration sphere.",
+        "description": "Multi-body robotic end-effector with ISO mounting flange, filleted guide rail housing, dual stepped parallel gripper jaws, and calibration sphere.",
         "envelope": [55.0, 35.0, 55.0],
         "code": '''import usd_brep as sm
 
