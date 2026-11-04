@@ -573,5 +573,5 @@ export interface EdaNetlist {
 
 export interface ActiveSelectionContext {
   selectedPartName?: string | null;
-  activeAnnotation?: CadAnnotation | null;
+  activeAnnotation?: Partial<CadAnnotation> | null;
 }

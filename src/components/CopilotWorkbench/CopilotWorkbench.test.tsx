@@ -54,10 +54,13 @@ describe('CopilotWorkbench Component Suite', () => {
       selectedPartName: null,
       activeAnnotation: {
         id: 'ann-1',
+        partName: 'mounting_flange',
+        targetType: 'surface',
         position: [12.5, -4.0, 8.0],
         normal: [0, 0, 1],
-        partName: 'mounting_flange',
-        text: 'Drill point',
+        title: 'Drill point',
+        category: 'inspection',
+        createdAt: '2026-11-04T00:00:00.000Z',
       },
     };
 
@@ -74,11 +77,14 @@ describe('CopilotWorkbench Component Suite', () => {
       selectedPartName: 'engine_block',
       activeAnnotation: {
         id: 'ann-2',
+        partName: 'engine_block',
+        targetType: 'surface',
         position: [0.0, 5.0, 10.0],
         normal: [0, 1, 0],
-        partName: 'engine_block',
-        text: 'Oil feed bore',
-      },
+        title: 'Oil feed bore',
+        category: 'machining',
+        createdAt: '2026-11-04T00:00:00.000Z',
+      } as any,
     };
 
     const html = renderToStaticMarkup(

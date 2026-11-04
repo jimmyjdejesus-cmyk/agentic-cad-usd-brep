@@ -138,9 +138,13 @@ def build_parts():
         selectedPartName: 'cylinder',
         activeAnnotation: {
           id: 'pin-1',
+          partName: 'cylinder',
+          targetType: 'surface' as const,
           position: [3.5, 2.0, 10.0] as [number, number, number],
           normal: [0, 0, 1] as [number, number, number],
-          partName: 'cylinder',
+          title: 'Hole Pin',
+          category: 'inspection' as const,
+          createdAt: '2026-11-04T00:00:00.000Z',
         },
       };
 
@@ -161,9 +165,13 @@ def build_parts():
         selectedPartName: 'cylinder',
         activeAnnotation: {
           id: 'pin-side',
+          partName: 'cylinder',
+          targetType: 'surface' as const,
           position: [5.0, 0.0, 5.0] as [number, number, number],
           normal: [1, 0, 0] as [number, number, number],
-          partName: 'cylinder',
+          title: 'Side Pin',
+          category: 'inspection' as const,
+          createdAt: '2026-11-04T00:00:00.000Z',
         },
       };
 
