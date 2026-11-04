@@ -467,4 +467,137 @@ def build_parts():
     expect(res.success).toBe(false);
     expect(res.error).toContain('SM_ERR_INVALID_INPUT');
   });
+
+  describe('ISS-301: Structured Multi-Line Python Expression & Block Evaluator', () => {
+    it('evaluates multi-line formatted sm.create_box, sm.create_cylinder, and sm.boolean_difference identically to single-line calls', async () => {
+      const multiLineCode = `import usd_brep as sm
+def build_parts():
+    base_plate = sm.create_box(
+        (0.0, 0.0, 0.0),
+        length=20.0,
+        width=15.0,
+        height=5.0
+    )
+    center_hole = sm.create_cylinder(
+        origin=(10.0, 7.5, -1.0),
+        radius=3.0,
+        height=7.0
+    )
+    bracket = sm.boolean_difference(
+        workpiece=base_plate,
+        cutter=center_hole
+    )
+    return [
+        ("perforated_plate", bracket, (0.2, 0.5, 0.8), "anchor")
+    ]
+`;
+      const res = await evaluateClientSideUsdBrep(multiLineCode, 'MultiLineTest');
+      expect(res.success).toBe(true);
+      expect(res.parts?.length).toBe(1);
+      const part = res.parts![0];
+      expect(part.name).toBe('perforated_plate');
+      expect(part.diagnostics.manifold).toBe(true);
+      // Volume of 20 * 15 * 5 = 1500, minus cylinder pi * 3^2 * 5 = ~141.37 -> ~1358
+      expect(part.diagnostics.volume).toBeLessThan(1500);
+      expect(part.diagnostics.volume).toBeGreaterThan(1300);
+    });
+
+    it('evaluates nested for loops with mathematical variables and tuple unpacking', async () => {
+      const nestedLoopsCode = `import math
+import usd_brep as sm
+def build_parts():
+    tray = sm.create_box((0.0, 0.0, 0.0), 30.0, 30.0, 4.0)
+    # 2x2 grid of holes created using nested for loops
+    for ix in range(2):
+        for iy in range(2):
+            cx = 7.5 + ix * 15.0
+            cy = 7.5 + iy * 15.0
+            hole = sm.create_cylinder(
+                (cx, cy, -1.0),
+                radius=2.0,
+                height=6.0
+            )
+            tray = sm.boolean_difference(tray, hole)
+    return [("grid_tray", tray, (0.3, 0.7, 0.4), "anchor")]
+`;
+      const res = await evaluateClientSideUsdBrep(nestedLoopsCode, 'GridTrayTest');
+      expect(res.success).toBe(true);
+      const part = res.parts![0];
+      expect(part.diagnostics.manifold).toBe(true);
+      // Base volume: 30 * 30 * 4 = 3600. 4 holes of pi * 2^2 * 4 = ~50.27 each (~201 total) -> ~3399
+      expect(part.diagnostics.volume).toBeLessThan(3600);
+      expect(part.diagnostics.volume).toBeGreaterThan(3300);
+    });
+
+    it('supports tuple unpacking in variable assignments and iterable sequences', async () => {
+      const tupleUnpackCode = `import usd_brep as sm
+def build_parts():
+    origin_x, origin_y, origin_z = 0.0, 0.0, 0.0
+    dim_x, dim_y, dim_z = 12.0, 10.0, 6.0
+    block = sm.create_box((origin_x, origin_y, origin_z), dim_x, dim_y, dim_z)
+
+    # List of hole positions to unpack
+    for hx, hy in [(3.0, 3.0), (9.0, 7.0)]:
+        hole = sm.create_cylinder((hx, hy, -1.0), 1.5, 8.0)
+        block = sm.boolean_difference(block, hole)
+
+    return [("unpacked_block", block, (0.7, 0.3, 0.2), "component")]
+`;
+      const res = await evaluateClientSideUsdBrep(tupleUnpackCode, 'UnpackTest');
+      expect(res.success).toBe(true);
+      const part = res.parts![0];
+      expect(part.name).toBe('unpacked_block');
+      expect(part.diagnostics.manifold).toBe(true);
+      expect(part.diagnostics.volume).toBeLessThan(12.0 * 10.0 * 6.0);
+    });
+
+    it('correctly executes if, elif, and else conditional blocks', async () => {
+      const conditionalsCode = `import usd_brep as sm
+def build_parts():
+    add_boss = True
+    boss_type = 2
+
+    body = sm.create_box((0.0, 0.0, 0.0), 16.0, 16.0, 4.0)
+
+    if add_boss:
+        if boss_type == 1:
+            boss = sm.create_cylinder((8.0, 8.0, 4.0), 3.0, 5.0)
+            body = sm.boolean_union(body, boss)
+        elif boss_type == 2:
+            boss = sm.create_box((5.0, 5.0, 4.0), 6.0, 6.0, 5.0)
+            body = sm.boolean_union(body, boss)
+        else:
+            boss = sm.create_sphere((8.0, 8.0, 6.0), 2.5)
+            body = sm.boolean_union(body, boss)
+    else:
+        pocket = sm.create_cylinder((8.0, 8.0, 2.0), 4.0, 3.0)
+        body = sm.boolean_difference(body, pocket)
+
+    return [("conditional_assembly", body, (0.5, 0.5, 0.9), "anchor")]
+`;
+      const res = await evaluateClientSideUsdBrep(conditionalsCode, 'ConditionalsTest');
+      expect(res.success).toBe(true);
+      const part = res.parts![0];
+      expect(part.diagnostics.manifold).toBe(true);
+      // Volume = 16*16*4 (=1024) + box boss 6*6*5 (=180) -> 1204
+      expect(part.diagnostics.volume).toBeGreaterThan(1150);
+      expect(part.diagnostics.volume).toBeLessThan(1300);
+    });
+
+    it('supports keyword arguments in mixed orders for sm.create_cone, sm.create_sphere, and sm.create_torus', async () => {
+      const kwargsCode = `import usd_brep as sm
+def build_parts():
+    c = sm.create_cone(height=8.0, radius_base=5.0, radius_top=2.0, origin=(0.0, 0.0, 0.0))
+    s = sm.create_sphere(radius=3.0, origin=(0.0, 0.0, 10.0))
+    t = sm.create_torus(minor_radius=1.0, major_radius=4.0, origin=(0.0, 0.0, 5.0))
+    combo = sm.boolean_union(a=c, b=s)
+    combo = sm.boolean_union(combo, t)
+    return [("kwargs_combo", combo, (0.8, 0.6, 0.2), "component")]
+`;
+      const res = await evaluateClientSideUsdBrep(kwargsCode, 'KwargsTest');
+      expect(res.success).toBe(true);
+      expect(res.parts?.length).toBe(1);
+      expect(res.parts![0].diagnostics.manifold).toBe(true);
+    });
+  });
 });

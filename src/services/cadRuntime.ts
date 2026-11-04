@@ -559,51 +559,246 @@ export function generateAsciiStlClient(
 }
 
 // Hierarchical statement block representation for indented python code execution
-interface ScriptStatement {
-  type: 'line' | 'for';
+export interface ScriptStatement {
+  type: 'line' | 'for' | 'if';
   raw: string;
+  // For 'for' loops:
+  target?: string;
+  iterExpr?: string;
   varName?: string;
   countExpr?: string;
+  // For 'if' / 'elif' / 'else':
+  testExpr?: string;
+  elifBranches?: Array<{ testExpr: string; body: ScriptStatement[] }>;
+  elseBody?: ScriptStatement[];
+  // Block body:
   body?: ScriptStatement[];
 }
 
-function parseScriptBlocks(code: string): ScriptStatement[] {
+export interface LogicalLine {
+  indent: number;
+  text: string;
+}
+
+/**
+ * Tokenizes raw Python script lines into logical statements by balancing parentheses '()',
+ * brackets '[]', and braces '{}', while handling single/double quoted strings and comments '#'.
+ */
+export function reconstructLogicalLines(code: string): LogicalLine[] {
   const rawLines = code.split(/\r?\n/);
+  const logicalLines: LogicalLine[] = [];
+
+  let currentIndent = 0;
+  let currentBuffer = '';
+  let inDoubleString = false;
+  let inSingleString = false;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+
+  for (let lineIdx = 0; lineIdx < rawLines.length; lineIdx++) {
+    const fullLine = rawLines[lineIdx];
+    const initialIndentMatch = fullLine.match(/^\s*/);
+    const lineIndent = initialIndentMatch ? initialIndentMatch[0].length : 0;
+
+    // If starting a fresh logical line
+    if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && !currentBuffer) {
+      currentIndent = lineIndent;
+    }
+
+    let i = 0;
+    let lineCode = '';
+    let isEscaped = false;
+
+    while (i < fullLine.length) {
+      const ch = fullLine[i];
+
+      if (isEscaped) {
+        lineCode += ch;
+        isEscaped = false;
+        i++;
+        continue;
+      }
+
+      if (ch === '\\' && (inDoubleString || inSingleString)) {
+        isEscaped = true;
+        lineCode += ch;
+        i++;
+        continue;
+      }
+
+      if (ch === '"' && !inSingleString) {
+        // Check triple quotes: """
+        if (fullLine.slice(i, i + 3) === '"""') {
+          // Check if this closes or opens triple quote
+          // For simplicity in single-line scanning:
+          inDoubleString = !inDoubleString;
+          lineCode += '"""';
+          i += 3;
+          continue;
+        }
+        inDoubleString = !inDoubleString;
+        lineCode += ch;
+        i++;
+        continue;
+      }
+
+      if (ch === "'" && !inDoubleString) {
+        if (fullLine.slice(i, i + 3) === "'''") {
+          inSingleString = !inSingleString;
+          lineCode += "'''";
+          i += 3;
+          continue;
+        }
+        inSingleString = !inSingleString;
+        lineCode += ch;
+        i++;
+        continue;
+      }
+
+      if (!inDoubleString && !inSingleString) {
+        if (ch === '#') {
+          // Comment starts here until end of line
+          break;
+        }
+        if (ch === '(') parenDepth++;
+        else if (ch === ')') parenDepth = Math.max(0, parenDepth - 1);
+        else if (ch === '[') bracketDepth++;
+        else if (ch === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+        else if (ch === '{') braceDepth++;
+        else if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+      }
+
+      lineCode += ch;
+      i++;
+    }
+
+    // Check for explicit backslash line continuation outside string
+    let hasLineContinuation = false;
+    if (!inDoubleString && !inSingleString) {
+      const trimmedEnd = lineCode.trimEnd();
+      if (trimmedEnd.endsWith('\\')) {
+        hasLineContinuation = true;
+        lineCode = trimmedEnd.slice(0, -1);
+      }
+    }
+
+    if (currentBuffer) {
+      currentBuffer += ' ' + lineCode.trim();
+    } else {
+      currentBuffer = lineCode.trim();
+    }
+
+    // If depths are all 0 and no line continuation, statement is complete
+    if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && !hasLineContinuation) {
+      if (currentBuffer.trim().length > 0) {
+        logicalLines.push({
+          indent: currentIndent,
+          text: currentBuffer.trim(),
+        });
+      }
+      currentBuffer = '';
+      currentIndent = 0;
+    }
+  }
+
+  if (currentBuffer.trim().length > 0) {
+    logicalLines.push({
+      indent: currentIndent,
+      text: currentBuffer.trim(),
+    });
+  }
+
+  return logicalLines;
+}
+
+function parseScriptBlocks(code: string): ScriptStatement[] {
+  const logicalLines = reconstructLogicalLines(code);
   let i = 0;
 
   function parseBlock(minIndent: number): ScriptStatement[] {
     const block: ScriptStatement[] = [];
-    while (i < rawLines.length) {
-      const raw = rawLines[i];
-      const trimmed = raw.replace(/#.*$/, '');
-      if (!trimmed.trim()) {
-        i++;
-        continue;
-      }
-      const indent = raw.match(/^\s*/)?.[0].length ?? 0;
-      if (indent < minIndent) {
+    while (i < logicalLines.length) {
+      const lineObj = logicalLines[i];
+      if (lineObj.indent < minIndent) {
         break;
       }
 
-      const line = trimmed.trim();
-      const forMatch = line.match(/^for\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+range\(([^)]+)\):$/);
+      const line = lineObj.text;
+      const indent = lineObj.indent;
+
+      // Match for loop: for <target> in <iter>:
+      const forMatch = line.match(/^for\s+([\s\S]+?)\s+in\s+([\s\S]+?):$/);
       if (forMatch) {
         i++;
         const body = parseBlock(indent + 1);
         block.push({
           type: 'for',
           raw: line,
-          varName: forMatch[1],
-          countExpr: forMatch[2],
+          target: forMatch[1].trim(),
+          iterExpr: forMatch[2].trim(),
+          varName: forMatch[1].trim(),
+          countExpr: forMatch[2].trim(),
           body,
         });
-      } else {
-        block.push({
-          type: 'line',
-          raw: line,
-        });
-        i++;
+        continue;
       }
+
+      // Match if statement: if <condition>:
+      const ifMatch = line.match(/^if\s+([\s\S]+?):$/);
+      if (ifMatch) {
+        i++;
+        const ifBody = parseBlock(indent + 1);
+        const elifBranches: Array<{ testExpr: string; body: ScriptStatement[] }> = [];
+        let elseBody: ScriptStatement[] | undefined = undefined;
+
+        while (i < logicalLines.length && logicalLines[i].indent === indent) {
+          const nextLine = logicalLines[i].text;
+          const elifMatch = nextLine.match(/^elif\s+([\s\S]+?):$/);
+          if (elifMatch) {
+            i++;
+            const elifBody = parseBlock(indent + 1);
+            elifBranches.push({ testExpr: elifMatch[1].trim(), body: elifBody });
+            continue;
+          }
+          const elseMatch = nextLine.match(/^else\s*:$/);
+          if (elseMatch) {
+            i++;
+            elseBody = parseBlock(indent + 1);
+            break;
+          }
+          break;
+        }
+
+        block.push({
+          type: 'if',
+          raw: line,
+          testExpr: ifMatch[1].trim(),
+          body: ifBody,
+          elifBranches,
+          elseBody,
+        });
+        continue;
+      }
+
+      // Ignore helper defs outside build_parts, but parse and execute build_parts() body
+      const defMatch = line.match(/^def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(.*?\)\s*:$/);
+      if (defMatch) {
+        const fnName = defMatch[1];
+        i++;
+        const fnBody = parseBlock(indent + 1);
+        // Only inline and execute build_parts() or functions called during execution
+        if (fnName === 'build_parts') {
+          block.push(...fnBody);
+        }
+        continue;
+      }
+
+      block.push({
+        type: 'line',
+        raw: line,
+      });
+      i++;
     }
     return block;
   }
@@ -653,24 +848,42 @@ export async function evaluateClientSideUsdBrep(
   const evalNum = (expr: string): number => {
     const trimmed = expr.trim().replace(/^[A-Za-z_]+\s*=\s*/, '');
     try {
-      const replaced = trimmed
+      if (trimmed === 'True') return 1;
+      if (trimmed === 'False') return 0;
+      // Support Python integer division `//`, exponentiation `**`
+      let replaced = trimmed
+        .replace(/\bTrue\b/g, '1')
+        .replace(/\bFalse\b/g, '0')
         .replace(/\bmath\.pi\b/g, String(Math.PI))
+        .replace(/\bmath\.e\b/g, String(Math.E))
         .replace(/\bmath\.cos\b/g, 'Math.cos')
         .replace(/\bmath\.sin\b/g, 'Math.sin')
         .replace(/\bmath\.sqrt\b/g, 'Math.sqrt')
         .replace(/\bmath\.tan\b/g, 'Math.tan')
-        .replace(/\b([A-Za-z_][A-Za-z0-9_]*)\b/g, (id) =>
-          id in scalars ? String(scalars[id]) : id
-        );
+        .replace(/\bmath\.hypot\b/g, 'Math.hypot')
+        .replace(/\bmath\.abs\b/g, 'Math.abs')
+        .replace(/\babs\b/g, 'Math.abs')
+        .replace(/\bround\b/g, 'Math.round')
+        .replace(/\bmin\b/g, 'Math.min')
+        .replace(/\bmax\b/g, 'Math.max');
+
+      // Replace identifier references with scalar values
+      replaced = replaced.replace(/\b([A-Za-z_][A-Za-z0-9_]*)\b/g, (id) =>
+        id in scalars ? String(scalars[id]) : id
+      );
+
+      // Convert // to Math.floor(a / b) if simple, or use JS expression
+      replaced = replaced.replace(/(\d+(?:\.\d+)?)\s*\/\/\s*(\d+(?:\.\d+)?)/g, 'Math.floor($1 / $2)');
+
       const val = Function(`"use strict"; return (${replaced});`)();
-      return typeof val === 'number' && Number.isFinite(val) ? val : 0;
+      return typeof val === 'number' && Number.isFinite(val) ? val : (Boolean(val) ? 1 : 0);
     } catch {
       return Number.parseFloat(trimmed) || 0;
     }
   };
 
   const parseVec3 = (tupleStr: string): [number, number, number] => {
-    const inner = tupleStr.trim().replace(/^\(/, '').replace(/\)$/, '');
+    const inner = tupleStr.trim().replace(/^\(|\)$|^\[|\]$/g, '');
     const parts = inner.split(',');
     return [
       evalNum(parts[0] || '0'),
@@ -679,436 +892,671 @@ export async function evaluateClientSideUsdBrep(
     ];
   };
 
+  /**
+   * Parses function call arguments preserving nested parenthesis/brackets
+   * and separating positional args from keyword args (key=value).
+   */
+  const parseCallArgs = (argsStr: string): { positional: string[]; kwargs: Record<string, string> } => {
+    const positional: string[] = [];
+    const kwargs: Record<string, string> = {};
+    const trimmed = argsStr.trim();
+    if (!trimmed) return { positional, kwargs };
+
+    const rawArgs: string[] = [];
+    let depth = 0;
+    let inStr: string | null = null;
+    let cur = '';
+
+    for (let i = 0; i < trimmed.length; i++) {
+      const c = trimmed[i];
+      if (inStr) {
+        cur += c;
+        if (c === inStr && trimmed[i - 1] !== '\\') {
+          inStr = null;
+        }
+        continue;
+      }
+      if (c === '"' || c === "'") {
+        inStr = c;
+        cur += c;
+        continue;
+      }
+      if (c === '(' || c === '[' || c === '{') depth++;
+      else if (c === ')' || c === ']' || c === '}') depth--;
+      else if (c === ',' && depth === 0) {
+        if (cur.trim()) rawArgs.push(cur.trim());
+        cur = '';
+        continue;
+      }
+      cur += c;
+    }
+    if (cur.trim()) rawArgs.push(cur.trim());
+
+    for (const arg of rawArgs) {
+      // Check if keyword arg: ident = expr (where ident is not inside nested parens)
+      const kwMatch = arg.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([\s\S]+)$/);
+      if (kwMatch && !arg.startsWith('(') && !arg.startsWith('[')) {
+        kwargs[kwMatch[1].trim()] = kwMatch[2].trim();
+      } else {
+        positional.push(arg.trim());
+      }
+    }
+
+    return { positional, kwargs };
+  };
+
   let executionError: { error: string; error_type: string } | null = null;
 
   function executeSingleLine(line: string) {
     if (executionError) return;
 
-    // 1. Scalar variable assignment: e.g. num_teeth = 12 or bx = 13.5 * math.cos(ang)
-    const scalarMatch = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^sm\(].*)$/);
-    if (scalarMatch && !line.includes('sm.') && !line.includes('[') && !line.includes('{')) {
-      const varName = scalarMatch[1];
+    // Tuple unpacking assignment: e.g. x, y = 10, 20 or (a, b) = (1, 2)
+    const tupleAssignMatch = line.match(/^([\(\[]?[A-Za-z_][A-Za-z0-9_,\s]*[\)\]]?)\s*=\s*([\s\S]+)$/);
+    if (tupleAssignMatch && tupleAssignMatch[1].includes(',') && !line.includes('sm.') && !line.includes('def ')) {
+      const targetStr = tupleAssignMatch[1].replace(/^\(|\)$|^\[|\]$/g, '').trim();
+      const valStr = tupleAssignMatch[2].replace(/^\(|\)$|^\[|\]$/g, '').trim();
+      const targets = targetStr.split(',').map((t) => t.trim()).filter(Boolean);
+      const vals = valStr.split(',').map((v) => evalNum(v.trim()));
+      targets.forEach((tgt, idx) => {
+        if (idx < vals.length) {
+          scalars[tgt] = vals[idx];
+        }
+      });
+      return;
+    }
+
+    // Scalar variable assignment: e.g. num_teeth = 12 or bx = 13.5 * math.cos(ang)
+    const scalarMatch = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([\s\S]+)$/);
+    if (scalarMatch && !line.includes('sm.') && !scalarMatch[2].trim().startsWith('[') && !scalarMatch[2].trim().startsWith('{')) {
+      const varName = scalarMatch[1].trim();
       const val = evalNum(scalarMatch[2]);
       scalars[varName] = val;
       return;
     }
 
-    // 2. sm.create_box((minX, minY, minZ), L, W, H)
-    const boxMatch = line.match(
-      /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.create_box\(\s*(\([^)]+\))\s*,\s*([^,]+),\s*([^,]+),\s*([^)]+)\)/
-    );
-    if (boxMatch) {
-      const [, varName, origStr, lStr, wStr, hStr] = boxMatch;
-      const [ox, oy, oz] = parseVec3(origStr);
-      const L = evalNum(lStr);
-      const W = evalNum(wStr);
-      const H = evalNum(hStr);
-      if (L <= 0 || W <= 0 || H <= 0) {
-        executionError = {
-          error: 'RuntimeError: SM_ERR_INVALID_INPUT: Box dimensions must be positive',
-          error_type: 'RuntimeError',
-        };
-        return;
-      }
-      const geom = new THREE.BoxGeometry(L, W, H);
-      geom.translate(ox + L / 2, oy + W / 2, oz + H / 2);
+    // Call matching for sm.* operations
+    // Format: [varName = ] sm.funcName(args...)
+    const callMatch = line.match(/^(?:([A-Za-z_][A-Za-z0-9_]*)\s*=\s*)?sm\.([A-Za-z_][A-Za-z0-9_]*)\s*\(([\s\S]*)\)$/);
+    if (callMatch) {
+      const varName = callMatch[1]?.trim();
+      const funcName = callMatch[2].trim();
+      const argsContent = callMatch[3].trim();
+      const { positional, kwargs } = parseCallArgs(argsContent);
 
-      let manifoldSolid: any = null;
-      if (wasm?.Manifold) {
-        manifoldSolid = wasm.Manifold.cube([L, W, H], false).translate([ox, oy, oz]);
-      }
+      // 1. sm.create_box(origin, length, width, height)
+      if (funcName === 'create_box' && varName) {
+        const origStr = kwargs['origin'] || kwargs['orig'] || positional[0] || '(0,0,0)';
+        const lStr = kwargs['length'] || kwargs['l'] || kwargs['dx'] || positional[1] || '0';
+        const wStr = kwargs['width'] || kwargs['w'] || kwargs['dy'] || positional[2] || '0';
+        const hStr = kwargs['height'] || kwargs['h'] || kwargs['dz'] || positional[3] || '0';
 
-      shapes[varName] = {
-        geometries: [geom],
-        manifold: manifoldSolid,
-        nurbsFaces: 6,
-        nurbsEdges: 12,
-        nurbsVertices: 8,
-        volumeEstimate: L * W * H,
-        areaEstimate: 2 * (L * W + L * H + W * H),
-      };
-      return;
-    }
+        const [ox, oy, oz] = parseVec3(origStr);
+        const L = evalNum(lStr);
+        const W = evalNum(wStr);
+        const H = evalNum(hStr);
 
-    // 3. sm.create_cylinder((cx, cy, z0), radius, height)
-    const cylMatch = line.match(
-      /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.create_cylinder\(\s*(\([^)]+\))\s*,\s*([^,]+),\s*([^)]+)\)/
-    );
-    if (cylMatch) {
-      const [, varName, origStr, rStr, hStr] = cylMatch;
-      const [cx, cy, z0] = parseVec3(origStr);
-      const r = evalNum(rStr);
-      const h = evalNum(hStr);
-      if (r <= 0 || h <= 0) {
-        executionError = {
-          error: 'RuntimeError: SM_ERR_INVALID_INPUT: Cylinder radius and height must be positive',
-          error_type: 'RuntimeError',
-        };
-        return;
-      }
-      const geom = new THREE.CylinderGeometry(r, r, h, 32);
-      geom.rotateX(Math.PI / 2); // Align along Z
-      geom.translate(cx, cy, z0 + h / 2);
+        if (L <= 0 || W <= 0 || H <= 0) {
+          executionError = {
+            error: 'RuntimeError: SM_ERR_INVALID_INPUT: Box dimensions must be positive',
+            error_type: 'RuntimeError',
+          };
+          return;
+        }
 
-      let manifoldSolid: any = null;
-      if (wasm?.Manifold) {
-        manifoldSolid = wasm.Manifold.cylinder(h, r, r, 32, false).translate([cx, cy, z0]);
-      }
+        const geom = new THREE.BoxGeometry(L, W, H);
+        geom.translate(ox + L / 2, oy + W / 2, oz + H / 2);
 
-      shapes[varName] = {
-        geometries: [geom],
-        manifold: manifoldSolid,
-        nurbsFaces: 3,
-        nurbsEdges: 3,
-        nurbsVertices: 2,
-        volumeEstimate: Math.PI * r * r * h,
-        areaEstimate: 2 * Math.PI * r * (r + h),
-      };
-      return;
-    }
+        let manifoldSolid: any = null;
+        if (wasm?.Manifold) {
+          manifoldSolid = wasm.Manifold.cube([L, W, H], false).translate([ox, oy, oz]);
+        }
 
-    // 4. sm.create_sphere((cx, cy, cz), radius)
-    const sphMatch = line.match(
-      /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.create_sphere\(\s*(\([^)]+\))\s*,\s*([^)]+)\)/
-    );
-    if (sphMatch) {
-      const [, varName, origStr, rStr] = sphMatch;
-      const [cx, cy, cz] = parseVec3(origStr);
-      const r = evalNum(rStr);
-      if (r <= 0) {
-        executionError = {
-          error: 'RuntimeError: SM_ERR_INVALID_INPUT: Sphere radius must be positive',
-          error_type: 'RuntimeError',
-        };
-        return;
-      }
-      const geom = new THREE.SphereGeometry(r, 28, 20);
-      geom.translate(cx, cy, cz);
-
-      let manifoldSolid: any = null;
-      if (wasm?.Manifold) {
-        manifoldSolid = wasm.Manifold.sphere(r, 32).translate([cx, cy, cz]);
-      }
-
-      shapes[varName] = {
-        geometries: [geom],
-        manifold: manifoldSolid,
-        nurbsFaces: 1,
-        nurbsEdges: 3,
-        nurbsVertices: 2,
-        volumeEstimate: (4 / 3) * Math.PI * r * r * r,
-        areaEstimate: 4 * Math.PI * r * r,
-      };
-      return;
-    }
-
-    // 5. sm.create_torus((cx, cy, cz), r_major, r_minor)
-    const torusMatch = line.match(
-      /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.create_torus\(\s*(\([^)]+\))\s*,\s*([^,]+),\s*([^)]+)\)/
-    );
-    if (torusMatch) {
-      const [, varName, origStr, rMajStr, rMinStr] = torusMatch;
-      const [cx, cy, cz] = parseVec3(origStr);
-      const rMaj = evalNum(rMajStr);
-      const rMin = evalNum(rMinStr);
-      if (rMaj <= 0 || rMin <= 0) {
-        executionError = {
-          error: 'RuntimeError: SM_ERR_INVALID_INPUT: Torus major and minor radii must be positive',
-          error_type: 'RuntimeError',
-        };
-        return;
-      }
-      const geom = new THREE.TorusGeometry(rMaj, rMin, 20, 36);
-      geom.translate(cx, cy, cz);
-
-      let manifoldSolid: any = null;
-      if (wasm?.CrossSection) {
-        manifoldSolid = wasm.CrossSection.circle(rMin, 24)
-          .translate([rMaj, 0])
-          .revolve(36)
-          .translate([cx, cy, cz]);
-      }
-
-      shapes[varName] = {
-        geometries: [geom],
-        manifold: manifoldSolid,
-        nurbsFaces: 1,
-        nurbsEdges: 2,
-        nurbsVertices: 1,
-        volumeEstimate: 2 * Math.PI * Math.PI * rMaj * rMin * rMin,
-        areaEstimate: 4 * Math.PI * Math.PI * rMaj * rMin,
-      };
-      return;
-    }
-
-    // 6. sm.create_cone((cx, cy, z0), r_base, r_top, height)
-    const coneMatch = line.match(
-      /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.create_cone\(\s*(\([^)]+\))\s*,\s*([^,]+),\s*([^,]+),\s*([^)]+)\)/
-    );
-    if (coneMatch) {
-      const [, varName, origStr, rBaseStr, rTopStr, hStr] = coneMatch;
-      const [cx, cy, z0] = parseVec3(origStr);
-      const rBase = evalNum(rBaseStr);
-      const rTop = evalNum(rTopStr);
-      const h = evalNum(hStr);
-      if (h <= 0) {
-        executionError = {
-          error: 'RuntimeError: SM_ERR_INVALID_INPUT: Cone height must be positive',
-          error_type: 'RuntimeError',
-        };
-        return;
-      }
-      const geom = new THREE.CylinderGeometry(rTop, rBase, h, 32);
-      geom.rotateX(Math.PI / 2);
-      geom.translate(cx, cy, z0 + h / 2);
-
-      let manifoldSolid: any = null;
-      if (wasm?.Manifold) {
-        manifoldSolid = wasm.Manifold.cylinder(h, rBase, rTop, 32, false).translate([cx, cy, z0]);
-      }
-
-      shapes[varName] = {
-        geometries: [geom],
-        manifold: manifoldSolid,
-        nurbsFaces: 3,
-        nurbsEdges: 3,
-        nurbsVertices: 2,
-        volumeEstimate: (Math.PI * h * (rBase * rBase + rBase * rTop + rTop * rTop)) / 3,
-        areaEstimate: Math.PI * (rBase + rTop) * Math.hypot(rBase - rTop, h),
-      };
-      return;
-    }
-
-    // 7. sm.create_wedge((ox, oy, oz), dx, dy, dz, ltx)
-    const wedgeMatch = line.match(
-      /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.create_wedge\(\s*(\([^)]+\))\s*,\s*([^,]+),\s*([^,]+),\s*([^,]+)(?:,\s*([^)]+))?\)/
-    );
-    if (wedgeMatch) {
-      const [, varName, origStr, dxStr, dyStr, dzStr, ltxStr] = wedgeMatch;
-      const [ox, oy, oz] = parseVec3(origStr);
-      const dx = evalNum(dxStr);
-      const dy = evalNum(dyStr);
-      const dz = evalNum(dzStr);
-      const ltx = ltxStr ? evalNum(ltxStr) : 0.0;
-      if (dx <= 0 || dy <= 0 || dz <= 0) {
-        executionError = {
-          error: 'RuntimeError: SM_ERR_INVALID_INPUT: Wedge dimensions must be positive',
-          error_type: 'RuntimeError',
+        shapes[varName] = {
+          geometries: [geom],
+          manifold: manifoldSolid,
+          nurbsFaces: 6,
+          nurbsEdges: 12,
+          nurbsVertices: 8,
+          volumeEstimate: L * W * H,
+          areaEstimate: 2 * (L * W + L * H + W * H),
         };
         return;
       }
 
-      const shape2d = new THREE.Shape();
-      shape2d.moveTo(0, 0);
-      shape2d.lineTo(dx, 0);
-      shape2d.lineTo(ltx, dz);
-      if (ltx > 0) shape2d.lineTo(0, dz);
-      shape2d.closePath();
+      // 2. sm.create_cylinder(origin, radius, height)
+      if (funcName === 'create_cylinder' && varName) {
+        const origStr = kwargs['origin'] || kwargs['orig'] || positional[0] || '(0,0,0)';
+        const rStr = kwargs['radius'] || kwargs['r'] || positional[1] || '0';
+        const hStr = kwargs['height'] || kwargs['h'] || positional[2] || '0';
 
-      const geom = new THREE.ExtrudeGeometry(shape2d, { depth: dy, bevelEnabled: false });
-      geom.rotateX(Math.PI / 2);
-      geom.translate(ox, oy + dy, oz);
-      geom.computeVertexNormals();
+        const [cx, cy, z0] = parseVec3(origStr);
+        const r = evalNum(rStr);
+        const h = evalNum(hStr);
 
-      let manifoldSolid: any = null;
-      if (wasm?.CrossSection) {
-        const poly = [[0, 0], [dx, 0], [ltx, dz]];
-        if (ltx > 0) poly.push([0, dz]);
-        const cs = wasm.CrossSection.ofPolygons([poly]);
-        manifoldSolid = cs
-          .extrude(dy)
-          .rotate([90, 0, 0])
-          .translate([ox, oy + dy, oz]);
+        if (r <= 0 || h <= 0) {
+          executionError = {
+            error: 'RuntimeError: SM_ERR_INVALID_INPUT: Cylinder radius and height must be positive',
+            error_type: 'RuntimeError',
+          };
+          return;
+        }
+
+        const geom = new THREE.CylinderGeometry(r, r, h, 32);
+        geom.rotateX(Math.PI / 2); // Align along Z
+        geom.translate(cx, cy, z0 + h / 2);
+
+        let manifoldSolid: any = null;
+        if (wasm?.Manifold) {
+          manifoldSolid = wasm.Manifold.cylinder(h, r, r, 32, false).translate([cx, cy, z0]);
+        }
+
+        shapes[varName] = {
+          geometries: [geom],
+          manifold: manifoldSolid,
+          nurbsFaces: 3,
+          nurbsEdges: 3,
+          nurbsVertices: 2,
+          volumeEstimate: Math.PI * r * r * h,
+          areaEstimate: 2 * Math.PI * r * (r + h),
+        };
+        return;
       }
 
-      shapes[varName] = {
-        geometries: [geom],
-        manifold: manifoldSolid,
-        nurbsFaces: ltx > 0 ? 6 : 5,
-        nurbsEdges: 9,
-        nurbsVertices: 6,
-        volumeEstimate: 0.5 * (dx + ltx) * dy * dz,
-        areaEstimate: dx * dy + dy * dz + Math.hypot(dx - ltx, dz) * dy,
-      };
-      return;
-    }
+      // 3. sm.create_sphere(origin, radius)
+      if (funcName === 'create_sphere' && varName) {
+        const origStr = kwargs['origin'] || kwargs['orig'] || positional[0] || '(0,0,0)';
+        const rStr = kwargs['radius'] || kwargs['r'] || positional[1] || '0';
 
-    // 8. sm.sweep_along_planar_path
-    const sweepMatch = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.sweep_along_planar_path\(/);
-    if (sweepMatch) {
-      const [, varName] = sweepMatch;
-      const side = scalars.side || 12.0;
-      const radius = scalars.radius || 1.4;
-      const geom = new THREE.TorusGeometry(side / 2, radius, 20, 40);
-      geom.translate(side / 2, side / 2, 0);
+        const [cx, cy, cz] = parseVec3(origStr);
+        const r = evalNum(rStr);
 
-      let manifoldSolid: any = null;
-      if (wasm?.CrossSection) {
-        manifoldSolid = wasm.CrossSection.circle(radius, 24)
-          .translate([side / 2, 0])
-          .revolve(36)
-          .translate([side / 2, side / 2, 0]);
+        if (r <= 0) {
+          executionError = {
+            error: 'RuntimeError: SM_ERR_INVALID_INPUT: Sphere radius must be positive',
+            error_type: 'RuntimeError',
+          };
+          return;
+        }
+
+        const geom = new THREE.SphereGeometry(r, 28, 20);
+        geom.translate(cx, cy, cz);
+
+        let manifoldSolid: any = null;
+        if (wasm?.Manifold) {
+          manifoldSolid = wasm.Manifold.sphere(r, 32).translate([cx, cy, cz]);
+        }
+
+        shapes[varName] = {
+          geometries: [geom],
+          manifold: manifoldSolid,
+          nurbsFaces: 1,
+          nurbsEdges: 3,
+          nurbsVertices: 2,
+          volumeEstimate: (4 / 3) * Math.PI * r * r * r,
+          areaEstimate: 4 * Math.PI * r * r,
+        };
+        return;
       }
 
-      shapes[varName] = {
-        geometries: [geom],
-        manifold: manifoldSolid,
-        nurbsFaces: 8,
-        nurbsEdges: 16,
-        nurbsVertices: 8,
-        volumeEstimate: 2 * Math.PI * Math.PI * (side / 2) * radius * radius,
-        areaEstimate: 4 * Math.PI * Math.PI * (side / 2) * radius,
-      };
-      return;
-    }
+      // 4. sm.create_torus(origin, radius_major, radius_minor)
+      if (funcName === 'create_torus' && varName) {
+        const origStr = kwargs['origin'] || kwargs['orig'] || positional[0] || '(0,0,0)';
+        const rMajStr = kwargs['radius_major'] || kwargs['r_major'] || kwargs['major_radius'] || positional[1] || '0';
+        const rMinStr = kwargs['radius_minor'] || kwargs['r_minor'] || kwargs['minor_radius'] || positional[2] || '0';
 
-    // 9. sm.translate(target, (dx, dy, dz))
-    const transMatch = line.match(/^sm\.translate\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*(\([^)]+\))\s*\)/);
-    if (transMatch && shapes[transMatch[1]]) {
-      const target = shapes[transMatch[1]];
-      const [dx, dy, dz] = parseVec3(transMatch[2]);
-      target.geometries.forEach((g) => g.translate(dx, dy, dz));
-      if (target.manifold) {
-        target.manifold = target.manifold.translate([dx, dy, dz]);
+        const [cx, cy, cz] = parseVec3(origStr);
+        const rMaj = evalNum(rMajStr);
+        const rMin = evalNum(rMinStr);
+
+        if (rMaj <= 0 || rMin <= 0) {
+          executionError = {
+            error: 'RuntimeError: SM_ERR_INVALID_INPUT: Torus major and minor radii must be positive',
+            error_type: 'RuntimeError',
+          };
+          return;
+        }
+
+        const geom = new THREE.TorusGeometry(rMaj, rMin, 20, 36);
+        geom.translate(cx, cy, cz);
+
+        let manifoldSolid: any = null;
+        if (wasm?.CrossSection) {
+          manifoldSolid = wasm.CrossSection.circle(rMin, 24)
+            .translate([rMaj, 0])
+            .revolve(36)
+            .translate([cx, cy, cz]);
+        }
+
+        shapes[varName] = {
+          geometries: [geom],
+          manifold: manifoldSolid,
+          nurbsFaces: 1,
+          nurbsEdges: 2,
+          nurbsVertices: 1,
+          volumeEstimate: 2 * Math.PI * Math.PI * rMaj * rMin * rMin,
+          areaEstimate: 4 * Math.PI * Math.PI * rMaj * rMin,
+        };
+        return;
       }
-      return;
+
+      // 5. sm.create_cone(origin, radius_base, radius_top, height)
+      if (funcName === 'create_cone' && varName) {
+        const origStr = kwargs['origin'] || kwargs['orig'] || positional[0] || '(0,0,0)';
+        const rBaseStr = kwargs['radius_base'] || kwargs['r_base'] || positional[1] || '0';
+        const rTopStr = kwargs['radius_top'] || kwargs['r_top'] || positional[2] || '0';
+        const hStr = kwargs['height'] || kwargs['h'] || positional[3] || '0';
+
+        const [cx, cy, z0] = parseVec3(origStr);
+        const rBase = evalNum(rBaseStr);
+        const rTop = evalNum(rTopStr);
+        const h = evalNum(hStr);
+
+        if (h <= 0) {
+          executionError = {
+            error: 'RuntimeError: SM_ERR_INVALID_INPUT: Cone height must be positive',
+            error_type: 'RuntimeError',
+          };
+          return;
+        }
+
+        const geom = new THREE.CylinderGeometry(rTop, rBase, h, 32);
+        geom.rotateX(Math.PI / 2);
+        geom.translate(cx, cy, z0 + h / 2);
+
+        let manifoldSolid: any = null;
+        if (wasm?.Manifold) {
+          manifoldSolid = wasm.Manifold.cylinder(h, rBase, rTop, 32, false).translate([cx, cy, z0]);
+        }
+
+        shapes[varName] = {
+          geometries: [geom],
+          manifold: manifoldSolid,
+          nurbsFaces: 3,
+          nurbsEdges: 3,
+          nurbsVertices: 2,
+          volumeEstimate: (Math.PI * h * (rBase * rBase + rBase * rTop + rTop * rTop)) / 3,
+          areaEstimate: Math.PI * (rBase + rTop) * Math.hypot(rBase - rTop, h),
+        };
+        return;
+      }
+
+      // 6. sm.create_wedge(origin, dx, dy, dz, ltx)
+      if (funcName === 'create_wedge' && varName) {
+        const origStr = kwargs['origin'] || kwargs['orig'] || positional[0] || '(0,0,0)';
+        const dxStr = kwargs['dx'] || kwargs['width'] || positional[1] || '0';
+        const dyStr = kwargs['dy'] || kwargs['depth'] || positional[2] || '0';
+        const dzStr = kwargs['dz'] || kwargs['height'] || positional[3] || '0';
+        const ltxStr = kwargs['ltx'] || positional[4] || '0.0';
+
+        const [ox, oy, oz] = parseVec3(origStr);
+        const dx = evalNum(dxStr);
+        const dy = evalNum(dyStr);
+        const dz = evalNum(dzStr);
+        const ltx = evalNum(ltxStr);
+
+        if (dx <= 0 || dy <= 0 || dz <= 0) {
+          executionError = {
+            error: 'RuntimeError: SM_ERR_INVALID_INPUT: Wedge dimensions must be positive',
+            error_type: 'RuntimeError',
+          };
+          return;
+        }
+
+        const shape2d = new THREE.Shape();
+        shape2d.moveTo(0, 0);
+        shape2d.lineTo(dx, 0);
+        shape2d.lineTo(ltx, dz);
+        if (ltx > 0) shape2d.lineTo(0, dz);
+        shape2d.closePath();
+
+        const geom = new THREE.ExtrudeGeometry(shape2d, { depth: dy, bevelEnabled: false });
+        geom.rotateX(Math.PI / 2);
+        geom.translate(ox, oy + dy, oz);
+        geom.computeVertexNormals();
+
+        let manifoldSolid: any = null;
+        if (wasm?.CrossSection) {
+          const poly = [[0, 0], [dx, 0], [ltx, dz]];
+          if (ltx > 0) poly.push([0, dz]);
+          const cs = wasm.CrossSection.ofPolygons([poly]);
+          manifoldSolid = cs
+            .extrude(dy)
+            .rotate([90, 0, 0])
+            .translate([ox, oy + dy, oz]);
+        }
+
+        shapes[varName] = {
+          geometries: [geom],
+          manifold: manifoldSolid,
+          nurbsFaces: ltx > 0 ? 6 : 5,
+          nurbsEdges: 9,
+          nurbsVertices: 6,
+          volumeEstimate: 0.5 * (dx + ltx) * dy * dz,
+          areaEstimate: dx * dy + dy * dz + Math.hypot(dx - ltx, dz) * dy,
+        };
+        return;
+      }
+
+      // 7. sm.sweep_along_planar_path
+      if (funcName === 'sweep_along_planar_path' && varName) {
+        const side = scalars.side || 12.0;
+        const radius = scalars.radius || 1.4;
+        const geom = new THREE.TorusGeometry(side / 2, radius, 20, 40);
+        geom.translate(side / 2, side / 2, 0);
+
+        let manifoldSolid: any = null;
+        if (wasm?.CrossSection) {
+          manifoldSolid = wasm.CrossSection.circle(radius, 24)
+            .translate([side / 2, 0])
+            .revolve(36)
+            .translate([side / 2, side / 2, 0]);
+        }
+
+        shapes[varName] = {
+          geometries: [geom],
+          manifold: manifoldSolid,
+          nurbsFaces: 8,
+          nurbsEdges: 16,
+          nurbsVertices: 8,
+          volumeEstimate: 2 * Math.PI * Math.PI * (side / 2) * radius * radius,
+          areaEstimate: 4 * Math.PI * Math.PI * (side / 2) * radius,
+        };
+        return;
+      }
+
+      // 8. sm.translate(target, (dx, dy, dz))
+      if (funcName === 'translate') {
+        const targetVar = positional[0] || kwargs['brep'] || kwargs['target'];
+        const vecStr = positional[1] || kwargs['offset'] || kwargs['delta'] || kwargs['translation'] || '(0,0,0)';
+        if (targetVar && shapes[targetVar]) {
+          const target = shapes[targetVar];
+          const [dx, dy, dz] = parseVec3(vecStr);
+          target.geometries.forEach((g) => g.translate(dx, dy, dz));
+          if (target.manifold) {
+            target.manifold = target.manifold.translate([dx, dy, dz]);
+          }
+        }
+        return;
+      }
+
+      // 9. sm.rotate(target, ref_point=(...), axis=(...), angle_deg=...)
+      if (funcName === 'rotate') {
+        const targetVar = positional[0] || kwargs['brep'] || kwargs['target'];
+        const refStr = kwargs['ref_point'] || positional[1] || '(0,0,0)';
+        const axisStr = kwargs['axis'] || positional[2] || '(0,0,1)';
+        const angleStr = kwargs['angle_deg'] || positional[3] || '0';
+
+        if (targetVar && shapes[targetVar]) {
+          const target = shapes[targetVar];
+          const [rx, ry, rz] = parseVec3(refStr);
+          const [ax, ay, az] = parseVec3(axisStr);
+          const deg = evalNum(angleStr);
+          const rad = (deg * Math.PI) / 180;
+          const axisVec = new THREE.Vector3(ax, ay, az).normalize();
+          const rotMat = new THREE.Matrix4().makeRotationAxis(axisVec, rad);
+
+          target.geometries.forEach((g) => {
+            g.translate(-rx, -ry, -rz);
+            g.applyMatrix4(rotMat);
+            g.translate(rx, ry, rz);
+          });
+
+          if (target.manifold) {
+            target.manifold = target.manifold
+              .translate([-rx, -ry, -rz])
+              .transform(Array.from(rotMat.elements))
+              .translate([rx, ry, rz]);
+          }
+        }
+        return;
+      }
+
+      // 10. sm.boolean_union(a, b)
+      if (funcName === 'boolean_union' && varName) {
+        const aVar = kwargs['a'] || kwargs['brep_a'] || positional[0];
+        const bVar = kwargs['b'] || kwargs['brep_b'] || positional[1];
+        const sa = shapes[aVar];
+        const sb = shapes[bVar];
+        if (sa && sb) {
+          let manifoldUnion = null;
+          if (sa.manifold && sb.manifold) {
+            try {
+              manifoldUnion = sa.manifold.add(sb.manifold);
+            } catch {
+              manifoldUnion = sa.manifold;
+            }
+          } else {
+            manifoldUnion = sa.manifold || sb.manifold || null;
+          }
+
+          shapes[varName] = {
+            geometries: [...sa.geometries.map((g) => g.clone()), ...sb.geometries.map((g) => g.clone())],
+            manifold: manifoldUnion,
+            nurbsFaces: sa.nurbsFaces + sb.nurbsFaces,
+            nurbsEdges: sa.nurbsEdges + sb.nurbsEdges,
+            nurbsVertices: sa.nurbsVertices + sb.nurbsVertices,
+            volumeEstimate: sa.volumeEstimate + sb.volumeEstimate,
+            areaEstimate: sa.areaEstimate + sb.areaEstimate,
+          };
+        }
+        return;
+      }
+
+      // 11. sm.boolean_difference(a, b)
+      if (funcName === 'boolean_difference' && varName) {
+        const aVar = kwargs['workpiece'] || kwargs['a'] || kwargs['brep_a'] || positional[0];
+        const bVar = kwargs['cutter'] || kwargs['tool'] || kwargs['b'] || kwargs['brep_b'] || positional[1];
+        const sa = shapes[aVar];
+        const sb = shapes[bVar];
+        if (sa) {
+          let manifoldDiff = null;
+          if (sa.manifold && sb?.manifold) {
+            try {
+              manifoldDiff = sa.manifold.subtract(sb.manifold);
+            } catch {
+              manifoldDiff = sa.manifold;
+            }
+          } else {
+            manifoldDiff = sa.manifold || null;
+          }
+
+          shapes[varName] = {
+            geometries: sa.geometries.map((g) => g.clone()),
+            manifold: manifoldDiff,
+            nurbsFaces: sa.nurbsFaces + (sb ? 2 : 0),
+            nurbsEdges: sa.nurbsEdges + (sb ? 4 : 0),
+            nurbsVertices: sa.nurbsVertices + (sb ? 2 : 0),
+            volumeEstimate: Math.max(0.1, sa.volumeEstimate - (sb ? sb.volumeEstimate * 0.25 : 0)),
+            areaEstimate: sa.areaEstimate,
+          };
+        }
+        return;
+      }
+
+      // 12. sm.boolean_intersection(a, b)
+      if (funcName === 'boolean_intersection' && varName) {
+        const aVar = kwargs['a'] || kwargs['brep_a'] || positional[0];
+        const bVar = kwargs['b'] || kwargs['brep_b'] || positional[1];
+        const sa = shapes[aVar];
+        const sb = shapes[bVar];
+        if (sa && sb) {
+          let manifoldInter = null;
+          if (sa.manifold && sb.manifold) {
+            try {
+              manifoldInter = sa.manifold.intersect(sb.manifold);
+            } catch {
+              manifoldInter = sa.manifold;
+            }
+          }
+          shapes[varName] = {
+            geometries: sa.geometries.map((g) => g.clone()),
+            manifold: manifoldInter,
+            nurbsFaces: Math.min(sa.nurbsFaces, sb.nurbsFaces),
+            nurbsEdges: Math.min(sa.nurbsEdges, sb.nurbsEdges),
+            nurbsVertices: Math.min(sa.nurbsVertices, sb.nurbsVertices),
+            volumeEstimate: Math.min(sa.volumeEstimate, sb.volumeEstimate) * 0.5,
+            areaEstimate: Math.min(sa.areaEstimate, sb.areaEstimate),
+          };
+        }
+        return;
+      }
     }
+  }
 
-    // 10. sm.rotate(target, ref_point=(...), axis=(...), angle_deg=...)
-    const rotMatch = line.match(
-      /^sm\.rotate\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*(?:ref_point=)?(\([^)]+\))\s*,\s*(?:axis=)?(\([^)]+\))\s*,\s*(?:angle_deg=)?([^)]+)\)/
-    );
-    if (rotMatch && shapes[rotMatch[1]]) {
-      const target = shapes[rotMatch[1]];
-      const [rx, ry, rz] = parseVec3(rotMatch[2]);
-      const [ax, ay, az] = parseVec3(rotMatch[3]);
-      const deg = evalNum(rotMatch[4]);
-      const rad = (deg * Math.PI) / 180;
-      const axisVec = new THREE.Vector3(ax, ay, az).normalize();
-      const rotMat = new THREE.Matrix4().makeRotationAxis(axisVec, rad);
+  function evalCondition(expr: string): boolean {
+    const trimmed = expr.trim();
+    try {
+      // Replace python keywords/literals
+      let jsExpr = trimmed
+        .replace(/\bTrue\b/g, 'true')
+        .replace(/\bFalse\b/g, 'false')
+        .replace(/\bNone\b/g, 'null')
+        .replace(/\band\b/g, '&&')
+        .replace(/\bor\b/g, '||')
+        .replace(/\bnot\b/g, '!')
+        .replace(/\bmath\.pi\b/g, String(Math.PI))
+        .replace(/\bmath\.e\b/g, String(Math.E))
+        .replace(/\bmath\.cos\b/g, 'Math.cos')
+        .replace(/\bmath\.sin\b/g, 'Math.sin')
+        .replace(/\bmath\.sqrt\b/g, 'Math.sqrt')
+        .replace(/\bmath\.tan\b/g, 'Math.tan');
 
-      target.geometries.forEach((g) => {
-        g.translate(-rx, -ry, -rz);
-        g.applyMatrix4(rotMat);
-        g.translate(rx, ry, rz);
+      // Replace identifiers with scalar values if known
+      jsExpr = jsExpr.replace(/\b([A-Za-z_][A-Za-z0-9_]*)\b/g, (id) => {
+        if (['true', 'false', 'null', 'Math'].includes(id)) return id;
+        if (id in scalars) return String(scalars[id]);
+        return id;
       });
 
-      if (target.manifold) {
-        target.manifold = target.manifold
-          .translate([-rx, -ry, -rz])
-          .transform(Array.from(rotMat.elements))
-          .translate([rx, ry, rz]);
+      const res = Function(`"use strict"; return Boolean(${jsExpr});`)();
+      return Boolean(res);
+    } catch {
+      // Fallback: evaluate numeric value
+      return Boolean(evalNum(trimmed));
+    }
+  }
+
+  function parseIterable(iterExpr: string): any[] {
+    const trimmed = iterExpr.trim();
+
+    // Check range(...)
+    const rangeMatch = trimmed.match(/^range\(([^)]+)\)$/);
+    if (rangeMatch) {
+      const args = rangeMatch[1].split(',').map((s) => evalNum(s.trim()));
+      let start = 0, stop = 0, step = 1;
+      if (args.length === 1) {
+        stop = Math.round(args[0]);
+      } else if (args.length === 2) {
+        start = Math.round(args[0]);
+        stop = Math.round(args[1]);
+      } else if (args.length >= 3) {
+        start = Math.round(args[0]);
+        stop = Math.round(args[1]);
+        step = Math.round(args[2]) || 1;
       }
-      return;
+      const result: number[] = [];
+      const maxIter = 128;
+      let count = 0;
+      if (step > 0) {
+        for (let v = start; v < stop && count < maxIter; v += step, count++) {
+          result.push(v);
+        }
+      } else if (step < 0) {
+        for (let v = start; v > stop && count < maxIter; v += step, count++) {
+          result.push(v);
+        }
+      }
+      return result;
     }
 
-    // 11. sm.boolean_union(a, b)
-    const unionMatch = line.match(
-      /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.boolean_union\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)/
-    );
-    if (unionMatch) {
-      const [, outVar, aVar, bVar] = unionMatch;
-      const sa = shapes[aVar];
-      const sb = shapes[bVar];
-      if (sa && sb) {
-        let manifoldUnion = null;
-        if (sa.manifold && sb.manifold) {
-          try {
-            manifoldUnion = sa.manifold.add(sb.manifold);
-          } catch {
-            manifoldUnion = sa.manifold;
-          }
-        } else {
-          manifoldUnion = sa.manifold || sb.manifold || null;
-        }
+    // Check list/tuple literal of items or numbers: e.g. [1, 2, 3] or [(0, 1), (2, 3)]
+    if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('(') && trimmed.endsWith(')'))) {
+      const inner = trimmed.slice(1, -1).trim();
+      if (!inner) return [];
 
-        shapes[outVar] = {
-          geometries: [...sa.geometries.map((g) => g.clone()), ...sb.geometries.map((g) => g.clone())],
-          manifold: manifoldUnion,
-          nurbsFaces: sa.nurbsFaces + sb.nurbsFaces,
-          nurbsEdges: sa.nurbsEdges + sb.nurbsEdges,
-          nurbsVertices: sa.nurbsVertices + sb.nurbsVertices,
-          volumeEstimate: sa.volumeEstimate + sb.volumeEstimate,
-          areaEstimate: sa.areaEstimate + sb.areaEstimate,
-        };
+      // Split elements respecting inner parentheses/brackets
+      const items: string[] = [];
+      let depth = 0;
+      let cur = '';
+      for (let i = 0; i < inner.length; i++) {
+        const c = inner[i];
+        if (c === '(' || c === '[' || c === '{') depth++;
+        else if (c === ')' || c === ']' || c === '}') depth--;
+        else if (c === ',' && depth === 0) {
+          if (cur.trim()) items.push(cur.trim());
+          cur = '';
+          continue;
+        }
+        cur += c;
       }
-      return;
+      if (cur.trim()) items.push(cur.trim());
+
+      return items.map((item) => {
+        const itemTrim = item.trim();
+        if ((itemTrim.startsWith('(') && itemTrim.endsWith(')')) || (itemTrim.startsWith('[') && itemTrim.endsWith(']'))) {
+          // Tuple or list element
+          return itemTrim
+            .slice(1, -1)
+            .split(',')
+            .map((p) => evalNum(p.trim()));
+        }
+        return evalNum(itemTrim);
+      });
     }
 
-    // 12. sm.boolean_difference(a, b)
-    const diffMatch = line.match(
-      /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.boolean_difference\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)/
-    );
-    if (diffMatch) {
-      const [, outVar, aVar, bVar] = diffMatch;
-      const sa = shapes[aVar];
-      const sb = shapes[bVar];
-      if (sa) {
-        let manifoldDiff = null;
-        if (sa.manifold && sb?.manifold) {
-          try {
-            manifoldDiff = sa.manifold.subtract(sb.manifold);
-          } catch {
-            manifoldDiff = sa.manifold;
-          }
-        } else {
-          manifoldDiff = sa.manifold || null;
-        }
+    // Single number count fallback
+    const count = Math.min(64, Math.max(0, Math.round(evalNum(trimmed))));
+    const arr: number[] = [];
+    for (let i = 0; i < count; i++) arr.push(i);
+    return arr;
+  }
 
-        shapes[outVar] = {
-          geometries: sa.geometries.map((g) => g.clone()),
-          manifold: manifoldDiff,
-          nurbsFaces: sa.nurbsFaces + (sb ? 2 : 0),
-          nurbsEdges: sa.nurbsEdges + (sb ? 4 : 0),
-          nurbsVertices: sa.nurbsVertices + (sb ? 2 : 0),
-          volumeEstimate: Math.max(0.1, sa.volumeEstimate - (sb ? sb.volumeEstimate * 0.25 : 0)),
-          areaEstimate: sa.areaEstimate,
-        };
-      }
-      return;
-    }
+  function assignLoopTarget(target: string, item: any) {
+    const cleanTarget = target.trim().replace(/^\(|\)$|^\[|\]$/g, '');
+    const targets = cleanTarget.split(',').map((t) => t.trim()).filter(Boolean);
 
-    // 13. sm.boolean_intersection(a, b)
-    const interMatch = line.match(
-      /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sm\.boolean_intersection\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)/
-    );
-    if (interMatch) {
-      const [, outVar, aVar, bVar] = interMatch;
-      const sa = shapes[aVar];
-      const sb = shapes[bVar];
-      if (sa && sb) {
-        let manifoldInter = null;
-        if (sa.manifold && sb.manifold) {
-          try {
-            manifoldInter = sa.manifold.intersect(sb.manifold);
-          } catch {
-            manifoldInter = sa.manifold;
-          }
-        }
-        shapes[outVar] = {
-          geometries: sa.geometries.map((g) => g.clone()),
-          manifold: manifoldInter,
-          nurbsFaces: Math.min(sa.nurbsFaces, sb.nurbsFaces),
-          nurbsEdges: Math.min(sa.nurbsEdges, sb.nurbsEdges),
-          nurbsVertices: Math.min(sa.nurbsVertices, sb.nurbsVertices),
-          volumeEstimate: Math.min(sa.volumeEstimate, sb.volumeEstimate) * 0.5,
-          areaEstimate: Math.min(sa.areaEstimate, sb.areaEstimate),
-        };
+    if (targets.length === 1) {
+      if (typeof item === 'number') {
+        scalars[targets[0]] = item;
+      } else if (Array.isArray(item) && item.length === 1) {
+        scalars[targets[0]] = item[0];
       }
-      return;
+    } else if (targets.length > 1 && Array.isArray(item)) {
+      targets.forEach((tgt, idx) => {
+        scalars[tgt] = typeof item[idx] === 'number' ? item[idx] : evalNum(String(item[idx]));
+      });
     }
   }
 
   function executeBlockStatements(stmts: ScriptStatement[]) {
     for (const stmt of stmts) {
       if (executionError) return;
+
       if (stmt.type === 'for') {
-        const count = Math.min(64, Math.max(0, Math.round(evalNum(stmt.countExpr || '0'))));
-        const loopVar = stmt.varName || 'i';
-        for (let idx = 0; idx < count; idx++) {
+        const items = parseIterable(stmt.iterExpr || stmt.countExpr || '0');
+        const target = stmt.target || stmt.varName || 'i';
+
+        for (const item of items) {
           if (executionError) break;
-          scalars[loopVar] = idx;
+          assignLoopTarget(target, item);
           executeBlockStatements(stmt.body || []);
+        }
+      } else if (stmt.type === 'if') {
+        let conditionMet = false;
+        if (stmt.testExpr && evalCondition(stmt.testExpr)) {
+          conditionMet = true;
+          executeBlockStatements(stmt.body || []);
+        } else if (stmt.elifBranches && stmt.elifBranches.length > 0) {
+          for (const elifBranch of stmt.elifBranches) {
+            if (evalCondition(elifBranch.testExpr)) {
+              conditionMet = true;
+              executeBlockStatements(elifBranch.body || []);
+              break;
+            }
+          }
+        }
+        if (!conditionMet && stmt.elseBody && stmt.elseBody.length > 0) {
+          executeBlockStatements(stmt.elseBody);
         }
       } else if (stmt.type === 'line' && stmt.raw) {
         executeSingleLine(stmt.raw);
