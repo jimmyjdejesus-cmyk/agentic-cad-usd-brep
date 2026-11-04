@@ -173,6 +173,44 @@ describe('CAD Studio Express API Server Suite', () => {
     expect(data.steps[0].toolCalls.length).toBeGreaterThan(0);
   });
 
+  it('POST /api/agent/turn injects active 3D selection and surface pin context into synthesized CAD model', async () => {
+    const starterCode = `import usd_brep as sm
+
+def build_parts():
+    plate = sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, 2.0)
+    return [
+        ("base_plate", plate, (0.5, 0.5, 0.5), "anchor"),
+    ]
+`;
+
+    const res = await fetch(`${baseUrl}/api/agent/turn`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: 'drill an M4 hole here',
+        currentCode: starterCode,
+        harness: 'local-deterministic',
+        activeSelectionContext: {
+          selectedPartName: 'base_plate',
+          activeAnnotation: {
+            id: 'pin-123',
+            position: [2.0, 3.0, 2.0],
+            normal: [0, 0, 1],
+            partName: 'base_plate',
+            text: 'Mount hole',
+          },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.finalCode).toContain('sm.create_cylinder((2.0, 3.0,');
+    expect(data.finalCode).toContain('sm.boolean_difference(plate, hole_cutter)');
+    expect(data.explanation).toContain('Drilled an M4 hole at pin location [2, 3, 2]');
+    expect(data.explanation).toContain('aligned with surface normal [0, 0, 1]');
+  });
+
   it('POST /api/tools/execute returns 400 if toolName or toolId is omitted', async () => {
     const res = await fetch(`${baseUrl}/api/tools/execute`, {
       method: 'POST',

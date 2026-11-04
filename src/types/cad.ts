@@ -570,3 +570,8 @@ export interface EdaNetlist {
   convergenceIterations: number;
   amdRocmSpeedupFactor: string;
 }
+
+export interface ActiveSelectionContext {
+  selectedPartName?: string | null;
+  activeAnnotation?: Partial<CadAnnotation> | null;
+}

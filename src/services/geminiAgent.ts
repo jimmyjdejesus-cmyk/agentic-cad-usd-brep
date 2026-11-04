@@ -1,4 +1,4 @@
-import { AgentIterationStep, CadExecutionResult, HarnessTypeId, AgnosticProviderConfig } from '../types/cad';
+import { AgentIterationStep, CadExecutionResult, HarnessTypeId, AgnosticProviderConfig, ActiveSelectionContext } from '../types/cad';
 import { executeCadScript } from './cadRuntime';
 import { generate3dMcmPackageBrepCode, synthesizeCircuitNetlist } from './edaSiliconEngine';
 import { intelligentParametricSynthesize, attemptAutoRepair } from './parametricIntelligence';
@@ -44,6 +44,7 @@ export async function runAgenticCadTurn(params: {
   model?: string;
   maxIterations?: number;
   providerConfig?: AgnosticProviderConfig;
+  activeSelectionContext?: ActiveSelectionContext;
 }): Promise<AgentTurnResponse> {
   const {
     prompt,
@@ -52,6 +53,7 @@ export async function runAgenticCadTurn(params: {
     model = 'gemini-3.8-flash',
     maxIterations = 3,
     providerConfig,
+    activeSelectionContext,
   } = params;
 
   if (typeof window !== 'undefined') {
@@ -74,6 +76,7 @@ export async function runAgenticCadTurn(params: {
             model,
             providerBaseUrl: providerConfig?.baseUrl,
             providerApiKey: providerConfig?.apiKey,
+            activeSelectionContext,
           }),
         });
 
@@ -167,7 +170,7 @@ export async function runAgenticCadTurn(params: {
   }
 
   // Fallback to local intelligent parametric synthesizer (zero-LLM geometry reasoning)
-  const synthesized = intelligentParametricSynthesize(prompt, currentCode);
+  const synthesized = intelligentParametricSynthesize(prompt, currentCode, activeSelectionContext);
   let execRes = await executeCadScript(synthesized.code, 'AgentCadAsset');
   let finalCode = synthesized.code;
   const steps: AgentIterationStep[] = [];
@@ -249,7 +252,8 @@ export async function runAgenticCadTurn(params: {
  */
 export function synthesizeParametricEditFallback(
   prompt: string,
-  currentCode: string
+  currentCode: string,
+  activeSelectionContext?: ActiveSelectionContext
 ): { explanation: string; code: string } {
-  return intelligentParametricSynthesize(prompt, currentCode);
+  return intelligentParametricSynthesize(prompt, currentCode, activeSelectionContext);
 }

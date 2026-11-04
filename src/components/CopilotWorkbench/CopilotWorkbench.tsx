@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
-import { Sparkles, ChevronLeft, Cpu, Target, Send, Box, Code2, AlertTriangle, CheckCircle2, Sliders, Wrench } from 'lucide-react';
+import { Sparkles, ChevronLeft, Cpu, Target, Send, Box, Code2, AlertTriangle, CheckCircle2, Sliders, Wrench, MapPin, X } from 'lucide-react';
 import { CadShapeThumbnail } from '../CadShapeThumbnail';
-import { HarnessTypeId, ChatMessage } from '../../types/cad';
+import { HarnessTypeId, ChatMessage, ActiveSelectionContext } from '../../types/cad';
 import { AI_MODEL_OPTIONS, AI_HARNESS_OPTIONS } from '../../services/appToolsAndSkills';
 import { BASIC_SHAPE_INSERT_OPTIONS, BasicShapeInsertOption } from '../../data/cadTemplates';
 
@@ -23,6 +23,8 @@ export interface CopilotWorkbenchProps {
   selectedHarness?: HarnessTypeId;
   quickPrompts?: string[];
   onQuickPromptSelect?: (prompt: string) => void;
+  activeSelectionContext?: ActiveSelectionContext | null;
+  onClearSelectionContext?: () => void;
 }
 
 export const CopilotWorkbench: React.FC<CopilotWorkbenchProps> = ({
@@ -43,6 +45,8 @@ export const CopilotWorkbench: React.FC<CopilotWorkbenchProps> = ({
   selectedHarness,
   quickPrompts,
   onQuickPromptSelect,
+  activeSelectionContext,
+  onClearSelectionContext,
 }) => {
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -270,6 +274,48 @@ export const CopilotWorkbench: React.FC<CopilotWorkbenchProps> = ({
                 {qp}
               </button>
             ))}
+          </div>
+        )}
+
+        {/* Active 3D Viewport Selection & Pin Context Chips */}
+        {(activeSelectionContext?.selectedPartName || activeSelectionContext?.activeAnnotation) && (
+          <div
+            data-testid="copilot-context-chips"
+            className="mb-2 px-1 flex flex-wrap items-center gap-1.5"
+          >
+            {activeSelectionContext.selectedPartName && (
+              <span
+                data-testid="context-chip-part"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-700/50 text-[11px] font-mono text-emerald-300 shadow-sm"
+                title={`Target Part: ${activeSelectionContext.selectedPartName}`}
+              >
+                <Target className="w-3 h-3 text-emerald-400" />
+                <span>@{activeSelectionContext.selectedPartName}</span>
+              </span>
+            )}
+            {activeSelectionContext.activeAnnotation && (
+              <span
+                data-testid="context-chip-pin"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-950/60 border border-cyan-700/50 text-[11px] font-mono text-cyan-300 shadow-sm"
+                title={`Surface Pin at [${activeSelectionContext.activeAnnotation.position.map((v) => Number(v.toFixed(1))).join(', ')}]`}
+              >
+                <MapPin className="w-3 h-3 text-cyan-400" />
+                <span>
+                  Pin [{activeSelectionContext.activeAnnotation.position.map((v) => Number(v.toFixed(1))).join(', ')}]
+                </span>
+              </span>
+            )}
+            {onClearSelectionContext && (
+              <button
+                type="button"
+                onClick={onClearSelectionContext}
+                className="text-zinc-500 hover:text-zinc-300 p-0.5 rounded hover:bg-[#272a34] transition text-[10px]"
+                title="Clear selection context"
+                aria-label="Clear selection context"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
         )}
 

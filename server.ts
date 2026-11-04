@@ -8,6 +8,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { DEFAULT_PRESETS } from './src/data/presetsData';
 import { intelligentParametricSynthesize, attemptAutoRepair } from './src/services/parametricIntelligence';
 import { executeInAppTool } from './src/services/appToolsAndSkills';
+import { ActiveSelectionContext } from './src/types/cad';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -84,9 +85,10 @@ interface ProviderCallResult {
  */
 function synthesizeParametricFallback(
   prompt: string,
-  currentCode: string
+  currentCode: string,
+  activeSelectionContext?: ActiveSelectionContext | null
 ): { explanation: string; code: string } {
-  return intelligentParametricSynthesize(prompt, currentCode);
+  return intelligentParametricSynthesize(prompt, currentCode, activeSelectionContext);
 }
 
 /**
@@ -492,9 +494,24 @@ export async function createExpressApp(options?: { withVite?: boolean }): Promis
       providerBaseUrl,
       providerApiKey,
       testOnly = false,
+      activeSelectionContext,
     } = req.body;
 
-    const userPrompt = `USER REQUEST:\n${prompt}\n\nCURRENT USD_BREP PYTHON SCRIPT:\n\`\`\`python\n${currentCode}\n\`\`\`\n\nGenerate the complete updated Python script defining \`build_parts()\` using \`import usd_brep as sm\`. Output JSON with "explanation" and "code".`;
+    let selectionContextString = '';
+    if (activeSelectionContext) {
+      if (activeSelectionContext.selectedPartName) {
+        selectionContextString += `\n\n3D VIEWPORT CONTEXT:\nThe user currently has the part "${activeSelectionContext.selectedPartName}" selected in the 3D viewport.`;
+      }
+      if (activeSelectionContext.activeAnnotation) {
+        const ann = activeSelectionContext.activeAnnotation;
+        selectionContextString += `\nThey have placed a surface pin/annotation on part "${ann.partName}" at coordinate [${ann.position.join(', ')}].`;
+        if (ann.normal) {
+          selectionContextString += ` The surface normal at this point is [${ann.normal.join(', ')}].`;
+        }
+      }
+    }
+
+    const userPrompt = `USER REQUEST:\n${prompt}${selectionContextString}\n\nCURRENT USD_BREP PYTHON SCRIPT:\n\`\`\`python\n${currentCode}\n\`\`\`\n\nGenerate the complete updated Python script defining \`build_parts()\` using \`import usd_brep as sm\`. Output JSON with "explanation" and "code".`;
 
     let providerResult: ProviderCallResult | null = null;
 
@@ -701,7 +718,7 @@ export async function createExpressApp(options?: { withVite?: boolean }): Promis
     }
 
     // 6. Resilient Fallback: Intelligent Parametric Synthesis & Auto-Repair
-    const synth = synthesizeParametricFallback(prompt, currentCode);
+    const synth = synthesizeParametricFallback(prompt, currentCode, activeSelectionContext);
     const isFallbackEngaged = harness !== 'local-deterministic';
     let harnessAction = `${harness} • Intelligent Geometry Synthesis`;
     let harnessDetails = `Synthesized parametric manifold solid geometry using in-app NLU geometric heuristics.`;

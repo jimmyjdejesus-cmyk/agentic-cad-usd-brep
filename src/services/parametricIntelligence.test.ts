@@ -132,6 +132,60 @@ def build_parts():
       expect(result.code).toContain('20.0');
       expect(result.explanation.length).toBeGreaterThan(10);
     });
+
+    it('places M4 hole at pin coordinate aligned with surface normal when context is provided', () => {
+      const pinContext = {
+        selectedPartName: 'cylinder',
+        activeAnnotation: {
+          id: 'pin-1',
+          partName: 'cylinder',
+          targetType: 'surface' as const,
+          position: [3.5, 2.0, 10.0] as [number, number, number],
+          normal: [0, 0, 1] as [number, number, number],
+          title: 'Hole Pin',
+          category: 'inspection' as const,
+          createdAt: '2026-11-04T00:00:00.000Z',
+        },
+      };
+
+      const result = intelligentParametricSynthesize(
+        'drill an M4 hole here',
+        starterCylinderCode,
+        pinContext
+      );
+
+      expect(result.code).toContain('sm.create_cylinder((3.5, 2.0,');
+      expect(result.code).toContain('sm.boolean_difference(cylinder, hole_cutter)');
+      expect(result.explanation).toContain('Drilled an M4 hole at pin location [3.5, 2, 10]');
+      expect(result.explanation).toContain('aligned with surface normal [0, 0, 1]');
+    });
+
+    it('aligns cutter with X-axis normal when pin is on lateral side face', () => {
+      const sidePinContext = {
+        selectedPartName: 'cylinder',
+        activeAnnotation: {
+          id: 'pin-side',
+          partName: 'cylinder',
+          targetType: 'surface' as const,
+          position: [5.0, 0.0, 5.0] as [number, number, number],
+          normal: [1, 0, 0] as [number, number, number],
+          title: 'Side Pin',
+          category: 'inspection' as const,
+          createdAt: '2026-11-04T00:00:00.000Z',
+        },
+      };
+
+      const result = intelligentParametricSynthesize(
+        'drill an M4 hole here',
+        starterCylinderCode,
+        sidePinContext
+      );
+
+      expect(result.code).toContain('sm.rotate(hole_cutter');
+      expect(result.code).toContain('axis=(0.0, 1.0, 0.0)');
+      expect(result.code).toContain('sm.boolean_difference(cylinder, hole_cutter)');
+      expect(result.explanation).toContain('Drilled an M4 hole at pin location [5, 0, 5]');
+    });
   });
 
   describe('attemptAutoRepair', () => {

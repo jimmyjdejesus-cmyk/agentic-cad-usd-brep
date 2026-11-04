@@ -10,7 +10,7 @@
  * 3. Multi-part clearance calculation and auto-repair against bounding-box penetrations
  */
 
-import { CadExecutionResult, CadPenetrationWarning } from '../types/cad';
+import { CadExecutionResult, CadPenetrationWarning, ActiveSelectionContext } from '../types/cad';
 
 export type ParametricIntentType =
   | 'dimensional_edit'
@@ -41,7 +41,11 @@ export interface ParametricIntent {
  * Parses a natural language prompt against existing Python usd_brep code
  * to determine exact engineering intent.
  */
-export function parseParametricIntent(prompt: string, currentCode: string = ''): ParametricIntent[] {
+export function parseParametricIntent(
+  prompt: string,
+  currentCode: string = '',
+  context?: ActiveSelectionContext | null
+): ParametricIntent[] {
   const intents: ParametricIntent[] = [];
   const lower = prompt.toLowerCase().trim();
 
@@ -276,18 +280,32 @@ export function parseParametricIntent(prompt: string, currentCode: string = ''):
   }
 
   // --------------------------------------------------------------------------
-  // 3. Subtractive / Hole / Bore Intent (e.g. "add a hole in the center", "drill a 3cm bore")
+  // 3. Subtractive / Hole / Bore Intent (e.g. "add a hole in the center", "drill a 3cm bore", "drill an M4 hole here")
   // --------------------------------------------------------------------------
   if (lower.includes('hole') || lower.includes('bore') || lower.includes('pocket') || lower.includes('cavity') || lower.includes('drill') || lower.includes('cutout')) {
+    const metricMatch = lower.match(/\bm([0-9]+(?:\.[0-9]+)?)\b/i);
     const radiusMatch = lower.match(/(?:radius|diameter|size)?\s*(?:of|=)?\s*([0-9]+(?:\.[0-9]+)?)\s*(cm|mm)?/i);
-    const rawRadius = radiusMatch ? parseFloat(radiusMatch[1]) : 2.0;
-    const holeRadius = radiusMatch && radiusMatch[2] === 'mm' ? rawRadius / 10 : rawRadius;
+    let holeRadius = 2.0;
+
+    if (metricMatch) {
+      const mSize = parseFloat(metricMatch[1]);
+      holeRadius = mSize * 0.5; // e.g. M4 -> radius 2.0
+    } else if (radiusMatch) {
+      const rawRadius = parseFloat(radiusMatch[1]);
+      holeRadius = radiusMatch[2] === 'mm' ? rawRadius / 10 : rawRadius;
+    }
+
+    const targetPart =
+      context?.activeAnnotation?.partName ||
+      context?.selectedPartName ||
+      existingPartNames[0] ||
+      'base_part';
 
     intents.push({
       type: 'boolean_op',
       operation: 'difference',
       primitive: 'cylinder',
-      targetPart: existingPartNames[0] || 'base_part',
+      targetPart,
       value: holeRadius,
       parameter: 'radius',
       confidence: 0.88,
@@ -432,7 +450,8 @@ export function parseParametricIntent(prompt: string, currentCode: string = ''):
  */
 export function applyParametricEdit(
   intents: ParametricIntent[],
-  currentCode: string
+  currentCode: string,
+  context?: ActiveSelectionContext | null
 ): { code: string; explanation: string } {
   if (intents.length === 0) {
     return { code: currentCode, explanation: 'No parametric modifications detected.' };
@@ -470,11 +489,11 @@ export function applyParametricEdit(
   // Intent: Boolean Subtraction (Hole / Bore / Pocket drilling)
   // --------------------------------------------------------------------------
   if (primaryIntent.type === 'boolean_op' && primaryIntent.operation === 'difference') {
-    const updated = injectBoreOrPocket(currentCode, primaryIntent.value || 2.0);
+    const updated = injectBoreOrPocket(currentCode, primaryIntent.value || 2.0, context);
     if (updated.success) {
       return {
         code: updated.code,
-        explanation: `Drilled an internal clearance bore (radius **${primaryIntent.value || 2.0} cm**) through the workpiece using \`sm.boolean_difference\`.`,
+        explanation: updated.explanation || `Drilled an internal clearance bore (radius **${primaryIntent.value || 2.0} cm**) through the workpiece using \`sm.boolean_difference\`.`,
       };
     }
   }
@@ -531,10 +550,11 @@ export function applyParametricEdit(
  */
 export function intelligentParametricSynthesize(
   prompt: string,
-  currentCode: string = ''
+  currentCode: string = '',
+  context?: ActiveSelectionContext | null
 ): { explanation: string; code: string } {
-  const intents = parseParametricIntent(prompt, currentCode);
-  return applyParametricEdit(intents, currentCode);
+  const intents = parseParametricIntent(prompt, currentCode, context);
+  return applyParametricEdit(intents, currentCode, context);
 }
 
 // ============================================================================
@@ -679,23 +699,94 @@ function removePartFromCode(
 }
 
 /**
- * Injects a boolean difference (hole / bore) into the existing assembly
+ * Injects a boolean difference (hole / bore) into the existing assembly,
+ * optionally positioned at an active 3D annotation pin and aligned with surface normal.
  */
 function injectBoreOrPocket(
   code: string,
-  radius: number = 2.0
-): { success: boolean; code: string } {
+  radius: number = 2.0,
+  context?: ActiveSelectionContext | null
+): { success: boolean; code: string; explanation?: string } {
   if (!code || !code.includes('return [')) return { success: false, code };
 
   const returnPos = code.lastIndexOf('return [');
   const codeBefore = code.substring(0, returnPos);
   const codeAfter = code.substring(returnPos);
 
-  // Find the primary anchor part variable before return
-  const matchVar = codeBefore.match(/([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*sm\.create_(?:cylinder|box|sphere)/g);
-  const targetVar = matchVar ? matchVar[0].split('=')[0].trim() : 'part';
+  // Determine target part variable from context or heuristic
+  const targetPartName =
+    context?.activeAnnotation?.partName ||
+    context?.selectedPartName ||
+    null;
+
+  let targetVar = 'part';
+  if (targetPartName) {
+    const returnBody = code.substring(returnPos);
+    const partTupleRegex = /\(\s*["']([^"']+)["']\s*,\s*([A-Za-z0-9_]+)\s*,\s*\([^)]+\)\s*,\s*["'][^"']+["']\s*\)/g;
+    let m;
+    while ((m = partTupleRegex.exec(returnBody)) !== null) {
+      if (m[1] === targetPartName) {
+        targetVar = m[2];
+        break;
+      }
+    }
+  }
+
+  if (targetVar === 'part') {
+    // Find the primary anchor part variable before return
+    const matchVar = codeBefore.match(/([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*sm\.create_(?:cylinder|box|sphere)/g);
+    targetVar = matchVar ? matchVar[0].split('=')[0].trim() : 'part';
+  }
 
   const indent = '    ';
+  const ann = context?.activeAnnotation;
+
+  if (ann && Array.isArray(ann.position) && ann.position.length >= 3) {
+    const [px, py, pz] = ann.position.map(n => Number(n.toFixed(2)));
+    const normal = Array.isArray(ann.normal) && ann.normal.length >= 3
+      ? ann.normal.map(n => Number(n.toFixed(2)))
+      : [0, 0, 1];
+    const [nx, ny, nz] = normal;
+
+    let cutterCode = '';
+    const holeDepth = 15.0;
+
+    // Align cutter along surface normal
+    if (Math.abs(nx) > Math.abs(ny) && Math.abs(nx) > Math.abs(nz)) {
+      // Normal along X axis
+      cutterCode =
+        `${indent}# Injected pin-aligned bore at [${px}, ${py}, ${pz}] with normal [${nx}, ${ny}, ${nz}]\n` +
+        `${indent}hole_cutter = sm.create_cylinder((${px.toFixed(1)}, ${py.toFixed(1)}, ${pz.toFixed(1)}), ${radius.toFixed(1)}, ${holeDepth.toFixed(1)})\n` +
+        `${indent}sm.rotate(hole_cutter, ref_point=(${px.toFixed(1)}, ${py.toFixed(1)}, ${pz.toFixed(1)}), axis=(0.0, 1.0, 0.0), angle_deg=${nx >= 0 ? 90.0 : -90.0})\n` +
+        `${indent}sm.translate(hole_cutter, (${(nx >= 0 ? -1.0 : 1.0).toFixed(1)}, 0.0, 0.0))\n` +
+        `${indent}${targetVar} = sm.boolean_difference(${targetVar}, hole_cutter)\n\n`;
+    } else if (Math.abs(ny) > Math.abs(nx) && Math.abs(ny) > Math.abs(nz)) {
+      // Normal along Y axis
+      cutterCode =
+        `${indent}# Injected pin-aligned bore at [${px}, ${py}, ${pz}] with normal [${nx}, ${ny}, ${nz}]\n` +
+        `${indent}hole_cutter = sm.create_cylinder((${px.toFixed(1)}, ${py.toFixed(1)}, ${pz.toFixed(1)}), ${radius.toFixed(1)}, ${holeDepth.toFixed(1)})\n` +
+        `${indent}sm.rotate(hole_cutter, ref_point=(${px.toFixed(1)}, ${py.toFixed(1)}, ${pz.toFixed(1)}), axis=(1.0, 0.0, 0.0), angle_deg=${ny >= 0 ? -90.0 : 90.0})\n` +
+        `${indent}sm.translate(hole_cutter, (0.0, ${(ny >= 0 ? -1.0 : 1.0).toFixed(1)}, 0.0))\n` +
+        `${indent}${targetVar} = sm.boolean_difference(${targetVar}, hole_cutter)\n\n`;
+    } else {
+      // Default: Z axis alignment (top or bottom face)
+      const startZ = nz >= 0 ? pz - (holeDepth - 1.0) : pz - 1.0;
+      cutterCode =
+        `${indent}# Injected pin-aligned bore at [${px}, ${py}, ${pz}] with normal [${nx}, ${ny}, ${nz}]\n` +
+        `${indent}hole_cutter = sm.create_cylinder((${px.toFixed(1)}, ${py.toFixed(1)}, ${startZ.toFixed(1)}), ${radius.toFixed(1)}, ${holeDepth.toFixed(1)})\n` +
+        `${indent}${targetVar} = sm.boolean_difference(${targetVar}, hole_cutter)\n\n`;
+    }
+
+    const explanation = `Drilled an M4 hole at pin location [${px}, ${py}, ${pz}] aligned with surface normal [${nx}, ${ny}, ${nz}] on part \`${targetVar}\` using \`sm.boolean_difference\`.`;
+
+    return {
+      success: true,
+      code: `${codeBefore}${cutterCode}${codeAfter}`,
+      explanation,
+    };
+  }
+
+  // Default central bore fallback
   const boreInjection =
     `${indent}# Injected central bore through workpiece\n` +
     `${indent}central_bore = sm.create_cylinder((0.0, 0.0, -2.0), ${radius.toFixed(1)}, 30.0)\n` +
@@ -704,6 +795,7 @@ function injectBoreOrPocket(
   return {
     success: true,
     code: `${codeBefore}${boreInjection}${codeAfter}`,
+    explanation: `Drilled an internal clearance bore (radius **${radius.toFixed(1)} cm**) through the workpiece using \`sm.boolean_difference\`.`,
   };
 }
 
