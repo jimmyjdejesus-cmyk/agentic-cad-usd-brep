@@ -1,0 +1,7 @@
+
+> agentic-cad-usd-brep@1.1.1 dev /app
+> tsx server.ts --host
+
+WebSocket server error: Port 24678 is already in use
+CAD Studio Server listening at http://0.0.0.0:3000
+Killed

@@ -1279,6 +1279,34 @@ export async function evaluateClientSideUsdBrep(
         return;
       }
 
+      // 9b. sm.scale(target, factor or (sx, sy, sz))
+      if (funcName === 'scale') {
+        const targetVar = positional[0] || kwargs['brep'] || kwargs['target'];
+        const scaleArg = positional[1] || kwargs['scale'] || kwargs['factor'] || '1.0';
+
+        if (targetVar && shapes[targetVar]) {
+          const target = shapes[targetVar];
+          let sx = 1.0, sy = 1.0, sz = 1.0;
+          if (scaleArg.includes(',') || scaleArg.includes('(') || scaleArg.includes('[')) {
+            const [x, y, z] = parseVec3(scaleArg);
+            sx = x || 1.0;
+            sy = y || 1.0;
+            sz = z || 1.0;
+          } else {
+            const uniform = evalNum(scaleArg) || 1.0;
+            sx = sy = sz = uniform;
+          }
+
+          target.geometries.forEach((g) => g.scale(sx, sy, sz));
+          if (target.manifold) {
+            target.manifold = target.manifold.scale([sx, sy, sz]);
+          }
+          target.volumeEstimate *= Math.abs(sx * sy * sz);
+          target.areaEstimate *= Math.abs((sx * sy + sx * sz + sy * sz) / 3);
+        }
+        return;
+      }
+
       // 9. sm.rotate(target, ref_point=(...), axis=(...), angle_deg=...)
       if (funcName === 'rotate') {
         const targetVar = positional[0] || kwargs['brep'] || kwargs['target'];
