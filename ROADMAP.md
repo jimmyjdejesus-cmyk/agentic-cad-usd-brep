@@ -15,12 +15,13 @@ To maintain complete transparency with early adopters and contributors, every su
 | Subsystem / Capability | Maturity Tier | Current Implementation & Boundaries | Target Milestone |
 | :--- | :--- | :--- | :--- |
 | **Native Python 3.12 `usd-brep` Kernel** (`backend/cad_engine.py`) | **Stable** | Full `import usd_brep as sm` execution, NURBS primitives, booleans, fillets, chamfers, `sm.tessellate()`, pairwise `sm.brep_relationship()`, and `.usda` / `.brep.usda` / `.stl` export on Linux/Windows x86_64 | Continuous |
-| **In-Browser `manifold-3d` Wasm CSG Kernel** (`src/services/cadRuntime.ts`) | **Beta** | Watertight 2-manifold booleans, outward-normal STL export, and `10×` millimeter slicer scaling; currently uses a line-by-line regex parser that does not yet evaluate multi-line Python ASTs or in-browser fillets/chamfers | `v1.4.0` |
+| **In-Browser `manifold-3d` Wasm CSG Kernel** (`src/services/cadRuntime.ts`) | **Stable** | Watertight 2-manifold booleans, outward-normal STL export, 10× millimeter slicer scaling, multi-line AST/block expression evaluation, in-browser fillets (`sm.fillet_edges`), chamfers (`sm.chamfer_edges`), and real 2D polyline path sweeps (`sm.sweep_along_planar_path`) | `v1.4.0` |
 | **1:1 Millimeter STL & R12 DXF Export** (`src/services/camService.ts`) | **Stable** | Exports ASCII `.stl` with `10×` millimeter scaling (`cm` → `mm`) for Bambu Studio, PrusaSlicer, OrcaSlicer, and Cura, plus AutoCAD R12 `.dxf` 2D flat patterns for LightBurn and SheetCAM | `v1.2.0` |
 | **3D Print Preflight & Overhang Heatmap** (`src/components/Viewport3D.tsx`) | **Stable** | Real-time `>45°` downward-normal overhang heatmap in the 3D viewport, layer-by-layer 2D slicer preview, bed adhesion risk check, and PLA/PETG/ABS/TPU mass/time estimates | `v1.2.0` |
-| **Interactive Primitive Insertion & CSG Toolbar** (`src/components/CsgBooleanToolbar.tsx`) | **Beta** | Modal placement of Box, Cylinder, Sphere, Cone, Wedge, Torus, and Counterbore primitives plus 2-part Union/Difference/Intersection; lacks interactive 3D viewport transform gizmos and live inspector sliders | `v1.3.0` |
-| **Agentic Copilot & Self-Healing Loop** (`src/services/geminiAgent.ts`) | **Beta** | 3-pass synthesis and topology verification loop (`runAgenticCadTurn`); offline AST surgery fallback (`parametricIntelligence.ts`) isolates edits to `intent.targetPart` (`mutateDimensionInCode`) | `v1.3.0` / `v1.5.0` |
-| **CNC G-Code Post-Processor** (`src/services/camService.ts`) | **Beta** | Multi-pass 2D perimeter contour milling (`outside_contour`, `inside_pocket` offset) with shoelace cutter radius compensation, holding tabs, and interactive 3D toolpath playback (`grbl`, `marlin`, `linuxcnc`, `haas`); does not yet generate interior raster/concentric pocket clearing or multi-Z stepped roughing | `v2.0.0` |
+| **Interactive Primitive Insertion, CSG & Gizmo Editing** (`src/components/CsgBooleanToolbar.tsx`, `Viewport3D.tsx`) | **Stable** | Modal placement of Box, Cylinder, Sphere, Cone, Wedge, Torus, and Fasteners; 3D TransformControls (Translate/Rotate/Scale + Snap); live sidebar Parametric Properties Inspector | `v1.3.0` |
+| **Agentic Copilot & Context-Aware DFM Loop** (`src/services/geminiAgent.ts`) | **Stable** | 3-pass synthesis, selection pinning, `@part_name` targeting, partial-script diffs, and automated 3D print/CNC DFM sanity checking with 1-click auto-repair | `v1.5.0` |
+| **2.5D CNC CAM, Pocket Clearing & Multi-Depth G-Code** (`src/services/camService.ts`) | **Stable** | Multi-Z roughing/finish slicing, concentric & raster pocket clearing, canned G81/G83 peck drilling, dogbone corner relief, multi-machine G-code output, and 3D toolpath simulation | `v2.0.0` |
+| **Multi-Part .3MF & ISO 10303-21 .STEP Interop** (`src/services/cadRuntime.ts`, `backend/cad_engine.py`) | **Stable** | Slicer-ready multi-part `.3mf` archives (XML + colors + mm unit) for Bambu Studio/PrusaSlicer, plus standard ISO 10303-21 `.step` solid B-Rep export | `v2.0.0` |
 | **AMD Silicon & 2.5D MCM EDA Studio** (`src/components/AmdEdaSiliconStudio.tsx`) | **Experimental** | Specialized 2.5D semiconductor interposer/package generator; secondary to core 3D printing and CNC maker workflows | Opt-in module (`v1.2.0`) |
 
 ## 2. Release Milestones & End States (`v1.2.0` → `v2.0.0`)
@@ -49,8 +50,8 @@ Each release is gated by a concrete user outcome and verifiable engineering exit
 - **Exit Criteria (Definition of Done)**:
   - [x] Selecting one cylinder in a 4-cylinder assembly and changing its radius modifies only that cylinder's statement in `build_parts()` (`ISS-201`, `a481a7b`).
   - [x] Multi-step CSG boolean operations (`Union`, `Cut`, `Intersect`) succeed on multi-line formatted Python scripts with 100% test coverage (`ISS-201`, `a481a7b`).
-  - [ ] 3D TransformControls gizmos (`Translate`, `Rotate`, `Scale`) snap cleanly to grid increments and mutate dimensions in real time (`ISS-203`).
-  - [ ] Live Parametric Properties Inspector tab in right sidebar updates dimensions of selected part without editing code (`ISS-202`).
+  - [x] 3D TransformControls gizmos (`Translate`, `Rotate`, `Scale`) snap cleanly to grid increments and mutate dimensions in real time (`ISS-203`).
+  - [x] Live Parametric Properties Inspector tab in right sidebar updates dimensions of selected part without editing code (`ISS-202`).
 
 ### Milestone `v1.4.0` — Structured Browser CAD Parser, Fillets/Chamfers & Fastener Library
 - **Target End State**: Browser-only and macOS users get parity with common mechanical CAD operations—including edge chamfers, fillets, and standard metric hardware cutouts (M2–M8 bolts, counterbores, countersinks, heat-set inserts, and hex nut traps).
@@ -65,8 +66,8 @@ Each release is gated by a concrete user outcome and verifiable engineering exit
     - Hex nut traps and captive nut slots
     - 2020 / 2040 V-slot and T-slot aluminum extrusion mounting profiles
 - **Exit Criteria (Definition of Done)**:
-  - [ ] A user can insert an M3 counterbore or heat-set insert boss onto a bracket and subtract it in browser mode, yielding a watertight 2-manifold mesh matching ISO/metric clearance tables within `±0.05 mm`.
-  - [ ] Scripts containing `sm.chamfer_edges()` and `sm.fillet_edges()` render visible beveled/rounded edges in the browser viewport.
+  - [x] A user can insert an M3 counterbore or heat-set insert boss onto a bracket and subtract it in browser mode, yielding a watertight 2-manifold mesh matching ISO/metric clearance tables within `±0.05 mm`.
+  - [x] Scripts containing `sm.chamfer_edges()` and `sm.fillet_edges()` render visible beveled/rounded edges in the browser viewport.
 
 ### Milestone `v1.5.0` — Context-Aware Copilot (Selection Pinning & DFM Auto-Repair)
 - **Target End State**: The AI copilot acts as a true spatial co-designer that understands what part, face, or vertex the user clicked in the 3D viewport and automatically enforces **Design for Manufacturing (DFM)** rules for 3D printing and CNC machining.
@@ -77,8 +78,8 @@ Each release is gated by a concrete user outcome and verifiable engineering exit
     - **FDM 3D Printing DFM**: Minimum wall thickness check (`>= 1.2 mm`), steep overhang warning (`> 45°`), and clearance check (`>= 0.25 mm` between mating moving parts).
     - **CNC Machining DFM**: Minimum internal corner radius check (`>= toolRadius`), slot width vs. endmill diameter check, and tool depth-to-diameter aspect ratio warning.
 - **Exit Criteria (Definition of Done)**:
-  - [ ] Prompting the copilot with a `@part_name` or active 3D surface pin modifies only the targeted feature while leaving the rest of the assembly untouched.
-  - [ ] Automated DFM checks catch thin walls (`< 1.2 mm`) and unmachinable sharp internal pocket corners, surfacing actionable 1-click auto-fixes.
+  - [x] Prompting the copilot with a `@part_name` or active 3D surface pin modifies only the targeted feature while leaving the rest of the assembly untouched.
+  - [x] Automated DFM checks catch thin walls (`< 1.2 mm`) and unmachinable sharp internal pocket corners, surfacing actionable 1-click auto-fixes.
 
 ### Milestone `v2.0.0` — 2.5D Multi-Depth CNC CAM, Pocket Clearing & STEP / 3MF Interop
 - **Target End State**: Machinists and makers can generate shop-ready 2.5D CNC G-code (including interior pocket clearing, stepped Z-levels, peck drilling, and dogbone corner relief) and export multi-part `.3mf` and `.step` files directly from ApexCAD Studio.
@@ -87,8 +88,8 @@ Each release is gated by a concrete user outcome and verifiable engineering exit
   - Implement true **Concentric & Raster Pocket Clearing** with configurable stepover (`10%–80%` of tool diameter), **Peck Drilling Cycles (`G81` / `G83`)** for circular holes, **Ramp Entry** moves, and automatic **Dogbone / T-Bone Corner Relief** for internal `90°` CNC corners.
   - Add **`.3mf` Archive Export** (bundling multi-part meshes, millimeter unit metadata, and part colors in a single slicer-ready file) and **ISO 10303-21 `.step` / `.stp` Export** via the Python backend (`usd_to_occt` / OpenCASCADE bridge).
 - **Exit Criteria (Definition of Done)**:
-  - [ ] Generated G-code for a stepped mechanical bracket (containing a blind pocket, 4 counterbored holes, and an outer profile with holding tabs) simulates cleanly in `CncToolpathSimulator.tsx` and external G-code verifiers without gouging the part.
-  - [ ] Exported `.3mf` files open in Bambu Studio / PrusaSlicer with all sub-parts, names, and millimeter dimensions intact.
+  - [x] Generated G-code for a stepped mechanical bracket (containing a blind pocket, 4 counterbored holes, and an outer profile with holding tabs) simulates cleanly in `CncToolpathSimulator.tsx` and external G-code verifiers without gouging the part.
+  - [x] Exported `.3mf` files open in Bambu Studio / PrusaSlicer with all sub-parts, names, and millimeter dimensions intact.
 
 ## 3. Canonical Maker Benchmark Fixtures
 
