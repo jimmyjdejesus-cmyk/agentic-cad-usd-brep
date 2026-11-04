@@ -566,7 +566,7 @@
       "epicId": "EPIC-4",
       "milestoneId": "M4",
       "title": "[v1.5.0] Pass 3D Viewport Selection & Surface Pin Context into Copilot Turn API",
-      "status": "open",
+      "status": "completed",
       "labels": [
         "type:sub-issue",
         "area:copilot-dfm",
@@ -584,7 +584,8 @@
       "targetFiles": [
         "src/services/geminiAgent.ts",
         "server.ts",
-        "src/App.tsx"
+        "src/App.tsx",
+        "src/components/CopilotWorkbench/CopilotWorkbench.tsx"
       ],
       "description": "Extend `runAgenticCadTurn()` and `POST /api/agent/turn` to accept `selectedPartName`, selected part bounding box, and active 3D annotation pin coordinates/surface normals (`[x, y, z]`, `[nx, ny, nz]`), injecting them into the system prompt and offline parametric engine.",
       "acceptanceCriteria": [

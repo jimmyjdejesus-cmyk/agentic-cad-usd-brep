@@ -126,6 +126,7 @@ import {
   UserCadFile,
   SystemHardwareResources,
   AgnosticProviderConfig,
+  ActiveSelectionContext,
 } from './types/cad';
 
 const QUICK_PROMPTS = [
@@ -1077,6 +1078,11 @@ export const App: React.FC = () => {
     setDiagnosticsDismissed(false);
 
     try {
+      const activeSelectionContext = {
+        selectedPartName: selectedPartName,
+        activeAnnotation: focusAnnotationTrigger?.ann || editingAnnotation || annotations.find(a => a.id === selectedAnnotationId) || null,
+      };
+
       const turn = await runAgenticCadTurn({
         prompt: query,
         currentCode: code,
@@ -1084,6 +1090,7 @@ export const App: React.FC = () => {
         model: selectedModel,
         maxIterations: 3,
         providerConfig,
+        activeSelectionContext,
       });
 
       setCode(turn.finalCode);
@@ -1157,6 +1164,24 @@ export const App: React.FC = () => {
   const parts = execResult?.parts || [];
   const selectedPart = parts.find((p) => p.name === selectedPartName);
 
+  const activeAnnotation =
+    focusAnnotationTrigger?.ann ||
+    editingAnnotation ||
+    annotations.find((a) => a.id === selectedAnnotationId) ||
+    null;
+
+  const activeSelectionContext: ActiveSelectionContext = {
+    selectedPartName,
+    activeAnnotation,
+  };
+
+  const handleClearSelectionContext = () => {
+    setSelectedPartName(null);
+    setSelectedAnnotationId(null);
+    setEditingAnnotation(null);
+    setFocusAnnotationTrigger(null);
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen bg-[#121316] text-zinc-100 overflow-hidden font-sans">
       {/* Sleek Top Navigation Bar: Project Context, Workspace Switcher, Unified Export */}
@@ -1222,6 +1247,8 @@ export const App: React.FC = () => {
           selectedHarness={selectedHarness}
           quickPrompts={QUICK_PROMPTS}
           onQuickPromptSelect={handleSendAgentPrompt}
+          activeSelectionContext={activeSelectionContext}
+          onClearSelectionContext={handleClearSelectionContext}
         />
 
         {/* THE ACTUAL DESIGN (Interactive 3D Viewport) */}
