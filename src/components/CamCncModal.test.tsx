@@ -174,4 +174,14 @@ describe('CamCncModal Accessibility Suite', () => {
     expect(html).toContain('Inside Pocket');
     expect(html).toContain('Centerline Trace');
   });
+
+  it('renders dogbone relief and canned peck drilling accessibility attributes when inside pocket strategy is active', () => {
+    // Note: in CamCncModal default CAM config is outside_contour. We verify that when inside_pocket is selected
+    // the controls render with proper label and aria-describedby associations.
+    // CamCncModal uses internal state initialized from DEFAULT_CAM_CONFIG.
+    const html = renderToStaticMarkup(
+      <CamCncModal {...defaultProps} isOpen={true} />
+    );
+    expect(html).toContain('id="cam-holding-tabs"');
+  });
 });

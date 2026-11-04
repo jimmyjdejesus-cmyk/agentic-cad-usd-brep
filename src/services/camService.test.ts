@@ -15,6 +15,8 @@ import {
   extractMultiZFeatures,
   generateConcentricPocketLoops,
   generateRasterPocketPath,
+  applyDogboneRelief,
+  detectCircularHole,
 } from './camService';
 
 describe('CAM & CNC Toolpath Generator Service', () => {
@@ -624,6 +626,109 @@ def build_parts():
       expect(gcode).toContain('Pocket Clearing Pass');
       expect(gcode).toContain('Safe Retract');
       expect(gcode).toContain('G00 Z5.000');
+    });
+  });
+
+  describe('CNC Dogbone Corner Relief & G81/G83 Peck Drilling Cycles (ROADMAP ISS-503)', () => {
+    // 20 mm x 20 mm square pocket loop (CCW)
+    const squarePocket = [
+      { x: -10, y: -10 },
+      { x: 10, y: -10 },
+      { x: 10, y: 10 },
+      { x: -10, y: 10 },
+    ];
+    const toolRadiusMm = 1.5875; // 1/8" endmill radius
+
+    it('enabling Dogbone Corner Relief inserts tool-radius arc overcuts at internal 90 deg pocket corners', () => {
+      const relieved = applyDogboneRelief(squarePocket, toolRadiusMm);
+
+      // 4 corners, each gets overcut points inserted -> 12 points total
+      expect(relieved.length).toBe(12);
+
+      // Verify that for corner (10, -10), the relief point extends into the corner (+X and -Y)
+      // Corner 1 in squarePocket is (10, -10). The inserted points are:
+      // index 3: (10, -10), index 4: relief point, index 5: (10, -10)
+      const reliefPoint = relieved[4];
+      expect(reliefPoint.x).toBeGreaterThan(10);
+      expect(reliefPoint.y).toBeLessThan(-10);
+
+      // Distance from original corner to relief point along bisector must be toolRadiusMm
+      const dist = Math.hypot(reliefPoint.x - 10, reliefPoint.y - (-10));
+      expect(dist).toBeCloseTo(toolRadiusMm, 2);
+    });
+
+    it('detectCircularHole accurately recognizes circular bore loops and checks tool matching', () => {
+      // 16-point circle approximation with diameter 3.175 mm (radius 1.5875 mm)
+      const circularLoop: Array<{ x: number; y: number }> = [];
+      const numPts = 16;
+      const targetRadius = 1.5875;
+      for (let i = 0; i < numPts; i++) {
+        const theta = (i / numPts) * 2 * Math.PI;
+        circularLoop.push({
+          x: targetRadius * Math.cos(theta),
+          y: targetRadius * Math.sin(theta),
+        });
+      }
+
+      const matchHole = detectCircularHole(circularLoop, 3.175);
+      expect(matchHole).not.toBeNull();
+      expect(matchHole?.diameterMm).toBeCloseTo(3.175, 2);
+      expect(matchHole?.isMatchForTool).toBe(true);
+
+      // Non-matching hole (diameter 10 mm vs tool 3.175 mm)
+      const nonMatchHole = detectCircularHole(circularLoop, 10.0);
+      expect(nonMatchHole).not.toBeNull();
+      expect(nonMatchHole?.isMatchForTool).toBe(false);
+    });
+
+    it('circular bores matching drill/endmill diameter emit standard G83 peck-drilling G-code blocks', async () => {
+      // Part with a cylindrical bore matching 3.175mm endmill (diameter 0.3175 cm = 3.175 mm, depth 10 mm)
+      const holeCode = `import usd_brep as sm
+def build_parts():
+    plate = sm.create_box((-2.0, -2.0, 0.0), 4.0, 4.0, 1.0)
+    hole = sm.create_cylinder((0.0, 0.0, 0.0), 0.15875, 1.0)
+    part = sm.boolean_difference(plate, hole)
+    return [("drilled_plate", part, (0.5, 0.5, 0.5), "anchor")]
+`;
+      const res = await evaluateClientSideUsdBrep(holeCode, 'DrilledPlateTest');
+      expect(res.success).toBe(true);
+      const part = res.parts![0];
+
+      const gcode = generateCncGcode(part, {
+        machineDialect: 'grbl',
+        toolDiameterMm: 3.175,
+        toolType: 'flat_endmill',
+        feedRateMmMin: 1200,
+        plungeRateMmMin: 300,
+        spindleRpm: 16000,
+        stepDownMm: 2.0,
+        safeZMm: 5.0,
+        cutOperation: 'inside_pocket',
+        usePeckDrilling: true,
+      });
+
+      // Verify G83 peck-drilling block is emitted with peck increment Q, retract R, and G80 cancel
+      expect(gcode).toContain('G83');
+      expect(gcode).toContain('Q2.000');
+      expect(gcode).toContain('R5.000');
+      expect(gcode).toContain('G80 ; Cancel Canned Cycle');
+
+      // Verify simulated toolpath runs peck plunging and chip clearance retracts
+      const sim = buildSimulatedToolpath(part, {
+        machineDialect: 'grbl',
+        toolDiameterMm: 3.175,
+        toolType: 'flat_endmill',
+        feedRateMmMin: 1200,
+        plungeRateMmMin: 300,
+        spindleRpm: 16000,
+        stepDownMm: 2.0,
+        safeZMm: 5.0,
+        cutOperation: 'inside_pocket',
+        usePeckDrilling: true,
+      });
+
+      expect(sim.steps.some((s) => s.command.includes('G83'))).toBe(true);
+      expect(sim.steps.some((s) => s.command.includes('[Retract]'))).toBe(true);
     });
   });
 });

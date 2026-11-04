@@ -368,11 +368,23 @@ export interface CncCamConfig {
   cutOperation: 'outside_contour' | 'inside_pocket' | 'engrave' | 'facing';
   stepOverPercent?: number;      // Stepover percentage for pocket clearing (10% - 80% of toolDiameterMm, default: 45)
   pocketPattern?: 'concentric' | 'raster'; // Pocket clearing strategy: concentric inward spiral or zig-zag raster
+  addDogboneRelief?: boolean;    // Whether to insert dogbone corner overcuts on internal 90° corners (ISS-503)
+  usePeckDrilling?: boolean;     // Whether to recognize circular holes matching tool diameter and emit G81/G83 cycles (ISS-503)
   addHoldingTabs?: boolean;      // Whether to insert holding tabs on final pass
   tabWidthMm?: number;           // Holding tab width (mm)
   tabHeightMm?: number;          // Holding tab height (mm)
   tabCount?: number;             // Number of tabs per perimeter loop
   stockThicknessMm?: number;     // Optional stock thickness (mm)
+}
+
+// Canned Drilling Cycle Feature Definition (ROADMAP ISS-503)
+export interface CncHoleFeature {
+  centerX: number;
+  centerY: number;
+  diameterMm: number;
+  depthMm: number;
+  isPeckDrill: boolean;
+  peckIncrementMm: number;
 }
 
 // Multi-Z Feature & Depth Extraction for Stepped CNC Machining
@@ -387,6 +399,7 @@ export interface MultiZToolpathStage {
   loops: Array<Array<{ x: number; y: number }>>;
   rawLoops: Array<Array<{ x: number; y: number }>>;
   isInternal: boolean;
+  holeFeatures?: CncHoleFeature[];
 }
 
 // Interactive 3D Toolpath Motion & Cutter Simulation Types

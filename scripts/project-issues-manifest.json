@@ -748,7 +748,7 @@
       "epicId": "EPIC-5",
       "milestoneId": "M5",
       "title": "[v2.0.0] CNC Dogbone Corner Relief & G81/G83 Peck Drilling Cycles",
-      "status": "open",
+      "status": "completed",
       "labels": [
         "type:sub-issue",
         "area:cnc-cam",
@@ -768,7 +768,8 @@
       "acceptanceCriteria": [
         "Enabling Dogbone Corner Relief inserts tool-radius arc overcuts at internal 90 deg pocket corners",
         "Circular bores matching drill/endmill diameter emit standard `G83` peck-drilling G-code blocks"
-      ]
+      ],
+      "githubIssueNumber": 37
     },
     {
       "id": "ISS-504",

@@ -8,7 +8,7 @@
  * 3. 3D Printing Preflight Diagnostics (Euler verification, bed adhesion contact, filament weight, print time).
  */
 
-import { CadPartOutput, CncCamConfig, MultiZToolpathStage, PrintPreflightInfo } from '../types/cad';
+import { CadPartOutput, CncCamConfig, CncHoleFeature, MultiZToolpathStage, PrintPreflightInfo } from '../types/cad';
 
 // 1 cm in ApexCAD / OpenUSD = 10 mm in CAM & 3D Printing standards
 const CM_TO_MM = 10.0;
@@ -25,6 +25,8 @@ export const DEFAULT_CAM_CONFIG: CncCamConfig = {
   cutOperation: 'outside_contour',
   stepOverPercent: 45,   // 45% radial stepover for interior pocket clearing
   pocketPattern: 'concentric', // 'concentric' spiral or 'raster' zig-zag
+  addDogboneRelief: false, // Optional dogbone overcut fillets on concave 90° corners (ISS-503)
+  usePeckDrilling: true,  // Canned G81/G83 peck drilling for holes matching tool diameter (ISS-503)
   addHoldingTabs: true,
   tabWidthMm: 4.0,       // 4 mm holding tab width
   tabHeightMm: 1.5,      // 1.5 mm holding tab height
@@ -433,6 +435,152 @@ export function generateRasterPocketPath(
   return rasterLoops.length > 1 ? rasterLoops : [finishWallLoop];
 }
 
+/**
+ * Circular Hole Recognition & Tool Matching (ROADMAP ISS-503)
+ */
+export interface CircularHoleInfo {
+  centerX: number;
+  centerY: number;
+  radiusMm: number;
+  diameterMm: number;
+  isMatchForTool: boolean;
+}
+
+/**
+ * Detects whether a closed loop represents a circular bore/hole and determines
+ * if its diameter matches the active CNC endmill or drill bit.
+ */
+export function detectCircularHole(loop: Point2D[], toolDiameterMm: number): CircularHoleInfo | null {
+  if (loop.length < 5) return null;
+
+  let sumX = 0;
+  let sumY = 0;
+  for (const p of loop) {
+    sumX += p.x;
+    sumY += p.y;
+  }
+  const cx = sumX / loop.length;
+  const cy = sumY / loop.length;
+
+  let totalR = 0;
+  const radii: number[] = [];
+  for (const p of loop) {
+    const r = Math.hypot(p.x - cx, p.y - cy);
+    radii.push(r);
+    totalR += r;
+  }
+  const meanR = totalR / loop.length;
+  if (meanR < 0.2) return null;
+
+  // Compute variance to verify circularity
+  let variance = 0;
+  for (const r of radii) {
+    variance += (r - meanR) * (r - meanR);
+  }
+  const stdDev = Math.sqrt(variance / loop.length);
+
+  // Points lie on a circle within 12% circularity deviation
+  if (stdDev / meanR < 0.12) {
+    const dia = meanR * 2.0;
+    // Matches tool diameter if within 15% or 0.6 mm
+    const isMatch = Math.abs(dia - toolDiameterMm) <= Math.max(0.6, toolDiameterMm * 0.15);
+    return {
+      centerX: Number(cx.toFixed(3)),
+      centerY: Number(cy.toFixed(3)),
+      radiusMm: Number(meanR.toFixed(3)),
+      diameterMm: Number(dia.toFixed(3)),
+      isMatchForTool: isMatch,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * CNC Dogbone Corner Relief Generator (ROADMAP ISS-503)
+ *
+ * For internal (concave) ~90° corners, inserts an overcut displacement along
+ * the corner bisector of length equal to the tool radius, ensuring rectangular
+ * mating parts (tenons, acrylic sheets, PCBs) seat completely flush.
+ *
+ * @param loop Closed 2D loop of points
+ * @param toolRadiusMm Radius of the CNC endmill in millimeters
+ * @returns Loop with dogbone overcut points inserted at 90° concave corners
+ */
+export function applyDogboneRelief(loop: Point2D[], toolRadiusMm: number): Point2D[] {
+  if (loop.length < 3 || toolRadiusMm <= 0.01) return loop;
+
+  // Determine winding order using shoelace formula
+  let signedArea = 0;
+  const n = loop.length;
+  for (let i = 0; i < n; i++) {
+    const next = loop[(i + 1) % n];
+    signedArea += loop[i].x * next.y - next.x * loop[i].y;
+  }
+  const isCCW = signedArea > 0;
+
+  const result: Point2D[] = [];
+
+  for (let i = 0; i < n; i++) {
+    const prev = loop[(i - 1 + n) % n];
+    const curr = loop[i];
+    const next = loop[(i + 1) % n];
+
+    // Compute incoming and outgoing edge vectors
+    const v1x = curr.x - prev.x;
+    const v1y = curr.y - prev.y;
+    const len1 = Math.hypot(v1x, v1y) || 1;
+    const u1x = v1x / len1;
+    const u1y = v1y / len1;
+
+    const v2x = next.x - curr.x;
+    const v2y = next.y - curr.y;
+    const len2 = Math.hypot(v2x, v2y) || 1;
+    const u2x = v2x / len2;
+    const u2y = v2y / len2;
+
+    // Dot product to test corner angle
+    const dot = u1x * u2x + u1y * u2y;
+    // Cross product to test corner turn direction
+    const crossZ = u1x * u2y - u1y * u2x;
+
+    // A ~90° corner has dot product near 0 (|dot| < 0.45, roughly 63° to 117°)
+    const isNinetyDegree = Math.abs(dot) < 0.45;
+
+    // In a pocket polygon, a turn into the corner is indicated by significant crossZ
+    // (for CCW, left turns; for CW, right turns)
+    const isConcave = isCCW ? crossZ > 0.3 : crossZ < -0.3;
+
+    if (isNinetyDegree && isConcave) {
+      // Outward edge normals
+      const n1x = isCCW ? v1y / len1 : -v1y / len1;
+      const n1y = isCCW ? -v1x / len1 : v1x / len1;
+
+      const n2x = isCCW ? v2y / len2 : -v2y / len2;
+      const n2y = isCCW ? -v2x / len2 : v2x / len2;
+
+      // Average normal vector pointing directly into the corner
+      const bisX = (n1x + n2x) * 0.5;
+      const bisY = (n1y + n2y) * 0.5;
+      const bisLen = Math.hypot(bisX, bisY) || 1;
+      const unitBisX = bisX / bisLen;
+      const unitBisY = bisY / bisLen;
+
+      // Insert dogbone overcut: corner -> overcut along bisector -> return to corner
+      const reliefX = curr.x + unitBisX * toolRadiusMm;
+      const reliefY = curr.y + unitBisY * toolRadiusMm;
+
+      result.push(curr);
+      result.push({ x: Number(reliefX.toFixed(3)), y: Number(reliefY.toFixed(3)) });
+      result.push({ x: curr.x, y: curr.y });
+    } else {
+      result.push(curr);
+    }
+  }
+
+  return result;
+}
+
 // ============================================================================
 // 1. 2D DXF EXPORT GENERATOR (AutoCAD R12 ASCII)
 // ============================================================================
@@ -713,32 +861,63 @@ export function extractMultiZFeatures(
         const targetDepth = Math.max(0.1, maxZMm - zFloor);
         const startDepth = Math.max(0.0, maxZMm - zCeiling);
 
-        // Generate true interior clearing passes (concentric inward or raster hatching)
         const pocketLoops: Point2D[][] = [];
-        for (const innerLoop of innerLoops) {
-          if (config.pocketPattern === 'raster') {
-            const rasterPasses = generateRasterPocketPath(
-              innerLoop,
-              config.toolDiameterMm,
-              config.stepOverPercent
-            );
-            pocketLoops.push(...rasterPasses);
+        const holeFeatures: CncHoleFeature[] = [];
+
+        for (const rawInnerLoop of innerLoops) {
+          // Check if loop represents a circular bore/hole matching the tool diameter
+          const holeMatch =
+            config.usePeckDrilling !== false
+              ? detectCircularHole(rawInnerLoop, config.toolDiameterMm)
+              : null;
+
+          if (holeMatch && holeMatch.isMatchForTool) {
+            // Emits canned drilling cycle rather than milling concentric loops
+            const isPeck = targetDepth > config.toolDiameterMm * 2.5;
+            holeFeatures.push({
+              centerX: holeMatch.centerX,
+              centerY: holeMatch.centerY,
+              diameterMm: holeMatch.diameterMm,
+              depthMm: Number(targetDepth.toFixed(2)),
+              isPeckDrill: isPeck,
+              peckIncrementMm: Number(Math.min(targetDepth, config.stepDownMm).toFixed(2)),
+            });
           } else {
-            const concentricPasses = generateConcentricPocketLoops(
-              innerLoop,
-              config.toolDiameterMm,
-              config.stepOverPercent
-            );
-            pocketLoops.push(...concentricPasses);
+            // Internal pocket milling: apply optional dogbone corner relief on 90° corners
+            const loopToPocket = config.addDogboneRelief
+              ? applyDogboneRelief(rawInnerLoop, toolRadius)
+              : rawInnerLoop;
+
+            if (config.pocketPattern === 'raster') {
+              const rasterPasses = generateRasterPocketPath(
+                loopToPocket,
+                config.toolDiameterMm,
+                config.stepOverPercent
+              );
+              pocketLoops.push(...rasterPasses);
+            } else {
+              const concentricPasses = generateConcentricPocketLoops(
+                loopToPocket,
+                config.toolDiameterMm,
+                config.stepOverPercent
+              );
+              pocketLoops.push(...concentricPasses);
+            }
           }
         }
 
+        const featureName =
+          holeFeatures.length > 0 && pocketLoops.length === 0
+            ? holeFeatures.some((h) => h.isPeckDrill)
+              ? `Canned Peck Drilling Cycle (G83, Depth: ${targetDepth.toFixed(2)} mm)`
+              : `Canned Drilling Cycle (G81, Depth: ${targetDepth.toFixed(2)} mm)`
+            : targetDepth < totalHeightMm - 0.5
+            ? `Blind Pocket / Counterbore (Depth: ${targetDepth.toFixed(2)} mm)`
+            : `Through Pocket / Hole (Depth: ${targetDepth.toFixed(2)} mm)`;
+
         stages.push({
           stageIndex: stageCounter++,
-          featureName:
-            targetDepth < totalHeightMm - 0.5
-              ? `Blind Pocket / Counterbore (Depth: ${targetDepth.toFixed(2)} mm)`
-              : `Through Pocket / Hole (Depth: ${targetDepth.toFixed(2)} mm)`,
+          featureName,
           sliceZMm: Number(midZ.toFixed(2)),
           startDepthMm: Number(startDepth.toFixed(2)),
           targetDepthMm: Number(targetDepth.toFixed(2)),
@@ -747,6 +926,7 @@ export function extractMultiZFeatures(
           loops: pocketLoops,
           rawLoops: innerLoops,
           isInternal: true,
+          holeFeatures: holeFeatures.length > 0 ? holeFeatures : undefined,
         });
       }
     } else {
@@ -892,6 +1072,28 @@ export function generateCncGcode(part: CadPartOutput, config: CncCamConfig = DEF
     gcode.push(`; ============================================================================`);
 
     const numPasses = Math.max(1, Math.ceil(stage.targetDepthMm / config.stepDownMm));
+
+    // 2a. Canned Drilling Cycles (G81 / G83) for holes matching tool diameter (ROADMAP ISS-503)
+    if (stage.holeFeatures && stage.holeFeatures.length > 0) {
+      stage.holeFeatures.forEach((hole, holeIdx) => {
+        gcode.push(`; --- Canned Drilling Hole ${holeIdx + 1}/${stage.holeFeatures!.length} (Ø${hole.diameterMm.toFixed(2)} mm) ---`);
+        gcode.push(`G00 Z${config.safeZMm.toFixed(3)} ; Safe Clearance`);
+        gcode.push(`G00 X${hole.centerX.toFixed(3)} Y${hole.centerY.toFixed(3)} ; Move to Hole Center`);
+
+        if (hole.isPeckDrill) {
+          gcode.push(
+            `G83 X${hole.centerX.toFixed(3)} Y${hole.centerY.toFixed(3)} Z-${hole.depthMm.toFixed(3)} R${config.safeZMm.toFixed(3)} Q${hole.peckIncrementMm.toFixed(3)} F${config.plungeRateMmMin.toFixed(3)} ; Peck Drilling Cycle`
+          );
+        } else {
+          gcode.push(
+            `G81 X${hole.centerX.toFixed(3)} Y${hole.centerY.toFixed(3)} Z-${hole.depthMm.toFixed(3)} R${config.safeZMm.toFixed(3)} F${config.plungeRateMmMin.toFixed(3)} ; Shallow Drilling Cycle`
+          );
+        }
+        gcode.push(`G80 ; Cancel Canned Cycle`);
+        gcode.push(`G00 Z${config.safeZMm.toFixed(3)} ; Retract`);
+        gcode.push('');
+      });
+    }
 
     // For multi-loop interior pocket clearing, perform Z-level clearing (cut all loops from center outward per depth pass)
     if (stage.isInternal && stage.loops.length > 1) {
@@ -1345,6 +1547,83 @@ export function buildSimulatedToolpath(
 
   stages.forEach((stage) => {
     const numPasses = Math.max(1, Math.ceil(stage.targetDepthMm / config.stepDownMm));
+
+    // Simulate Canned Drilling Cycles (G81 / G83) (ROADMAP ISS-503)
+    if (stage.holeFeatures && stage.holeFeatures.length > 0) {
+      stage.holeFeatures.forEach((hole) => {
+        // Rapid to hole center at safe clearance
+        steps.push({
+          x: hole.centerX,
+          y: hole.centerY,
+          z: config.safeZMm,
+          isRapid: true,
+          isCutting: false,
+          feedRate: 3000,
+          command: `G00 X${hole.centerX.toFixed(2)} Y${hole.centerY.toFixed(2)}`,
+          lineIndex: lineIdx++,
+          passNumber: 0,
+        });
+        currentX = hole.centerX;
+        currentY = hole.centerY;
+
+        if (hole.isPeckDrill) {
+          const numPecks = Math.max(1, Math.ceil(hole.depthMm / hole.peckIncrementMm));
+          for (let p = 1; p <= numPecks; p++) {
+            const peckZ = -Math.min(hole.depthMm, p * hole.peckIncrementMm);
+            // Controlled plunge peck
+            steps.push({
+              x: hole.centerX,
+              y: hole.centerY,
+              z: peckZ,
+              isRapid: false,
+              isCutting: true,
+              feedRate: config.plungeRateMmMin,
+              command: `G83 Z${peckZ.toFixed(2)} Q${hole.peckIncrementMm.toFixed(2)} [Peck ${p}/${numPecks}]`,
+              lineIndex: lineIdx++,
+              passNumber: p,
+            });
+            // Rapid chip-break retract to safe clearance
+            steps.push({
+              x: hole.centerX,
+              y: hole.centerY,
+              z: config.safeZMm,
+              isRapid: true,
+              isCutting: false,
+              feedRate: 3000,
+              command: `G00 Z${config.safeZMm.toFixed(2)} [Retract]`,
+              lineIndex: lineIdx++,
+              passNumber: p,
+            });
+          }
+        } else {
+          // Standard shallow drill
+          steps.push({
+            x: hole.centerX,
+            y: hole.centerY,
+            z: -hole.depthMm,
+            isRapid: false,
+            isCutting: true,
+            feedRate: config.plungeRateMmMin,
+            command: `G81 Z-${hole.depthMm.toFixed(2)} [Drill]`,
+            lineIndex: lineIdx++,
+            passNumber: 1,
+          });
+          // Rapid retract
+          steps.push({
+            x: hole.centerX,
+            y: hole.centerY,
+            z: config.safeZMm,
+            isRapid: true,
+            isCutting: false,
+            feedRate: 3000,
+            command: `G00 Z${config.safeZMm.toFixed(2)} [Retract]`,
+            lineIndex: lineIdx++,
+            passNumber: 1,
+          });
+        }
+        currentZ = config.safeZMm;
+      });
+    }
 
     if (stage.isInternal && stage.loops.length > 1) {
       for (let pass = 1; pass <= numPasses; pass++) {

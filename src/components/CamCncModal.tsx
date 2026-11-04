@@ -532,6 +532,46 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
                           Tool diameter stepover for interior clearing (10% to 80%)
                         </span>
                       </div>
+
+                      {/* Dogbone Corner Relief Toggle (ISS-503) */}
+                      <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
+                        <div>
+                          <label htmlFor="cam-dogbone-relief" className="text-xs font-semibold text-slate-200 cursor-pointer block">
+                            Dogbone Corner Relief
+                          </label>
+                          <div id="cam-dogbone-relief-desc" className="text-[10px] text-slate-500">
+                            Overcuts 90° inside corners for flush rectangular mating
+                          </div>
+                        </div>
+                        <input
+                          id="cam-dogbone-relief"
+                          type="checkbox"
+                          checked={camConfig.addDogboneRelief || false}
+                          onChange={(e) => setCamConfig({ ...camConfig, addDogboneRelief: e.target.checked })}
+                          aria-describedby="cam-dogbone-relief-desc"
+                          className="rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-0 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Canned Peck Drilling Toggle (ISS-503) */}
+                      <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
+                        <div>
+                          <label htmlFor="cam-peck-drilling" className="text-xs font-semibold text-slate-200 cursor-pointer block">
+                            Canned Peck Drilling (G81/G83)
+                          </label>
+                          <div id="cam-peck-drilling-desc" className="text-[10px] text-slate-500">
+                            Uses G81/G83 canned cycles for circular holes matching tool diameter
+                          </div>
+                        </div>
+                        <input
+                          id="cam-peck-drilling"
+                          type="checkbox"
+                          checked={camConfig.usePeckDrilling !== false}
+                          onChange={(e) => setCamConfig({ ...camConfig, usePeckDrilling: e.target.checked })}
+                          aria-describedby="cam-peck-drilling-desc"
+                          className="rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-0 cursor-pointer"
+                        />
+                      </div>
                     </div>
                   )}
 
