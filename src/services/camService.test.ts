@@ -13,6 +13,8 @@ import {
   buildSimulatedToolpath,
   validateAssemblyDfm,
   extractMultiZFeatures,
+  generateConcentricPocketLoops,
+  generateRasterPocketPath,
 } from './camService';
 
 describe('CAM & CNC Toolpath Generator Service', () => {
@@ -496,6 +498,132 @@ def build_parts():
 `;
       const result = validateAssemblyDfm([mockBoxPart], compliantCode);
       expect(result.warnings.filter((w) => w.includes('DFM_CNC_CORNER_RADIUS'))).toHaveLength(0);
+    });
+  });
+
+  describe('True Concentric & Raster Pocket Clearing Toolpaths (ROADMAP ISS-502)', () => {
+    // 40 mm x 40 mm square pocket loop
+    const pocketLoop = [
+      { x: -20, y: -20 },
+      { x: 20, y: -20 },
+      { x: 20, y: 20 },
+      { x: -20, y: 20 },
+    ];
+    const toolDiameterMm = 3.175; // 1/8" endmill (radius = 1.5875 mm)
+
+    it('generates concentric inward offset loops ordered from pocket center out to final finish wall pass', () => {
+      const loops = generateConcentricPocketLoops(pocketLoop, toolDiameterMm, 45);
+
+      // Should generate multiple concentric passes for a 40x40mm pocket with a 3.175mm tool
+      expect(loops.length).toBeGreaterThanOrEqual(3);
+
+      // First loop must be innermost (closest to center)
+      const firstLoop = loops[0];
+      const lastLoop = loops[loops.length - 1];
+
+      // Calculate bounding box width of first vs last loop
+      const firstWidth = Math.max(...firstLoop.map((p) => p.x)) - Math.min(...firstLoop.map((p) => p.x));
+      const lastWidth = Math.max(...lastLoop.map((p) => p.x)) - Math.min(...lastLoop.map((p) => p.x));
+
+      // Innermost loop must be significantly smaller than the outer finish wall pass
+      expect(firstWidth).toBeLessThan(lastWidth);
+
+      // The final pass is the finish wall pass offset by -toolRadius (-1.5875 mm)
+      // Original width is 40mm; finish wall width should be ~36.825mm
+      expect(lastWidth).toBeCloseTo(40 - toolDiameterMm, 1);
+    });
+
+    it('generates raster zig-zag passes terminating with the finish perimeter loop', () => {
+      const rasterPasses = generateRasterPocketPath(pocketLoop, toolDiameterMm, 45);
+
+      expect(rasterPasses.length).toBeGreaterThanOrEqual(5);
+
+      // Final pass is the closed finish perimeter pass
+      const finishPass = rasterPasses[rasterPasses.length - 1];
+      expect(finishPass.length).toBeGreaterThanOrEqual(4);
+
+      // Intermediate passes are line segments (2 points per scanline)
+      expect(rasterPasses[0].length).toBe(2);
+    });
+
+    it('stepover percentage alters toolpath density and machining time', async () => {
+      // Dense stepover (20%) produces more loops than wide stepover (70%)
+      const denseLoops = generateConcentricPocketLoops(pocketLoop, toolDiameterMm, 20);
+      const wideLoops = generateConcentricPocketLoops(pocketLoop, toolDiameterMm, 70);
+
+      expect(denseLoops.length).toBeGreaterThan(wideLoops.length);
+
+      // Testing stepped mechanical part in simulator
+      const steppedCode = `import usd_brep as sm
+def build_parts():
+    stock = sm.create_box((-2.0, -2.0, 0.0), 4.0, 4.0, 1.0)
+    pocket = sm.create_box((-1.0, -1.0, 0.5), 2.0, 2.0, 0.6)
+    part = sm.boolean_difference(stock, pocket)
+    return [("stepped_part", part, (0.5, 0.5, 0.5), "anchor")]
+`;
+      const res = await evaluateClientSideUsdBrep(steppedCode, 'SteppedPartTest');
+      expect(res.success).toBe(true);
+      const part = res.parts![0];
+
+      const denseSim = buildSimulatedToolpath(part, {
+        machineDialect: 'grbl',
+        toolDiameterMm: 3.175,
+        toolType: 'flat_endmill',
+        feedRateMmMin: 1200,
+        plungeRateMmMin: 300,
+        spindleRpm: 16000,
+        stepDownMm: 2.0,
+        safeZMm: 5.0,
+        cutOperation: 'inside_pocket',
+        stepOverPercent: 20,
+      });
+
+      const wideSim = buildSimulatedToolpath(part, {
+        machineDialect: 'grbl',
+        toolDiameterMm: 3.175,
+        toolType: 'flat_endmill',
+        feedRateMmMin: 1200,
+        plungeRateMmMin: 300,
+        spindleRpm: 16000,
+        stepDownMm: 2.0,
+        safeZMm: 5.0,
+        cutOperation: 'inside_pocket',
+        stepOverPercent: 70,
+      });
+
+      // Denser stepover requires more cutting distance and more machining time
+      expect(denseSim.cuttingDistanceMm).toBeGreaterThan(wideSim.cuttingDistanceMm);
+      expect(denseSim.estimatedTimeSeconds).toBeGreaterThan(wideSim.estimatedTimeSeconds);
+    });
+
+    it('inside_pocket generates G-code with Z-level pocket clearing passes and safe retracts', async () => {
+      const steppedCode = `import usd_brep as sm
+def build_parts():
+    stock = sm.create_box((-2.0, -2.0, 0.0), 4.0, 4.0, 1.0)
+    pocket = sm.create_box((-1.0, -1.0, 0.5), 2.0, 2.0, 0.6)
+    part = sm.boolean_difference(stock, pocket)
+    return [("stepped_part", part, (0.5, 0.5, 0.5), "anchor")]
+`;
+      const res = await evaluateClientSideUsdBrep(steppedCode, 'SteppedPartGcodeTest');
+      expect(res.success).toBe(true);
+      const part = res.parts![0];
+
+      const gcode = generateCncGcode(part, {
+        machineDialect: 'grbl',
+        toolDiameterMm: 3.175,
+        toolType: 'flat_endmill',
+        feedRateMmMin: 1200,
+        plungeRateMmMin: 300,
+        spindleRpm: 16000,
+        stepDownMm: 2.5,
+        safeZMm: 5.0,
+        cutOperation: 'inside_pocket',
+        stepOverPercent: 45,
+      });
+
+      expect(gcode).toContain('Pocket Clearing Pass');
+      expect(gcode).toContain('Safe Retract');
+      expect(gcode).toContain('G00 Z5.000');
     });
   });
 });

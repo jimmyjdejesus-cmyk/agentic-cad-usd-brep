@@ -42,7 +42,7 @@ export const CncToolpathSimulator: React.FC<CncToolpathSimulatorProps> = ({
   useEffect(() => {
     setStepIndex(0);
     setIsPlaying(false);
-  }, [part.name, config.toolDiameterMm, config.stepDownMm, config.cutOperation]);
+  }, [part.name, config.toolDiameterMm, config.stepDownMm, config.cutOperation, config.stepOverPercent, config.pocketPattern]);
 
   const currentStep = toolpath.steps[stepIndex] || toolpath.steps[0] || {
     x: 0,
