@@ -3,7 +3,9 @@ import {
   applyCsgBooleanToScript,
   generatePrimitiveCodeSnippet,
   insertPrimitiveIntoScript,
+  parsePartParametricProperties,
   PRIMITIVE_CATALOG,
+  updatePartParametricProperties,
 } from './csgEngine';
 
 describe('CSG & 3D Solid Modeling Engine Suite', () => {
@@ -131,5 +133,132 @@ def build_parts():
     expect(resultPartName).toBe('cube_inter');
     expect(updatedCode).toContain('sm.boolean_intersection(cube, sphere)');
     expect(updatedCode).toContain('("cube_inter", cube_inter');
+  });
+
+  describe('Part Parametric Properties Parser & In-Place Mutation', () => {
+    const multiPartScript = `import usd_brep as sm
+
+def build_parts():
+    """Parametric Multi-Part Assembly"""
+    base_plate = sm.create_box((-10.0, -8.0, 0.0), 20.0, 16.0, 3.5)
+    center_shaft = sm.create_cylinder((0.0, 0.0, 3.5), 4.25, 12.0)
+    top_knob = sm.create_sphere((0.0, 0.0, 15.5), 3.0)
+    retaining_ring = sm.create_torus((0.0, 0.0, 8.0), 5.5, 1.2)
+    taper_pin = sm.create_cone((6.0, 0.0, 3.5), radius_base=1.5, radius_top=0.5, height=4.0)
+    gusset = sm.create_wedge((-6.0, 4.0, 3.5), 4.0, 4.0, 6.0)
+
+    return [
+        ("base_plate", base_plate, (0.3, 0.5, 0.8), "anchor"),
+        ("center_shaft", center_shaft, (0.7, 0.7, 0.7), "component"),
+        ("top_knob", top_knob, (0.9, 0.2, 0.2), "component"),
+        ("retaining_ring", retaining_ring, (0.9, 0.8, 0.1), "fastener"),
+        ("taper_pin", taper_pin, (0.2, 0.8, 0.4), "component"),
+        ("gusset", gusset, (0.5, 0.3, 0.7), "component"),
+    ]
+`;
+
+    it('parses box properties correctly from script', () => {
+      const props = parsePartParametricProperties(multiPartScript, 'base_plate');
+      expect(props).not.toBeNull();
+      expect(props?.primitiveType).toBe('box');
+      expect(props?.varName).toBe('base_plate');
+      expect(props?.position).toEqual([-10.0, -8.0, 0.0]);
+      expect(props?.dimensions.width).toBe(20.0);
+      expect(props?.dimensions.depth).toBe(16.0);
+      expect(props?.dimensions.height).toBe(3.5);
+    });
+
+    it('parses cylinder properties correctly from script', () => {
+      const props = parsePartParametricProperties(multiPartScript, 'center_shaft');
+      expect(props).not.toBeNull();
+      expect(props?.primitiveType).toBe('cylinder');
+      expect(props?.position).toEqual([0.0, 0.0, 3.5]);
+      expect(props?.dimensions.radius).toBe(4.25);
+      expect(props?.dimensions.height).toBe(12.0);
+    });
+
+    it('parses sphere properties correctly from script', () => {
+      const props = parsePartParametricProperties(multiPartScript, 'top_knob');
+      expect(props).not.toBeNull();
+      expect(props?.primitiveType).toBe('sphere');
+      expect(props?.position).toEqual([0.0, 0.0, 15.5]);
+      expect(props?.dimensions.radius).toBe(3.0);
+    });
+
+    it('parses torus properties correctly from script', () => {
+      const props = parsePartParametricProperties(multiPartScript, 'retaining_ring');
+      expect(props).not.toBeNull();
+      expect(props?.primitiveType).toBe('torus');
+      expect(props?.position).toEqual([0.0, 0.0, 8.0]);
+      expect(props?.dimensions.majorRadius).toBe(5.5);
+      expect(props?.dimensions.minorRadius).toBe(1.2);
+    });
+
+    it('parses cone properties correctly from script', () => {
+      const props = parsePartParametricProperties(multiPartScript, 'taper_pin');
+      expect(props).not.toBeNull();
+      expect(props?.primitiveType).toBe('cone');
+      expect(props?.position).toEqual([6.0, 0.0, 3.5]);
+      expect(props?.dimensions.radiusBase).toBe(1.5);
+      expect(props?.dimensions.radiusTop).toBe(0.5);
+      expect(props?.dimensions.height).toBe(4.0);
+    });
+
+    it('parses wedge properties correctly from script', () => {
+      const props = parsePartParametricProperties(multiPartScript, 'gusset');
+      expect(props).not.toBeNull();
+      expect(props?.primitiveType).toBe('wedge');
+      expect(props?.position).toEqual([-6.0, 4.0, 3.5]);
+      expect(props?.dimensions.width).toBe(4.0);
+      expect(props?.dimensions.depth).toBe(4.0);
+      expect(props?.dimensions.height).toBe(6.0);
+    });
+
+    it('returns null for non-existent part', () => {
+      const props = parsePartParametricProperties(multiPartScript, 'non_existent_part');
+      expect(props).toBeNull();
+    });
+
+    it('updates box dimensions and position without altering other parts', () => {
+      const res = updatePartParametricProperties(multiPartScript, 'base_plate', {
+        position: [-12.5, -9.0, 0.5],
+        dimensions: { width: 25.0, depth: 18.0, height: 4.5 },
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.updatedCode).toContain('base_plate = sm.create_box((-12.50, -9.00, 0.50), 25.00, 18.00, 4.50)');
+      // Check other parts are unchanged
+      expect(res.updatedCode).toContain('center_shaft = sm.create_cylinder((0.0, 0.0, 3.5), 4.25, 12.0)');
+      expect(res.updatedCode).toContain('top_knob = sm.create_sphere((0.0, 0.0, 15.5), 3.0)');
+    });
+
+    it('updates cylinder radius and height in place', () => {
+      const res = updatePartParametricProperties(multiPartScript, 'center_shaft', {
+        position: [1.0, 2.0, 3.5],
+        dimensions: { radius: 5.5, height: 16.0 },
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.updatedCode).toContain('center_shaft = sm.create_cylinder((1.00, 2.00, 3.50), 5.50, 16.00)');
+      // Re-parsing updated code confirms round-trip fidelity
+      const reParsed = parsePartParametricProperties(res.updatedCode, 'center_shaft');
+      expect(reParsed?.dimensions.radius).toBe(5.5);
+      expect(reParsed?.dimensions.height).toBe(16.0);
+      expect(reParsed?.position).toEqual([1.0, 2.0, 3.5]);
+    });
+
+    it('updates sphere radius and torus radii in place', () => {
+      const resSphere = updatePartParametricProperties(multiPartScript, 'top_knob', {
+        dimensions: { radius: 4.5 },
+      });
+      expect(resSphere.success).toBe(true);
+      expect(resSphere.updatedCode).toContain('top_knob = sm.create_sphere((0.00, 0.00, 15.50), 4.50)');
+
+      const resTorus = updatePartParametricProperties(multiPartScript, 'retaining_ring', {
+        dimensions: { majorRadius: 7.0, minorRadius: 2.0 },
+      });
+      expect(resTorus.success).toBe(true);
+      expect(resTorus.updatedCode).toContain('retaining_ring = sm.create_torus((0.00, 0.00, 8.00), 7.00, 2.00)');
+    });
   });
 });
