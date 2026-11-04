@@ -10,6 +10,7 @@ import {
   analyzeOverhangs,
   generateSlicerLayers,
   buildSimulatedToolpath,
+  validateAssemblyDfm,
 } from './camService';
 
 describe('CAM & CNC Toolpath Generator Service', () => {
@@ -249,6 +250,113 @@ describe('CAM & CNC Toolpath Generator Service', () => {
       expect(sim.estimatedTimeSeconds).toBeGreaterThan(0);
       expect(sim.boundsMm.minZ).toBeLessThan(0); // Cuts below Z=0
       expect(sim.boundsMm.maxZ).toBeGreaterThanOrEqual(5.0); // Retracts to safe Z
+    });
+  });
+
+  describe('Automated 3D Print & CNC DFM Validator', () => {
+    it('flags minimum wall thickness violations below 1.2 mm', () => {
+      const thinPart: CadPartOutput = {
+        name: 'thin_shell',
+        kind: 'component',
+        color: [0.5, 0.5, 0.5],
+        diagnostics: {
+          faces: 6,
+          edges: 12,
+          vertices: 8,
+          manifold: true,
+          volume: 0.05,
+          area: 20.0,
+          solid_count: 1,
+          void_count: 0,
+          bounds: [
+            [0, 0, 0],
+            [10, 10, 0.08], // 0.08 cm = 0.8 mm (< 1.2 mm threshold)
+          ],
+          center: [5, 5, 0.04],
+          tessellation: { vertex_count: 8, triangle_count: 12, output_manifold: true, lamina_edge_count: 0, failure_count: 0 },
+        },
+        mesh: { points: [], normals: [], triangles: [], face_vertex_counts: [], face_vertex_indices: [] },
+      };
+
+      const result = validateAssemblyDfm([thinPart]);
+      expect(result.passed).toBe(false);
+      expect(result.warnings.some((w) => w.includes('DFM_WALL_THICKNESS'))).toBe(true);
+      expect(result.diagnostics.some((d) => d.rule === 'wall_thickness')).toBe(true);
+    });
+
+    it('flags mating clearance violations below 0.25 mm', () => {
+      const partA: CadPartOutput = {
+        name: 'base',
+        kind: 'anchor',
+        color: [0.3, 0.3, 0.3],
+        diagnostics: {
+          faces: 6,
+          edges: 12,
+          vertices: 8,
+          manifold: true,
+          volume: 100,
+          area: 160,
+          solid_count: 1,
+          void_count: 0,
+          bounds: [[0, 0, 0], [10, 10, 4.0]],
+          center: [5, 5, 2],
+          tessellation: { vertex_count: 8, triangle_count: 12, output_manifold: true, lamina_edge_count: 0, failure_count: 0 },
+        },
+        mesh: { points: [], normals: [], triangles: [], face_vertex_counts: [], face_vertex_indices: [] },
+      };
+
+      const partB: CadPartOutput = {
+        name: 'shaft',
+        kind: 'component',
+        color: [0.8, 0.5, 0.2],
+        diagnostics: {
+          faces: 6,
+          edges: 12,
+          vertices: 8,
+          manifold: true,
+          volume: 50,
+          area: 90,
+          solid_count: 1,
+          void_count: 0,
+          bounds: [[2, 2, 4.01], [8, 8, 12]], // gap Z = 0.01 cm = 0.1 mm (< 0.25 mm threshold)
+          center: [5, 5, 8],
+          tessellation: { vertex_count: 8, triangle_count: 12, output_manifold: true, lamina_edge_count: 0, failure_count: 0 },
+        },
+        mesh: { points: [], normals: [], triangles: [], face_vertex_counts: [], face_vertex_indices: [] },
+      };
+
+      const result = validateAssemblyDfm([partA, partB]);
+      expect(result.passed).toBe(false);
+      expect(result.warnings.some((w) => w.includes('DFM_MATING_CLEARANCE'))).toBe(true);
+      expect(result.diagnostics.some((d) => d.rule === 'mating_clearance')).toBe(true);
+    });
+
+    it('flags CNC sharp pocket corners without tool radius relief', () => {
+      const cncCode = `
+import usd_brep as sm
+def build_parts():
+    stock = sm.create_box((-10, -10, 0), 20, 20, 5)
+    cutter = sm.create_box((-5, -5, 2), 10, 10, 4)
+    stock = sm.boolean_difference(stock, cutter)
+    return [("stock", stock, (0.5, 0.5, 0.5), "anchor")]
+`;
+      const result = validateAssemblyDfm([mockBoxPart], cncCode);
+      expect(result.warnings.some((w) => w.includes('DFM_CNC_CORNER_RADIUS'))).toBe(true);
+      expect(result.diagnostics.some((d) => d.rule === 'cnc_internal_radius')).toBe(true);
+    });
+
+    it('passes DFM validation for compliant designs with sufficient wall, clearance, and tool radius', () => {
+      const compliantCode = `
+import usd_brep as sm
+def build_parts():
+    stock = sm.create_box((-10, -10, 0), 20, 20, 5)
+    cutter = sm.create_box((-5, -5, 2), 10, 10, 4)
+    sm.fillet_edges(cutter, cutter.edges(), radius=0.2)
+    stock = sm.boolean_difference(stock, cutter)
+    return [("stock", stock, (0.5, 0.5, 0.5), "anchor")]
+`;
+      const result = validateAssemblyDfm([mockBoxPart], compliantCode);
+      expect(result.warnings.filter((w) => w.includes('DFM_CNC_CORNER_RADIUS'))).toHaveLength(0);
     });
   });
 });

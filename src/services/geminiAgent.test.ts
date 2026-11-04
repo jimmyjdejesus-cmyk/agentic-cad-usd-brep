@@ -161,4 +161,24 @@ def build_parts():
     expect(turn.executionResult.success).toBe(true);
     expect(turn.executionResult.parts?.length).toBe(2);
   });
+
+  it('automatically repairs DFM wall thickness violations in self-healing loop when dfmMode is enabled', async () => {
+    const thinCode = `import usd_brep as sm
+
+def build_parts():
+    wall_thickness = 0.05
+    box = sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, wall_thickness)
+    return [("box", box, (0.5, 0.5, 0.5), "anchor")]
+`;
+    const turn = await runAgenticCadTurn({
+      prompt: 'Refine box geometry for additive manufacturing',
+      currentCode: thinCode,
+      activeSelectionContext: {
+        dfmMode: true,
+      },
+    });
+
+    expect(turn.finalCode).toContain('0.15');
+    expect(turn.steps.some((s) => s.action.includes('DFM Self-Healing'))).toBe(true);
+  });
 });

@@ -90,7 +90,8 @@ export async function runAgenticCadTurn(params: {
         latestExplanation = serverTurn.explanation || latestExplanation;
 
         // Actually execute & validate the generated B-Rep code in the hybrid CAD kernel
-        latestExec = await executeCadScript(workingCode, 'AgentCadAsset');
+        const isDfm = Boolean(activeSelectionContext?.dfmMode);
+        latestExec = await executeCadScript(workingCode, 'AgentCadAsset', undefined, 0.06, isDfm);
         let warnings = latestExec.sanity_warnings || [];
         let hasFailed = !latestExec.success || warnings.length > 0;
 
@@ -98,7 +99,7 @@ export async function runAgenticCadTurn(params: {
         if (hasFailed) {
           const autoFix = attemptAutoRepair(workingCode, latestExec);
           if (autoFix && autoFix.success) {
-            const reExec = await executeCadScript(autoFix.code, 'AgentCadAsset');
+            const reExec = await executeCadScript(autoFix.code, 'AgentCadAsset', undefined, 0.06, isDfm);
             if (reExec.success) {
               workingCode = autoFix.code;
               latestExec = reExec;
@@ -106,15 +107,17 @@ export async function runAgenticCadTurn(params: {
               hasFailed = warnings.length > 0;
               steps.push({
                 attempt,
-                action: `Autonomous Geometry Repair • Clearance Enforcement`,
+                action: autoFix.reason.toLowerCase().includes('dfm') || autoFix.reason.toLowerCase().includes('wall') || autoFix.reason.toLowerCase().includes('chamfer')
+                  ? `Autonomous DFM Self-Healing • 3D Print & CNC Rule Enforcement`
+                  : `Autonomous Geometry Repair • Clearance Enforcement`,
                 status: 'success',
                 details: autoFix.reason,
                 code: workingCode,
                 toolCalls: [
                   {
                     toolName: 'usd_brep_validate_topology',
-                    inputSummary: 'Autonomous CAD Repair Pass',
-                    outputSummary: 'Clearance adjusted; Euler manifold verified',
+                    inputSummary: 'Autonomous DFM Auto-Repair Pass',
+                    outputSummary: 'DFM rules enforced; Euler manifold verified',
                   },
                 ],
               });
@@ -155,7 +158,10 @@ export async function runAgenticCadTurn(params: {
         const errorContext = !latestExec.success
           ? `KERNEL EXCEPTION: ${latestExec.error}`
           : `SANITY CHECK WARNINGS:\n${warnings.join('\n')}`;
-        feedbackPrompt = `Original request: ${prompt}\n\nYour previous script failed validation with:\n${errorContext}\n\nFix the Python usd_brep script so all parts are valid manifold solids resting on z >= 0 with zero bounding-box penetrations.`;
+        const dfmGuidance = warnings.some((w) => w.includes('DFM_'))
+          ? '\nCRITICAL DFM RULES: Ensure wall thickness >= 1.2 mm, mating clearance >= 0.25 mm, add 45-degree support chamfers under steep overhangs, and tool radius relief for internal pocket corners.'
+          : '';
+        feedbackPrompt = `Original request: ${prompt}\n\nYour previous script failed validation with:\n${errorContext}${dfmGuidance}\n\nFix the Python usd_brep script so all parts are valid manifold solids resting on z >= 0 with zero bounding-box penetrations and full DFM compliance.`;
       }
 
       if (latestExec) {
@@ -179,20 +185,23 @@ export async function runAgenticCadTurn(params: {
   if (activeSelectionContext?.selectedPartName) {
     finalCode = preserveUnselectedParts(currentCode, finalCode, activeSelectionContext.selectedPartName);
   }
-  let execRes = await executeCadScript(finalCode, 'AgentCadAsset');
+  const isDfm = Boolean(activeSelectionContext?.dfmMode);
+  let execRes = await executeCadScript(finalCode, 'AgentCadAsset', undefined, 0.06, isDfm);
   const steps: AgentIterationStep[] = [];
 
   // Check if auto-repair is required for the synthesized geometry
   if (!execRes.success || (execRes.sanity_warnings && execRes.sanity_warnings.length > 0)) {
     const autoFix = attemptAutoRepair(finalCode, execRes);
     if (autoFix && autoFix.success) {
-      const reExec = await executeCadScript(autoFix.code, 'AgentCadAsset');
+      const reExec = await executeCadScript(autoFix.code, 'AgentCadAsset', undefined, 0.06, isDfm);
       if (reExec.success) {
         finalCode = autoFix.code;
         execRes = reExec;
         steps.push({
           attempt: 1,
-          action: 'Intelligent Parametric Engine • Auto-Repair',
+          action: autoFix.reason.toLowerCase().includes('dfm') || autoFix.reason.toLowerCase().includes('wall') || autoFix.reason.toLowerCase().includes('chamfer')
+            ? `Autonomous DFM Self-Healing • 3D Print & CNC Rule Enforcement`
+            : `Intelligent Parametric Engine • Auto-Repair`,
           status: 'success',
           details: autoFix.reason,
           code: finalCode,

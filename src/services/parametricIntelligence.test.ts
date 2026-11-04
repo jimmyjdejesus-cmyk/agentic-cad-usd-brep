@@ -244,6 +244,66 @@ def build_parts():
       // Negative/zero dimensions must be clamped to 1.0
       expect(repair?.code).toContain('1.0');
     });
+
+    it('repairs DFM wall thickness violations by increasing thin wall parameters to 1.5 mm', () => {
+      const thinWallCode = `
+import usd_brep as sm
+def build_parts():
+    wall_thickness = 0.05
+    box = sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, wall_thickness)
+    return [("box", box, (0.5, 0.5, 0.5), "anchor")]
+`;
+      const fakeDfmResult: any = {
+        success: true,
+        sanity_warnings: ["DFM_WALL_THICKNESS: Part 'box' wall thickness (0.50 mm) is below FDM minimum (1.2 mm)"],
+      };
+      const repair = attemptAutoRepair(thinWallCode, fakeDfmResult);
+      expect(repair).not.toBeNull();
+      expect(repair?.success).toBe(true);
+      expect(repair?.code).toContain('0.15');
+      expect(repair?.reason).toContain('FDM');
+    });
+
+    it('repairs DFM overhang violations by injecting a 45-degree support chamfer', () => {
+      const overhangCode = `import usd_brep as sm
+
+def build_parts():
+    base = sm.create_cylinder((0, 0, 0), 10, 4)
+    shelf = sm.create_box((-15, -5, 4), 30, 10, 2)
+    part = sm.boolean_union(base, shelf)
+    return [("part", part, (0.3, 0.5, 0.8), "anchor")]
+`;
+      const fakeOverhangResult: any = {
+        success: true,
+        sanity_warnings: ["DFM_OVERHANG: Part 'part' has 42 unsupported downward facets exceeding 45° overhang threshold (89.2°)"],
+      };
+      const repair = attemptAutoRepair(overhangCode, fakeOverhangResult);
+      expect(repair).not.toBeNull();
+      expect(repair?.success).toBe(true);
+      expect(repair?.code).toContain('sm.chamfer_edges');
+      expect(repair?.code).toContain('distance=0.5');
+      expect(repair?.reason).toContain('45° DFM support chamfer');
+    });
+
+    it('repairs DFM CNC internal corner radius by applying fillet_edges on square cutter', () => {
+      const sharpPocketCode = `import usd_brep as sm
+
+def build_parts():
+    stock = sm.create_box((-10, -10, 0), 20, 20, 5)
+    cutter = sm.create_box((-5, -5, 2), 10, 10, 4)
+    stock = sm.boolean_difference(stock, cutter)
+    return [("stock", stock, (0.5, 0.5, 0.5), "anchor")]
+`;
+      const fakeCncResult: any = {
+        success: true,
+        sanity_warnings: ["DFM_CNC_CORNER_RADIUS: Cutter 'cutter' produces sharp internal pocket corners without tool radius relief"],
+      };
+      const repair = attemptAutoRepair(sharpPocketCode, fakeCncResult);
+      expect(repair).not.toBeNull();
+      expect(repair?.success).toBe(true);
+      expect(repair?.code).toContain('sm.fillet_edges(cutter, cutter.edges(), radius=0.2)');
+      expect(repair?.reason).toContain('CNC internal cutter geometry');
+    });
   });
 
   describe('preserveUnselectedParts (Scoped Partial-Script Copilot Editing)', () => {

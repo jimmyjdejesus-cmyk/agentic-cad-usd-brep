@@ -1237,6 +1237,110 @@ export function attemptAutoRepair(
     }
   }
 
+  // 3. Repair DFM Wall Thickness (enforce min 1.5 mm / 0.15 cm for FDM 3D printing)
+  const hasWallThicknessWarning = execResult.sanity_warnings?.some(
+    (w) => w.includes('DFM_WALL_THICKNESS') || w.toLowerCase().includes('wall thickness')
+  );
+  if (hasWallThicknessWarning) {
+    const wallVarRegex = /(wall(?:_thickness)?\s*=\s*)([0-9.]+)/gi;
+    if (wallVarRegex.test(repairedCode)) {
+      repairedCode = repairedCode.replace(wallVarRegex, (match, prefix, valStr) => {
+        const val = parseFloat(valStr);
+        if (val < 0.12) {
+          return `${prefix}0.15`;
+        }
+        return match;
+      });
+      return {
+        success: true,
+        code: repairedCode,
+        reason: 'Increased wall thickness to 1.5 mm (0.15 cm) to comply with FDM 3D printing minimum threshold.',
+      };
+    }
+
+    const cylPairRegex = /(sm\.create_cylinder\([^,]+,\s*)([0-9.]+)(,\s*[^)]+\)[\s\S]*?sm\.create_cylinder\([^,]+,\s*)([0-9.]+)/;
+    if (cylPairRegex.test(repairedCode)) {
+      repairedCode = repairedCode.replace(cylPairRegex, (match, p1, r1Str, p2, r2Str) => {
+        const r1 = parseFloat(r1Str);
+        const r2 = parseFloat(r2Str);
+        if (Math.abs(r1 - r2) < 0.12) {
+          const newR2 = (r1 - 0.15).toFixed(2);
+          return `${p1}${r1Str}${p2}${newR2}`;
+        }
+        return match;
+      });
+      return {
+        success: true,
+        code: repairedCode,
+        reason: 'Enlarged concentric wall gap to 1.5 mm (0.15 cm) to comply with FDM 3D printing minimum threshold.',
+      };
+    }
+  }
+
+  // 4. Repair DFM Overhang (add 45-degree support chamfer or transition under steep downward overhangs)
+  const hasOverhangWarning = execResult.sanity_warnings?.some(
+    (w) => w.includes('DFM_OVERHANG') || w.toLowerCase().includes('overhang')
+  );
+  if (hasOverhangWarning) {
+    if (!repairedCode.includes('sm.chamfer_edges')) {
+      const returnIdx = repairedCode.lastIndexOf('return [');
+      if (returnIdx !== -1) {
+        const firstPart = extractPartNamesFromCode(repairedCode)[0] || 'body';
+        const chamferInsertion = `    # DFM: Add 45-degree support chamfer under steep downward overhang\n    sm.chamfer_edges(${firstPart}, ${firstPart}.edges(), distance=0.5)\n\n`;
+        repairedCode = repairedCode.substring(0, returnIdx) + chamferInsertion + repairedCode.substring(returnIdx);
+        return {
+          success: true,
+          code: repairedCode,
+          reason: 'Added a 45° DFM support chamfer to eliminate steep downward overhangs for reliable additive manufacturing.',
+        };
+      }
+    }
+  }
+
+  // 5. Repair DFM Mating Clearance (< 0.25 mm)
+  const hasClearanceWarning = execResult.sanity_warnings?.some(
+    (w) => w.includes('DFM_MATING_CLEARANCE') || w.toLowerCase().includes('mating clearance')
+  );
+  if (hasClearanceWarning) {
+    const primCoordRegex = /(sm\.create_(?:cylinder|box|cone|sphere|torus)\(\s*\(\s*[^,]+\s*,\s*[^,]+\s*,\s*)([0-9.-]+)(\s*\))/g;
+    let partIndex = 0;
+    repairedCode = repairedCode.replace(primCoordRegex, (match, prefix, z0Str, suffix) => {
+      const z0 = parseFloat(z0Str);
+      if (partIndex++ > 0 || z0 > 0.05) {
+        const elevatedZ = (z0 + 0.05).toFixed(2);
+        return `${prefix}${elevatedZ}${suffix}`;
+      }
+      return match;
+    });
+    return {
+      success: true,
+      code: repairedCode,
+      reason: 'Enforced minimum mating part clearance (0.5 mm) for smooth slide-fit assembly.',
+    };
+  }
+
+  // 6. Repair DFM CNC Internal Corner Radius
+  const hasCncRadiusWarning = execResult.sanity_warnings?.some(
+    (w) => w.includes('DFM_CNC_CORNER_RADIUS') || w.toLowerCase().includes('corner radius')
+  );
+  if (hasCncRadiusWarning) {
+    const pocketDiffRegex = /(sm\.boolean_difference\([^,]+,\s*([a-zA-Z0-9_]+)\))/;
+    const match = pocketDiffRegex.exec(repairedCode);
+    if (match && match[2]) {
+      const cutter = match[2];
+      const filletInsertion = `    sm.fillet_edges(${cutter}, ${cutter}.edges(), radius=0.2)\n`;
+      const cutterAssignRegex = new RegExp(`(${cutter}\\s*=\\s*sm\\.create_box\\([^\\n]+\\)\\n)`);
+      if (cutterAssignRegex.test(repairedCode)) {
+        repairedCode = repairedCode.replace(cutterAssignRegex, `$1${filletInsertion}`);
+        return {
+          success: true,
+          code: repairedCode,
+          reason: 'Added 2.0 mm corner fillets to CNC internal cutter geometry to accommodate rotating endmill radius.',
+        };
+      }
+    }
+  }
+
   return null;
 }
 

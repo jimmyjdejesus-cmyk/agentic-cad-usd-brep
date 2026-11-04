@@ -1084,3 +1084,205 @@ export function buildSimulatedToolpath(
     },
   };
 }
+
+// ============================================================================
+// Automated 3D Print & CNC DFM (Design for Manufacturing) Validation Rules
+// ============================================================================
+
+export interface DfmValidationRule {
+  minWallThicknessMm: number; // default 1.2 mm for FDM
+  minMatingClearanceMm: number; // default 0.25 mm for sliding fits
+  maxOverhangAngleDeg: number; // default 45.0 degrees
+  minToolRadiusMm: number; // default 1.5 mm for 1/8" standard CNC endmills
+}
+
+export const DEFAULT_DFM_RULES: DfmValidationRule = {
+  minWallThicknessMm: 1.2,
+  minMatingClearanceMm: 0.25,
+  maxOverhangAngleDeg: 45.0,
+  minToolRadiusMm: 1.5,
+};
+
+export interface DfmDiagnosticWarning {
+  rule: 'wall_thickness' | 'mating_clearance' | 'overhang' | 'cnc_internal_radius';
+  partName: string;
+  severity: 'warning' | 'error';
+  message: string;
+  measuredValue: number;
+  thresholdValue: number;
+  unit: string;
+}
+
+/**
+ * Deterministically checks 3D print and CNC digital fabrication rules across an assembly.
+ */
+export function validateAssemblyDfm(
+  parts: CadPartOutput[],
+  code: string = '',
+  rules: DfmValidationRule = DEFAULT_DFM_RULES
+): {
+  passed: boolean;
+  warnings: string[];
+  diagnostics: DfmDiagnosticWarning[];
+} {
+  const warnings: string[] = [];
+  const diagnostics: DfmDiagnosticWarning[] = [];
+
+  const minWallThicknessCm = rules.minWallThicknessMm / 10.0;
+  const minClearanceCm = rules.minMatingClearanceMm / 10.0;
+
+  // 1. Minimum Wall Thickness Check (>= 1.2 mm for FDM)
+  for (const part of parts) {
+    if (!part.diagnostics?.bounds) continue;
+    const [mn, mx] = part.diagnostics.bounds;
+    const dx = Math.abs(mx[0] - mn[0]);
+    const dy = Math.abs(mx[1] - mn[1]);
+    const dz = Math.abs(mx[2] - mn[2]);
+    const dims = [dx, dy, dz].filter((d) => d > 1e-4);
+    const minDimCm = dims.length > 0 ? Math.min(...dims) : 1.0;
+
+    // Check code for explicit wall_thickness or thickness declarations
+    const wallParamRegex = /(?:wall_thickness|wall|thickness)\s*=\s*([0-9.]+)/i;
+    const wallMatch = wallParamRegex.exec(code);
+    let explicitWallCm: number | null = null;
+    if (wallMatch && wallMatch[1]) {
+      explicitWallCm = parseFloat(wallMatch[1]);
+    }
+
+    // Check concentric cylinder subtraction (outer radius - inner radius)
+    let concentricWallCm: number | null = null;
+    const cylRegex = /sm\.create_cylinder\([^,]+,\s*([0-9.]+)/g;
+    const cylRadii: number[] = [];
+    let cmMatch: RegExpExecArray | null;
+    while ((cmMatch = cylRegex.exec(code)) !== null) {
+      if (cmMatch[1]) cylRadii.push(parseFloat(cmMatch[1]));
+    }
+    if (cylRadii.length >= 2) {
+      cylRadii.sort((a, b) => b - a);
+      for (let k = 0; k < cylRadii.length - 1; k++) {
+        const diff = cylRadii[k] - cylRadii[k + 1];
+        if (diff > 0 && diff < minWallThicknessCm * 2) {
+          concentricWallCm = diff;
+          break;
+        }
+      }
+    }
+
+    const measuredCm =
+      explicitWallCm !== null
+        ? explicitWallCm
+        : concentricWallCm !== null
+        ? concentricWallCm
+        : minDimCm;
+
+    const measuredMm = measuredCm * 10.0;
+
+    if (measuredCm < minWallThicknessCm) {
+      const msg = `DFM_WALL_THICKNESS: Part '${part.name}' wall thickness (${measuredMm.toFixed(2)} mm) is below FDM minimum (${rules.minWallThicknessMm} mm)`;
+      warnings.push(msg);
+      diagnostics.push({
+        rule: 'wall_thickness',
+        partName: part.name,
+        severity: 'warning',
+        message: msg,
+        measuredValue: Number(measuredMm.toFixed(2)),
+        thresholdValue: rules.minWallThicknessMm,
+        unit: 'mm',
+      });
+    }
+  }
+
+  // 2. Mating Part Clearance Check (>= 0.25 mm)
+  if (parts.length >= 2) {
+    for (let i = 0; i < parts.length; i++) {
+      for (let j = i + 1; j < parts.length; j++) {
+        const pA = parts[i];
+        const pB = parts[j];
+        if (!pA.diagnostics?.bounds || !pB.diagnostics?.bounds) continue;
+        const [aMn, aMx] = pA.diagnostics.bounds;
+        const [bMn, bMx] = pB.diagnostics.bounds;
+
+        const gapX = Math.max(0, Math.max(aMn[0], bMn[0]) - Math.min(aMx[0], bMx[0]));
+        const gapY = Math.max(0, Math.max(aMn[1], bMn[1]) - Math.min(aMx[1], bMx[1]));
+        const gapZ = Math.max(0, Math.max(aMn[2], bMn[2]) - Math.min(aMx[2], bMx[2]));
+        const minGapCm = Math.max(gapX, gapY, gapZ);
+
+        const aabbOverlapX = Math.min(aMx[0], bMx[0]) - Math.max(aMn[0], bMn[0]);
+        const aabbOverlapY = Math.min(aMx[1], bMx[1]) - Math.max(aMn[1], bMn[1]);
+        const aabbOverlapZ = Math.min(aMx[2], bMx[2]) - Math.max(aMn[2], bMn[2]);
+
+        const isMatingContact =
+          (aabbOverlapX > 0 && aabbOverlapY > 0 && Math.abs(gapZ) < minClearanceCm) ||
+          (aabbOverlapY > 0 && aabbOverlapZ > 0 && Math.abs(gapX) < minClearanceCm) ||
+          (aabbOverlapX > 0 && aabbOverlapZ > 0 && Math.abs(gapY) < minClearanceCm);
+
+        if (isMatingContact && minGapCm < minClearanceCm) {
+          const gapMm = minGapCm * 10.0;
+          const msg = `DFM_MATING_CLEARANCE: Parts '${pA.name}' and '${pB.name}' have mating clearance (${gapMm.toFixed(2)} mm) below minimum tolerance (${rules.minMatingClearanceMm} mm)`;
+          warnings.push(msg);
+          diagnostics.push({
+            rule: 'mating_clearance',
+            partName: `${pA.name} / ${pB.name}`,
+            severity: 'warning',
+            message: msg,
+            measuredValue: Number(gapMm.toFixed(2)),
+            thresholdValue: rules.minMatingClearanceMm,
+            unit: 'mm',
+          });
+        }
+      }
+    }
+  }
+
+  // 3. Unsupported Overhang Ratio Check (> 45 deg)
+  for (const part of parts) {
+    if (part.mesh && part.mesh.triangles && part.mesh.triangles.length > 0) {
+      const overhangResult = analyzeOverhangs(part, rules.maxOverhangAngleDeg);
+      if (overhangResult.status !== 'safe' && overhangResult.unsupportedFacetCount > 0) {
+        const worstAngle =
+          overhangResult.zones.length > 0
+            ? Math.max(...overhangResult.zones.map((z) => z.worstAngleDeg))
+            : 90.0;
+        const msg = `DFM_OVERHANG: Part '${part.name}' has ${overhangResult.unsupportedFacetCount} unsupported downward facets exceeding 45° overhang threshold (${worstAngle.toFixed(1)}°)`;
+        warnings.push(msg);
+        diagnostics.push({
+          rule: 'overhang',
+          partName: part.name,
+          severity: 'warning',
+          message: msg,
+          measuredValue: Number(worstAngle.toFixed(1)),
+          thresholdValue: rules.maxOverhangAngleDeg,
+          unit: 'deg',
+        });
+      }
+    }
+  }
+
+  // 4. CNC Minimum Internal Corner Radius Check (>= toolRadius, default 1.5 mm)
+  const pocketDifferenceRegex = /sm\.boolean_difference\([^,]+,\s*([a-zA-Z0-9_]+)\)/g;
+  let pMatch: RegExpExecArray | null;
+  while ((pMatch = pocketDifferenceRegex.exec(code)) !== null) {
+    const cutterVar = pMatch[1];
+    const boxDefRegex = new RegExp(`${cutterVar}\\s*=\\s*sm\\.create_box`);
+    const hasFilletRegex = new RegExp(`sm\\.fillet_edges\\(${cutterVar}`);
+    if (boxDefRegex.test(code) && !hasFilletRegex.test(code)) {
+      const msg = `DFM_CNC_CORNER_RADIUS: Cutter '${cutterVar}' produces sharp internal pocket corners without tool radius relief (minimum tool radius ${rules.minToolRadiusMm} mm required)`;
+      warnings.push(msg);
+      diagnostics.push({
+        rule: 'cnc_internal_radius',
+        partName: cutterVar,
+        severity: 'warning',
+        message: msg,
+        measuredValue: 0.0,
+        thresholdValue: rules.minToolRadiusMm,
+        unit: 'mm',
+      });
+    }
+  }
+
+  return {
+    passed: warnings.length === 0,
+    warnings,
+    diagnostics,
+  };
+}
