@@ -71,7 +71,7 @@ Every pull request targeting `dev` must pass all automated checks in [`.github/w
 # 1. TypeScript Static Analysis (Must return 0 errors)
 npm run lint
 
-# 2. Frontend & Service Unit Tests (Vitest — 160+ tests across 15 suites)
+# 2. Frontend & Service Unit Tests (Vitest — 191 tests across 19 suites)
 npm test
 
 # 3. Production Vite Bundle Check
@@ -90,8 +90,8 @@ pytest backend/test_cad_engine.py -v
 
 Looking for a practical place to jump in? These self-contained tasks directly advance our `v1.3.0` and `v1.4.0` maker milestones:
 
-- **Metric Fastener & Heat-Set Insert Catalog (`src/services/csgEngine.ts`)**: Add standard metric `M2`, `M3`, `M4`, `M5`, and `M6` clearance bores, ISO 4762 socket head counterbores, and brass heat-set insert bosses to `PRIMITIVE_CATALOG` with unit tests in `src/services/csgEngine.test.ts`.
-- **Target-Scoped Dimension Mutation (`src/services/parametricIntelligence.ts`)**: Update `mutateDimensionInCode()` so dimensional edits (e.g., *"make `boss_cyl` radius 4 cm"*) match the specific variable assignment for `intent.targetPart` rather than replacing all `sm.create_cylinder` calls globally.
-- **Multi-Line `return [...]` Support in CSG Booleans (`src/services/csgEngine.ts`)**: Harden `applyCsgBooleanToScript()` so boolean Union/Difference/Intersection operations cleanly parse multi-line Python `return [...]` lists with trailing commas and comments.
-- **CNC Dogbone Corner Relief (`src/services/camService.ts`)**: Add an optional `addDogboneRelief: boolean` pass in `offsetPolyline()` for `inside_pocket` cuts so a round endmill clears sharp `90°` internal corners for mating rectangular tabs.
-- **Modularize `src/App.tsx`**: Extract the left Preset/File Library pane, center Copilot Workbench, or right Engineering Inspector tabs from `src/App.tsx` into dedicated components under `src/components/` while keeping all existing Vitest suites green.
+- **Live Parametric Properties Inspector (`ISS-202`, `src/components/` & `src/App.tsx`)**: Build a live inspector sidebar tab displaying and updating editable dimensions (`width`, `depth`, `height`, `radius`, origin, rotation) strictly for the currently selected part.
+- **Interactive 3D Viewport Transform Gizmos (`ISS-203`, `src/components/Viewport3D.tsx`)**: Integrate `THREE.TransformControls` in the 3D viewport with hotkeys (`G` Translate, `R` Rotate, `S` Scale) and configurable grid snapping (`1 mm`, `5 mm`, `15°`).
+- **Decompose Monolithic `src/App.tsx` (`ISS-204`)**: Extract the left Preset/File Library pane, center Copilot Workbench, or right Engineering Inspector tabs from `src/App.tsx` into dedicated components under `src/components/` (keeping files under 400 lines) while keeping all existing Vitest suites green.
+- **Metric Fastener & Heat-Set Insert Catalog (`ISS-303`, `src/services/csgEngine.ts`)**: Add standard metric `M2`, `M3`, `M4`, `M5`, and `M6` clearance bores, ISO 4762 socket head counterbores, and brass heat-set insert bosses to `PRIMITIVE_CATALOG` with unit tests in `src/services/csgEngine.test.ts`.
+- **CNC Dogbone Corner Relief (`ISS-503`, `src/services/camService.ts`)**: Add an optional `addDogboneRelief: boolean` pass in `offsetPolyline()` for `inside_pocket` cuts so a round endmill clears sharp `90°` internal corners for mating rectangular tabs.

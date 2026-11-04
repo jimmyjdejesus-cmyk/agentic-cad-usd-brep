@@ -22,19 +22,19 @@ flowchart TD
     end
 
     subgraph Integration_Branch["Active Integration Branch"]
-        DEV["dev branch (protected)\n• 15+ Vitest suites\n• TypeScript lint (0 errors)\n• Python pytest\n• Security audit"]
+        DEV["dev branch (protected)\n• 19 Vitest suites (191 tests)\n• TypeScript lint (0 errors)\n• Python pytest\n• Security audit"]
     end
 
     subgraph Scheduled_Automation["Automated Scheduled Release System"]
         CronTrigger["Weekly Schedule / Manual Trigger\n(scheduled-release-pr.yml)"]
         SemVerCalc["SemVer Calculator & Categorized Changelog\n(scripts/release-manager.mjs)"]
-        ReleasePR["Release PR: dev -> main\n(e.g., release: v1.1.0)"]
+        ReleasePR["Release PR: dev -> main\n(e.g., release: v1.2.0)"]
     end
 
     subgraph Production_Branch["Production Release Branch"]
         MAIN["main branch (strictly protected)\n• Direct pushes blocked\n• PR target guard enforced"]
         TagAction["Publish Release & Tag Workflow\n(publish-release.yml)"]
-        GHRelease["Official GitHub Release & Git Tag\n(v1.1.0)"]
+        GHRelease["Official GitHub Release & Git Tag\n(v1.2.0)"]
     end
 
     DEV -.->|branch off| F1

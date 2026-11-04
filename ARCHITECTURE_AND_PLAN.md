@@ -41,16 +41,20 @@ flowchart TD
         UI_Workbench["Workbench: Agentic Chat, Code Editor, Diagnostics"]
         UI_Inspector["Inspector: Parts Tree, Mass Properties, 3D Pins, Explode"]
         UI_Viewport["3D Viewport: OrbitControls, Z-Up CAD, PBR Materials"]
-        UI_CAM["CAM Studio: Toolpaths, G-Code, DXF, 3D Print Preflight"]
+        UI_Dim["Viewport Overlay: Dimension Readout & Grid Unit Toggle (mm/cm)"]
+        UI_CAM["CAM Studio: 3D Toolpath Sim, Slicer, G-Code, DXF"]
         UI_Harness["AI Harness: Multi-Provider Settings & Hardware Gate"]
+        UI_EDA["Opt-In Workspace: 2.5D MCM Semiconductor Packaging"]
     end
 
     subgraph ServiceLayer["Client Service Layer (TypeScript)"]
-        Router["Model-Agnostic Provider Router (src/services/agnosticRouter.ts)"]
-        HardwareGate["Hardware & Memory Gate (src/services/hermesHardwareService.ts)"]
-        ParametricAI["Parametric Intelligence & Auto-Repair (src/services/parametricIntelligence.ts)"]
-        ManifoldCSG["Manifold-3D WebAssembly Engine (src/services/manifoldEngine.ts)"]
-        CAMService["CAM & Post-Processor Service (src/services/camService.ts)"]
+        Router["Model-Agnostic Provider Router (server.ts & src/services/geminiAgent.ts)"]
+        HardwareGate["Hardware & Memory Gate (src/services/appToolsAndSkills.ts)"]
+        ParametricAI["Parametric Intelligence & AST Surgery (src/services/parametricIntelligence.ts)"]
+        CsgEngine["CSG Boolean Engine & Multi-Line Parser (src/services/csgEngine.ts)"]
+        UnitConverter["Unit Converter Service (src/services/unitConverter.ts)"]
+        ManifoldCSG["Manifold-3D WebAssembly CSG Kernel (src/services/cadRuntime.ts)"]
+        CAMService["CAM & 3D Simulation Service (src/services/camService.ts)"]
         RuntimeBridge["CAD Runtime Bridge (src/services/cadRuntime.ts)"]
     end
 
@@ -63,13 +67,16 @@ flowchart TD
     UI_Workbench --> Router
     Router --> HardwareGate
     HardwareGate --> ParametricAI
-    ParametricAI --> RuntimeBridge
+    ParametricAI --> CsgEngine
+    CsgEngine --> RuntimeBridge
     RuntimeBridge -->|Local Backend Mode| ExpressServer
     ExpressServer -->|Relay| FastAPIServer
     FastAPIServer --> NvidiaKernel
     RuntimeBridge -->|Offline / AI Studio Fallback| ManifoldCSG
     ManifoldCSG --> UI_Viewport
     NvidiaKernel --> UI_Viewport
+    UI_Viewport --> UI_Dim
+    UI_Dim --> UnitConverter
     UI_Viewport --> CAMService
     CAMService --> UI_CAM
 ```
@@ -83,13 +90,16 @@ flowchart TD
 - **Hardware Gating (`canRunOnSystem()`)**: Evaluates host CPU cores, RAM, and WebGPU VRAM. Strictly enforces a **1.5 GB memory reservation** for Three.js geometry and WebAssembly buffers, preventing host OOM system freezes.
 - **Connection Probing (`testOnly` mode)**: Verifies socket connectivity before routing prompts to prevent cryptic synthesis aborts.
 
-### 3.2 Dual Solid Modeling Kernels
+### 3.2 Dual Solid Modeling Kernels & AST Surgery
 - **Native B-Rep (`usd-brep`)**: Exact NURBS surfaces, circular filleting, sweeps, boolean operations, OpenUSD `BrepArray` export, and tolerance-controlled tessellation.
-- **Client-Side CSG (`manifold-3d` Wasm)**: Client-side Constructive Solid Geometry engine running in WebAssembly. Generates guaranteed watertight 2-manifold output, exact outward normal STL exports, and individual part downloads with 0-crash offline reliability.
+- **Client-Side CSG (`manifold-3d` Wasm)**: Client-side Constructive Solid Geometry engine running in WebAssembly. Generates guaranteed watertight 2-manifold output, exact outward normal STL exports with `10×` millimeter slicer scaling, and individual part downloads with 0-crash offline reliability.
+- **Target-Scoped AST Surgery (`mutateDimensionInCode`)**: Parametric edits bound strictly to the targeted part identifier (`intent.targetPart`) rather than replacing all primitives globally.
+- **Multi-Line CSG Boolean Engine (`applyCsgBooleanToScript`)**: Reliably parses multi-line formatted `return [...]` lists, dictionary remappings, and trailing commas.
 
 ### 3.3 Native CAM, G-Code & Digital Fabrication Studio
 - **Toolpaths**: 2D Contour Profiling with cutter radius compensation (`G41`/`G42`), Pocket Clearing with raster/concentric stepovers, Waterline Z-Level Roughing, and Ballnose Surface Finishing.
-- **CNC G-Code**: RS-274 / LinuxCNC standard output with configurable feed rates, spindle RPM, and rapid clearance planes (`G00 Z5.0`).
+- **3D Toolpath Simulation**: Real-time simulation of motion steps, rapid positioning (`G00`), linear feeds (`G01`), spindle commands (`M03`), and holding tabs with 3D playback.
+- **CNC G-Code**: RS-274 / LinuxCNC / Haas standard output with configurable feed rates, spindle RPM, and rapid clearance planes (`G00 Z5.0`).
 - **2D DXF**: AutoCAD R12 DXF polyline cut-sheet generation for CNC laser, plasma, and waterjet machines.
 - **3D Printing Preflight**: Automated slicing estimation, layer counting ($0.12 - 0.28\text{ mm}$), print duration, and filament weight computation.
 
@@ -97,8 +107,9 @@ flowchart TD
 - **Docked Multi-Tab Sidebar**:
   - **Parts Tree**: Per-part visibility toggle, single-click isolation, and synchronized multi-layer renaming (Python code, OpenUSD prims, 3D pins).
   - **Mass Properties**: Physical volume, bounding dimensions, mass, and 3D Center-of-Mass (CoM) marker for 8 PBR industrial materials.
-  - **3D Annotations Dock**: Interactive vertex-snapped annotation pins with leader lines, resolution tracking, and camera focus.
+  - **3D Annotations Dock**: Interactive vertex-snapped annotation pins with leader lines, resolution tracking, WAI-ARIA labels, and camera focus.
   - **Explosion Timeline**: Keyframe-scrubbed assembly disassembly animation.
+- **Floating Dimension Readout**: Real-time bounding dimensions ($W \times D \times H$) with instant grid unit toggle between `mm` and `cm`.
 - **CAD File Retention**: Versioned design retention across localStorage and optional Firestore cloud storage.
 
 ---
@@ -122,10 +133,10 @@ ApexCAD Studio enforces a strict production release architecture:
 
 ## 5. Testing, TDD & CI Verification Matrix
 
-The repository maintains **160 frontend unit and integration tests across 15 test suites** (100% pass rate in ~1.2s), backend Python pytest tests, and headless Chrome browser automation:
+The repository maintains **191 frontend unit and integration tests across 19 test suites** (100% pass rate in ~1.7s), backend Python pytest tests, and headless Chrome browser automation:
 
 ```bash
-# 1. Frontend Unit Tests (Vitest — 160 tests across 15 test suites)
+# 1. Frontend Unit Tests (Vitest — 191 tests across 19 test suites)
 npm test
 
 # 2. TypeScript Static Analysis (0 errors)

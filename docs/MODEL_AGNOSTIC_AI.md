@@ -4,7 +4,7 @@
 
 ApexCAD Studio is engineered with complete **AI Provider Independence**. While Google Gemini 3.8 Flash serves as the primary high-speed cloud orchestrator, the studio natively connects to local LLM engines, private OpenAI-compatible endpoints, and on-device WebGPU models.
 
-All provider routing and configuration is managed through [`src/services/agnosticRouter.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/agnosticRouter.ts) and the **AI Harness Modal** ([`src/components/AiHarnessModal.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/AiHarnessModal.tsx)).
+All provider routing and configuration is managed through [`server.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/server.ts), [`src/services/geminiAgent.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/geminiAgent.ts), and the **AI Harness Modal** ([`src/components/AiHarnessModal.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/AiHarnessModal.tsx)).
 
 ---
 
@@ -25,7 +25,7 @@ All provider routing and configuration is managed through [`src/services/agnosti
 
 ## 3. Hardware-Gated Memory Protection (`canRunOnSystem`)
 
-Located in [`src/services/hermesHardwareService.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/hermesHardwareService.ts).
+Located in [`src/services/appToolsAndSkills.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/appToolsAndSkills.ts).
 
 ### 3.1 The Problem: Host OOM Crashes
 Running large 7B, 14B, or 70B parameter models alongside WebGL/Three.js 3D CAD viewports can exhaust system memory, causing OS kernel page thrashing, browser crashes, or WebGL context loss.
@@ -77,3 +77,22 @@ Users can search for any GGUF model directly within the CAD Studio UI:
 - Queries the Hugging Face Hub API via backend proxy: `GET /api/huggingface/search?q={query}&limit=12`.
 - Automatically parses file names to detect quantization tiers (`Q4_K_M`, `Q5_K_M`, `Q8_0`, `FP16`).
 - Computes estimated download sizes and hardware compatibility scores on the fly.
+
+---
+
+## 6. Target-Scoped AST Code Surgery & Deterministic Offline Fallback
+
+When operating without an active cloud LLM or when performing rapid micro-edits directly from viewport interactions:
+- **`mutateDimensionInCode`**: Injects parametric dimension changes by locating the exact variable bound to `intent.targetPart` (e.g. `cyl_2 = sm.make_cylinder(...)`), eliminating cross-part side effects.
+- **`injectBoreOrPocket`**: Automatically centers subtractive operations on the target part's computed bounding center $(c_x, c_y)$ across its full vertical span.
+- **`applyCsgBooleanToScript`**: Parses multi-line formatted `return [...]` lists, dictionary remappings, and trailing commas without breaking Python syntax or assembly explosion animations.
+
+---
+
+## 7. Testing & Verification Suites
+
+Model-agnostic routing, hardware gating, and offline AST surgery are validated across dedicated Vitest suites:
+- [`src/server.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/server.test.ts) (16 tests): Validates multi-provider endpoints, `testOnly` connection probing, and Hugging Face Hub search proxying.
+- [`src/services/appToolsAndSkills.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/appToolsAndSkills.test.ts) (27 tests): Validates Hermes hardware estimators, memory saturation gates, and agent tool registrations.
+- [`src/services/geminiAgent.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/geminiAgent.test.ts) (10 tests): Validates model cascading, 3x self-healing prompt loops, and error injection.
+- [`src/services/parametricIntelligence.test.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/parametricIntelligence.test.ts) (17 tests): Validates target-scoped AST surgery and auto-repair.

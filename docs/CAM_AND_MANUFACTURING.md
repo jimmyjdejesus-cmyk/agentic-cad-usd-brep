@@ -4,7 +4,7 @@
 
 ApexCAD Studio features a native **Computer-Aided Manufacturing (CAM) and Digital Fabrication Engine** that transforms 3D CAD geometry into machine-ready toolpaths, CNC G-code, 2D vector DXF cut-sheets, and 3D printing preflight data.
 
-All CAM operations are accessible directly through the in-app **CAM Studio Modal** ([`src/components/CamModal.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/CamModal.tsx)) or programmatically via the agent tool `cad_generate_cam_toolpaths` ([`src/services/appToolsAndSkills.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/appToolsAndSkills.ts)).
+All CAM operations are accessible directly through the in-app **CAM Studio Modal** ([`src/components/CamCncModal.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/CamCncModal.tsx)) or programmatically via the agent tool `cad_generate_cam_toolpaths` ([`src/services/appToolsAndSkills.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/appToolsAndSkills.ts)).
 
 ---
 
@@ -58,12 +58,24 @@ The post-processor converts mathematical toolpaths into standardized **RS-274 / 
 - **Cutting Feed Rate**: Linear feed in mm/min (default $600 - 1,200\text{ mm/min}$).
 - **Plunge Feed Rate**: Vertical plunge feed in mm/min (default $200 - 300\text{ mm/min}$).
 - **Safe Retract Height**: Rapid clearance plane above workpiece (default $5.0\text{ mm}$).
+- **Holding Tabs**: Configurable width ($3.0 - 6.0\text{ mm}$) and height ($1.0 - 2.0\text{ mm}$) bridges strategically placed on final contour passes to prevent small parts from ejecting under high cutter loads.
+
+### 3.3 3D CNC Toolpath Simulation & Motion Path Builder
+Implemented via `buildCncToolpathSimulationSteps()` in [`src/services/camService.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/camService.ts):
+- Builds simulated step-by-step machine tool motion steps with rapid travels (`G00`), linear feeds (`G01`), and spindle state tracking (`M03`).
+- Tracks motion bounds ($X_{min/max}, Y_{min/max}, Z_{min/max}$) and computes total cutting distance and estimated machining time.
+- Renders an interactive 3D playback toolpath in the CAD Studio modal with color-coded moves (Cyan for cutting feed, Orange for rapid traverse, Green for holding tabs).
+
+### 3.4 Controller Dialect Support
+- **Grbl & Marlin**: Standard desktop CNC router and 3D printer milling dialect (`G90`, `G21`, `G00`, `G01`, `M03`, `M05`, `M30`).
+- **LinuxCNC**: Industrial open-architecture dialect with precision arc tolerance handling.
+- **Haas**: Production VMC dialect with canned setup routines, explicit work coordinate system selection (`G54`), spindle speed safety limits, and automatic tool change sequences (`T01 M06`).
 
 ---
 
 ## 4. 2D Vector DXF Cut-Sheet Exporter
 
-Implemented in [`src/services/dxfExporter.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/dxfExporter.ts).
+Implemented in [`src/services/camService.ts`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/services/camService.ts).
 
 ### 4.1 Format & Compatibility
 - Outputs standard **AutoCAD Release 12 (R12) DXF**, widely supported by:
@@ -75,11 +87,12 @@ Implemented in [`src/services/dxfExporter.ts`](file:///Users/jimmy/Documents/Rep
 ### 4.2 Cross-Section Extraction
 - Slices 3D geometry at ground level ($z = 0$) or user-specified plane height.
 - Projects boundary edges onto 2D $XY$ vector entities.
+- Sets metric millimeter header parameters (`$MEASUREMENT = 1`, `$INSUNITS = 4`).
 - Generates clean closed `POLYLINE` entities preserving exact dimensional accuracy.
 
 ---
 
-## 5. 3D Printing Preflight & Slicing Estimator
+## 5. 3D Printing Preflight, Slicing Estimator & True-Scale STL
 
 Analyzes 3D models before exporting to STL/3MF for slicing:
 
@@ -94,3 +107,19 @@ Analyzes 3D models before exporting to STL/3MF for slicing:
    - Calculates bounding volume and infill mass (default $20\%$ gyroid infill).
    - Computes filament mass in grams using material densities (PLA: $1.24\text{ g/cm}^3$, PETG: $1.27\text{ g/cm}^3$, ABS: $1.04\text{ g/cm}^3$).
    - Recommends nozzle and heated bed temperatures for target materials.
+4. **Real-Time Overhang Heatmap (>45°)**:
+   - In-viewport shader highlights downward-facing facet normals exceeding 45° overhang limits, providing instant visual feedback on unprintable overhangs requiring support geometry.
+5. **True-Scale Slicer STL Scaling (`10×` Multiplier)**:
+   - Native OpenUSD stage metrics operate at `metersPerUnit = 0.01` (centimeters).
+   - FDM/SLA slicers (Bambu Studio, PrusaSlicer, OrcaSlicer, Cura) interpret raw STL coordinates in millimeters.
+   - Slicer exports automatically apply a `10×` scaling factor (`unitScale = 10.0`), guaranteeing 1:1 true-scale physical prints with zero manual rescaling.
+
+---
+
+## 6. CAM Studio Modal Accessibility (WAI-ARIA)
+
+Implemented in [`src/components/CamCncModal.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/CamCncModal.tsx) and verified in [`src/components/CamCncModal.test.tsx`](file:///Users/jimmy/Documents/Repos/CAD-Agentic/src/components/CamCncModal.test.tsx):
+- Dedicated `role="tablist"` navigation with `aria-selected` and `aria-controls` bindings.
+- Dedicated `role="tabpanel"` panels with keyboard focus trapping and arrow-key cycling.
+- `aria-live="polite"` status announcer for screen reader notifications of toolpath generation, G-code copying, and slicing progress.
+- Form inputs have programmatic `htmlFor` and `aria-describedby` associations detailing physical units.
