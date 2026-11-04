@@ -483,7 +483,7 @@
       "epicId": "EPIC-3",
       "milestoneId": "M3",
       "title": "[v1.4.0] In-Browser Chamfers (`sm.chamfer_edges`) & Fillets (`sm.fillet_edges`) via Manifold-3D",
-      "status": "open",
+      "status": "completed",
       "labels": [
         "type:sub-issue",
         "area:cad-kernel",
