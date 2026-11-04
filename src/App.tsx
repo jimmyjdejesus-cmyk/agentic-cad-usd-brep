@@ -22,6 +22,7 @@ import {
   FilePlus,
   FileText,
   GitBranch,
+  GitCompare,
   Grid,
   Info,
   Layers,
@@ -29,7 +30,9 @@ import {
   PanelRight,
   Pencil,
   Play,
+  Redo2,
   RefreshCw,
+  RotateCcw,
   Save,
   Scale,
   Search,
@@ -38,6 +41,7 @@ import {
   Sparkles,
   Target,
   Trash2,
+  Undo2,
   Workflow,
   Wrench,
   X,
@@ -136,6 +140,70 @@ const QUICK_PROMPTS = [
   'Add a cylindrical mounting boss with center bore on top',
   'Cut a through-slot across the center',
 ];
+
+export interface DiffLine {
+  type: 'added' | 'removed' | 'unchanged';
+  text: string;
+  oldLine?: number;
+  newLine?: number;
+}
+
+/**
+ * Computes line-by-line diff using Longest Common Subsequence (LCS).
+ */
+export function computeLineDiff(oldStr: string, newStr: string): DiffLine[] {
+  const oldLines = oldStr ? oldStr.split('\n') : [];
+  const newLines = newStr ? newStr.split('\n') : [];
+  const m = oldLines.length;
+  const n = newLines.length;
+
+  if (m === 0) {
+    return newLines.map((text, idx) => ({ type: 'added', text, newLine: idx + 1 }));
+  }
+  if (n === 0) {
+    return oldLines.map((text, idx) => ({ type: 'removed', text, oldLine: idx + 1 }));
+  }
+
+  if (oldStr === newStr) {
+    return newLines.map((text, idx) => ({
+      type: 'unchanged',
+      text,
+      oldLine: idx + 1,
+      newLine: idx + 1,
+    }));
+  }
+
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i < m; i++) {
+    for (let j = 0; j < n; j++) {
+      if (oldLines[i] === newLines[j]) {
+        dp[i + 1][j + 1] = dp[i][j] + 1;
+      } else {
+        dp[i + 1][j + 1] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+  }
+
+  const diff: DiffLine[] = [];
+  let i = m;
+  let j = n;
+
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+      diff.unshift({ type: 'unchanged', text: oldLines[i - 1], oldLine: i, newLine: j });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      diff.unshift({ type: 'added', text: newLines[j - 1], newLine: j });
+      j--;
+    } else if (i > 0 && (j === 0 || dp[i][j - 1] < dp[i - 1][j])) {
+      diff.unshift({ type: 'removed', text: oldLines[i - 1], oldLine: i });
+      i--;
+    }
+  }
+
+  return diff;
+}
 
 export const App: React.FC = () => {
   const [userFiles, setUserFiles] = useState<UserCadFile[]>([]);
@@ -478,7 +546,38 @@ export const App: React.FC = () => {
 
   // Optional Developer Inspector Drawer (closed by default for zero clutter)
   const [showDevDrawer, setShowDevDrawer] = useState<boolean>(false);
-  const [devTab, setDevTab] = useState<'code' | 'usd' | 'guides'>('code');
+  const [devTab, setDevTab] = useState<'code' | 'diff' | 'usd' | 'guides'>('code');
+
+  // Undo/Redo & Diff Preview Stack for Code Editor & Copilot Turns
+  const [codeHistory, setCodeHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const historyIndexRef = useRef<number>(-1);
+  const codeHistoryRef = useRef<string[]>([]);
+  const [baselineCode, setBaselineCode] = useState<string>('');
+  const [diffMode, setDiffMode] = useState<'inline' | 'split'>('inline');
+  const historyDebounceRef = useRef<any>(null);
+
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex >= 0 && historyIndex < codeHistory.length - 1;
+
+  const pushCodeToHistory = useCallback((newCode: string, isCopilot = false) => {
+    if (!newCode) return;
+    if (isCopilot) {
+      setBaselineCode(code);
+    }
+    const currentIdx = historyIndexRef.current;
+    const prevList = codeHistoryRef.current;
+    const trunk = currentIdx >= 0 ? prevList.slice(0, currentIdx + 1) : [];
+    if (trunk.length > 0 && trunk[trunk.length - 1] === newCode) {
+      return;
+    }
+    const nextList = [...trunk, newCode].slice(-50);
+    const nextIdx = nextList.length - 1;
+    codeHistoryRef.current = nextList;
+    historyIndexRef.current = nextIdx;
+    setCodeHistory(nextList);
+    setHistoryIndex(nextIdx);
+  }, [code]);
 
   // NVIDIA usd-brep Guide Explorer State
   const [guides, setGuides] = useState<GuideDocSummary[]>([]);
@@ -587,6 +686,10 @@ export const App: React.FC = () => {
       if (targetToLoad) {
         setSelectedPresetId(targetToLoad.id);
         setCode(targetToLoad.code);
+        setBaselineCode(targetToLoad.code);
+        codeHistoryRef.current = [targetToLoad.code];
+        historyIndexRef.current = 0;
+        setCodeHistory([targetToLoad.code]);
         setEnvelope(targetToLoad.envelope || [20, 20, 20]);
 
         let customRenames: Record<string, string> = {};
@@ -650,6 +753,69 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleUndo = useCallback(() => {
+    if (historyIndexRef.current <= 0 || codeHistoryRef.current.length === 0) return;
+    const newIdx = historyIndexRef.current - 1;
+    historyIndexRef.current = newIdx;
+    setHistoryIndex(newIdx);
+    const targetCode = codeHistoryRef.current[newIdx];
+    setCode(targetCode);
+    handleExecuteCode(targetCode, selectedPresetId, envelope);
+  }, [selectedPresetId, envelope]);
+
+  const handleRedo = useCallback(() => {
+    if (historyIndexRef.current < 0 || historyIndexRef.current >= codeHistoryRef.current.length - 1) return;
+    const newIdx = historyIndexRef.current + 1;
+    historyIndexRef.current = newIdx;
+    setHistoryIndex(newIdx);
+    const targetCode = codeHistoryRef.current[newIdx];
+    setCode(targetCode);
+    handleExecuteCode(targetCode, selectedPresetId, envelope);
+  }, [selectedPresetId, envelope]);
+
+  const handleRevertEdit = useCallback(() => {
+    if (!baselineCode || baselineCode === code) return;
+    const target = baselineCode;
+    pushCodeToHistory(target, false);
+    setCode(target);
+    handleExecuteCode(target, selectedPresetId, envelope);
+  }, [baselineCode, code, pushCodeToHistory, selectedPresetId, envelope]);
+
+  // Global Undo/Redo keyboard shortcuts (Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z, Cmd/Ctrl+Y)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (targetTag === 'input') return;
+
+      const isZ = e.key.toLowerCase() === 'z';
+      const isY = e.key.toLowerCase() === 'y';
+      if ((e.metaKey || e.ctrlKey) && isZ) {
+        if (e.shiftKey) {
+          e.preventDefault();
+          handleRedo();
+        } else {
+          e.preventDefault();
+          handleUndo();
+        }
+      } else if ((e.metaKey || e.ctrlKey) && isY) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
+  const diffLines = useMemo(() => {
+    const base = baselineCode || (historyIndex > 0 ? codeHistory[historyIndex - 1] : '');
+    if (!base || !code) return [];
+    return computeLineDiff(base, code);
+  }, [baselineCode, code, historyIndex, codeHistory]);
+
+  const addedCount = useMemo(() => diffLines.filter((l) => l.type === 'added').length, [diffLines]);
+  const removedCount = useMemo(() => diffLines.filter((l) => l.type === 'removed').length, [diffLines]);
+
   const handleInsertPrimitive = async (config: InsertPrimitiveConfig) => {
     const updatedCode = insertPrimitiveIntoScript(config, code);
     setCode(updatedCode);
@@ -701,6 +867,8 @@ export const App: React.FC = () => {
     if (custom) {
       setSelectedPresetId(custom.id);
       setCode(custom.code);
+      setBaselineCode(custom.code);
+      pushCodeToHistory(custom.code, false);
       setEnvelope(custom.envelope);
       setSelectedPartName(null);
       setHiddenPartNames([]);
@@ -740,6 +908,8 @@ export const App: React.FC = () => {
     if (preset) {
       setSelectedPresetId(preset.id);
       setCode(preset.code);
+      setBaselineCode(preset.code);
+      pushCodeToHistory(preset.code, false);
       setEnvelope(preset.envelope || [20, 20, 20]);
       setSelectedPartName(null);
       setHiddenPartNames([]);
@@ -761,6 +931,8 @@ export const App: React.FC = () => {
     setUserFiles(updated);
     setSelectedPresetId(newFile.id);
     setCode(newFile.code);
+    setBaselineCode(newFile.code);
+    pushCodeToHistory(newFile.code, false);
     setEnvelope(newFile.envelope);
     setSelectedPartName(null);
     setHiddenPartNames([]);
@@ -1093,6 +1265,8 @@ export const App: React.FC = () => {
         activeSelectionContext,
       });
 
+      setBaselineCode(code);
+      pushCodeToHistory(turn.finalCode, true);
       setCode(turn.finalCode);
       setExecResult(turn.executionResult);
 
@@ -1598,6 +1772,20 @@ export const App: React.FC = () => {
                   Python B-Rep
                 </button>
                 <button
+                  onClick={() => setDevTab('diff')}
+                  className={`px-2 py-1 rounded text-xs font-medium transition flex items-center gap-1 ${
+                    devTab === 'diff' ? 'bg-purple-600 text-white font-semibold' : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <GitCompare className="w-3 h-3" />
+                  <span>Diff</span>
+                  {(addedCount > 0 || removedCount > 0) && (
+                    <span className="ml-0.5 px-1 py-0.2 bg-purple-900/80 text-[10px] rounded border border-purple-500/50">
+                      +{addedCount}/-{removedCount}
+                    </span>
+                  )}
+                </button>
+                <button
                   onClick={() => setDevTab('usd')}
                   className={`px-2 py-1 rounded text-xs font-medium transition ${
                     devTab === 'usd' ? 'bg-emerald-600 text-slate-950 font-semibold' : 'text-slate-400 hover:text-white'
@@ -1615,6 +1803,26 @@ export const App: React.FC = () => {
                 </button>
               </div>
               <div className="flex items-center gap-2">
+                <div className="flex items-center gap-0.5 bg-[#181a20] p-0.5 rounded border border-[#272a34]">
+                  <button
+                    onClick={handleUndo}
+                    disabled={!canUndo}
+                    className="p-1 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-400 transition"
+                    title="Undo (Cmd/Ctrl+Z)"
+                    aria-label="Undo code edit"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={handleRedo}
+                    disabled={!canRedo}
+                    className="p-1 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-400 transition"
+                    title="Redo (Cmd/Ctrl+Shift+Z)"
+                    aria-label="Redo code edit"
+                  >
+                    <Redo2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
                 {devTab === 'code' && (
                   <button
                     onClick={() => handleExecuteCode(code, selectedPresetId, envelope)}
@@ -1640,10 +1848,110 @@ export const App: React.FC = () => {
               <textarea
                 aria-label="Python usd_brep Script"
                 value={code}
-                onChange={(e) => setCode(e.target.value)}
+                onChange={(e) => {
+                  const newVal = e.target.value;
+                  setCode(newVal);
+                  if (historyDebounceRef.current) clearTimeout(historyDebounceRef.current);
+                  historyDebounceRef.current = setTimeout(() => {
+                    pushCodeToHistory(newVal, false);
+                  }, 400);
+                }}
                 spellCheck={false}
                 className="flex-1 w-full bg-[#14161b] text-emerald-300 font-mono text-xs p-3 leading-relaxed focus:outline-none resize-none"
               />
+            ) : devTab === 'diff' ? (
+              <div className="flex-1 flex flex-col min-h-0 bg-[#14161b]">
+                {/* Diff Header Bar */}
+                <div className="px-3 py-2 border-b border-[#272a34] bg-[#181a20] flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 bg-[#14161b] p-0.5 rounded border border-[#272a34]">
+                      <button
+                        onClick={() => setDiffMode('inline')}
+                        className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition ${
+                          diffMode === 'inline' ? 'bg-sky-600 text-white' : 'text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        Unified
+                      </button>
+                      <button
+                        onClick={() => setDiffMode('split')}
+                        className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition ${
+                          diffMode === 'split' ? 'bg-sky-600 text-white' : 'text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        Split
+                      </button>
+                    </div>
+                    <span className="text-[11px] font-mono text-emerald-400">+{addedCount}</span>
+                    <span className="text-[11px] font-mono text-rose-400">-{removedCount}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={handleRevertEdit}
+                      disabled={!baselineCode || baselineCode === code}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-rose-950/60 border border-rose-800 text-rose-300 hover:bg-rose-900/80 text-[11px] font-medium disabled:opacity-40 transition"
+                      title="Revert to baseline version before this edit"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Revert Edit</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setBaselineCode(code);
+                        setDevTab('code');
+                      }}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold text-[11px] transition"
+                      title="Accept current code and return to editor"
+                    >
+                      <Check className="w-3 h-3" />
+                      <span>Accept</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Diff Body */}
+                {diffLines.length === 0 || (addedCount === 0 && removedCount === 0) ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-zinc-500 text-xs">
+                    <GitCompare className="w-8 h-8 mb-2 text-zinc-600 opacity-60" />
+                    <p className="font-medium text-zinc-400">No Code Differences Detected</p>
+                    <p className="mt-1 max-w-xs text-[11px]">The current Python script matches the baseline version. Copilot edits or manual changes will generate line diffs here.</p>
+                  </div>
+                ) : diffMode === 'inline' ? (
+                  <div className="flex-1 overflow-auto p-2 font-mono text-xs leading-relaxed space-y-0.5">
+                    {diffLines.map((line, idx) => (
+                      <div
+                        key={idx}
+                        className={`flex items-start px-2 py-0.5 rounded-sm ${
+                          line.type === 'added'
+                            ? 'bg-emerald-950/40 text-emerald-300 border-l-2 border-emerald-500'
+                            : line.type === 'removed'
+                            ? 'bg-rose-950/40 text-rose-300 border-l-2 border-rose-500'
+                            : 'text-zinc-400'
+                        }`}
+                      >
+                        <span className="w-6 shrink-0 select-none text-[10px] text-zinc-600 text-right pr-2">
+                          {line.type === 'removed' ? line.oldLine : line.newLine || ''}
+                        </span>
+                        <span className="w-4 shrink-0 select-none font-bold text-center">
+                          {line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}
+                        </span>
+                        <span className="flex-1 whitespace-pre-wrap break-all">{line.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-auto grid grid-cols-2 divide-x divide-[#272a34] font-mono text-xs">
+                    <div className="p-2 overflow-auto bg-[#14161b]">
+                      <div className="text-[10px] uppercase font-semibold text-zinc-500 mb-1 border-b border-[#272a34] pb-1">Baseline (Previous)</div>
+                      <pre className="text-zinc-400 whitespace-pre-wrap break-all leading-relaxed">{baselineCode || '# Baseline script'}</pre>
+                    </div>
+                    <div className="p-2 overflow-auto bg-[#16181f]">
+                      <div className="text-[10px] uppercase font-semibold text-sky-400 mb-1 border-b border-[#272a34] pb-1">Current (Active)</div>
+                      <pre className="text-emerald-300 whitespace-pre-wrap break-all leading-relaxed">{code}</pre>
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : devTab === 'usd' ? (
               <pre className="flex-1 overflow-auto p-3 text-xs font-mono text-zinc-300 bg-[#14161b] leading-relaxed select-all">
                 {execResult?.usda_mesh_text || '# Execute script to view OpenUSD stage'}

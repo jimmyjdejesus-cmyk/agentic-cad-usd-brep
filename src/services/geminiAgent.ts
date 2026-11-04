@@ -1,7 +1,7 @@
 import { AgentIterationStep, CadExecutionResult, HarnessTypeId, AgnosticProviderConfig, ActiveSelectionContext } from '../types/cad';
 import { executeCadScript } from './cadRuntime';
 import { generate3dMcmPackageBrepCode, synthesizeCircuitNetlist } from './edaSiliconEngine';
-import { intelligentParametricSynthesize, attemptAutoRepair } from './parametricIntelligence';
+import { intelligentParametricSynthesize, attemptAutoRepair, preserveUnselectedParts } from './parametricIntelligence';
 
 export const NVIDIA_USD_BREP_SYSTEM_PROMPT = `You are an expert Agentic B-Rep CAD Engineer powered by NVIDIA's usd_brep (SMLib / _omni_solid) C++ NURBS kernel.
 Your job is to write or modify Python 3.12 scripts that define a \`build_parts()\` function returning a list of \`(name, brep, color_rgb, kind)\` tuples.
@@ -82,7 +82,11 @@ export async function runAgenticCadTurn(params: {
 
         if (!res.ok) break;
         const serverTurn = await res.json();
-        workingCode = serverTurn.finalCode || workingCode;
+        let candidateCode = serverTurn.finalCode || workingCode;
+        if (activeSelectionContext?.selectedPartName) {
+          candidateCode = preserveUnselectedParts(currentCode, candidateCode, activeSelectionContext.selectedPartName);
+        }
+        workingCode = candidateCode;
         latestExplanation = serverTurn.explanation || latestExplanation;
 
         // Actually execute & validate the generated B-Rep code in the hybrid CAD kernel
@@ -171,8 +175,11 @@ export async function runAgenticCadTurn(params: {
 
   // Fallback to local intelligent parametric synthesizer (zero-LLM geometry reasoning)
   const synthesized = intelligentParametricSynthesize(prompt, currentCode, activeSelectionContext);
-  let execRes = await executeCadScript(synthesized.code, 'AgentCadAsset');
   let finalCode = synthesized.code;
+  if (activeSelectionContext?.selectedPartName) {
+    finalCode = preserveUnselectedParts(currentCode, finalCode, activeSelectionContext.selectedPartName);
+  }
+  let execRes = await executeCadScript(finalCode, 'AgentCadAsset');
   const steps: AgentIterationStep[] = [];
 
   // Check if auto-repair is required for the synthesized geometry

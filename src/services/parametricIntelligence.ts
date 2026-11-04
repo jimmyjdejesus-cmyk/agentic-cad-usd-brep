@@ -472,77 +472,96 @@ export function applyParametricEdit(
     }
   }
 
+  let result: { code: string; explanation: string };
+
   // --------------------------------------------------------------------------
   // Intent: Dimensional Modification (In-place AST parameter update)
   // --------------------------------------------------------------------------
   if (primaryIntent.type === 'dimensional_edit' && primaryIntent.value !== undefined) {
     const updated = mutateDimensionInCode(currentCode, primaryIntent);
     if (updated.success) {
-      return {
+      result = {
         code: updated.code,
         explanation: `Updated **${primaryIntent.parameter}** of \`${primaryIntent.targetPart || 'geometry'}\` to **${primaryIntent.value} cm** with exact B-Rep boundary curvature.`,
       };
+    } else {
+      result = { code: currentCode, explanation: 'Dimensional edit could not be applied.' };
     }
   }
 
   // --------------------------------------------------------------------------
   // Intent: Boolean Subtraction (Hole / Bore / Pocket drilling)
   // --------------------------------------------------------------------------
-  if (primaryIntent.type === 'boolean_op' && primaryIntent.operation === 'difference') {
+  else if (primaryIntent.type === 'boolean_op' && primaryIntent.operation === 'difference') {
     const updated = injectBoreOrPocket(currentCode, primaryIntent.value || 2.0, context);
     if (updated.success) {
-      return {
+      result = {
         code: updated.code,
         explanation: updated.explanation || `Drilled an internal clearance bore (radius **${primaryIntent.value || 2.0} cm**) through the workpiece using \`sm.boolean_difference\`.`,
       };
+    } else {
+      result = { code: currentCode, explanation: 'Clearance bore could not be placed.' };
     }
   }
 
   // --------------------------------------------------------------------------
   // Intent: Spatial Transform (Rotate / Translate)
   // --------------------------------------------------------------------------
-  if (primaryIntent.type === 'transform') {
+  else if (primaryIntent.type === 'transform') {
     const updated = injectTransformInCode(currentCode, primaryIntent);
     if (updated.success) {
-      return {
+      result = {
         code: updated.code,
         explanation: primaryIntent.operation === 'rotate'
           ? `Rotated workpiece by **${primaryIntent.value}°** around the **${primaryIntent.axis}**-axis using \`sm.rotate\`.`
           : `Translated workpiece by **${primaryIntent.value} cm** along the direction vector using \`sm.translate\`.`,
       };
+    } else {
+      result = { code: currentCode, explanation: 'Transform could not be applied.' };
     }
   }
 
   // --------------------------------------------------------------------------
   // Intent: Additive Primitive Injection
   // --------------------------------------------------------------------------
-  if (primaryIntent.type === 'add_primitive' && primaryIntent.primitive) {
+  else if (primaryIntent.type === 'add_primitive' && primaryIntent.primitive) {
     const appended = appendPrimitiveToAssembly(currentCode, primaryIntent.primitive);
     if (appended.success) {
-      return {
+      result = {
         code: appended.code,
         explanation: `Appended a solid **${primaryIntent.primitive}** component to your active assembly using \`sm.create_${primaryIntent.primitive}\` resting on ground plane.`,
       };
+    } else {
+      result = { code: currentCode, explanation: 'Primitive could not be appended.' };
     }
   }
 
   // --------------------------------------------------------------------------
   // Intent: Curated Template / Full Design Replacement
   // --------------------------------------------------------------------------
-  if (primaryIntent.type === 'full_design' || !currentCode || !currentCode.includes('def build_parts():')) {
+  else if (primaryIntent.type === 'full_design' || !currentCode || !currentCode.includes('def build_parts():')) {
     return generateArchetypeDesign(primaryIntent.targetPart || 'sensor_turret');
   }
 
   // If none matched, perform intelligent additive box injection
-  const defaultAppended = appendPrimitiveToAssembly(currentCode, 'box');
-  if (defaultAppended.success) {
-    return {
-      code: defaultAppended.code,
-      explanation: `Added parametric solid geometry based on prompt "${primaryIntent.rawPrompt}".`,
-    };
+  else {
+    const defaultAppended = appendPrimitiveToAssembly(currentCode, 'box');
+    if (defaultAppended.success) {
+      result = {
+        code: defaultAppended.code,
+        explanation: `Added parametric solid geometry based on prompt "${primaryIntent.rawPrompt}".`,
+      };
+    } else {
+      result = { code: currentCode, explanation: 'Parametric model maintained.' };
+    }
   }
 
-  return { code: currentCode, explanation: 'Parametric model maintained.' };
+  // If a specific part was targeted via selection context, guarantee that unselected parts are preserved
+  if (context?.selectedPartName && result.code !== currentCode) {
+    result.code = preserveUnselectedParts(currentCode, result.code, context.selectedPartName);
+  }
+
+  return result;
 }
 
 /**
@@ -918,6 +937,203 @@ function extractPartNamesFromCode(code: string): string[] {
     if (match[1]) parts.push(match[1]);
   }
   return parts;
+}
+
+interface ParsedReturnTuple {
+  partName: string;
+  varName: string;
+  colorStr: string;
+  roleStr: string;
+  rawTuple: string;
+}
+
+interface ParsedAssemblyStructure {
+  preamble: string;
+  tuples: ParsedReturnTuple[];
+  blocks: Map<string, { part: ParsedReturnTuple; codeBlock: string }>;
+}
+
+/**
+ * Extracts return tuples from Python build_parts return statement.
+ */
+function parseReturnTuples(code: string): ParsedReturnTuple[] {
+  const tupleRegex =
+    /\(\s*["']([^"']+)["']\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*([([][^\])]+[\])])\s*(?:,\s*["']([^"']+)["'])?\s*\)/g;
+  const tuples: ParsedReturnTuple[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = tupleRegex.exec(code)) !== null) {
+    tuples.push({
+      partName: m[1],
+      varName: m[2],
+      colorStr: m[3],
+      roleStr: m[4] || 'component',
+      rawTuple: m[0],
+    });
+  }
+  return tuples;
+}
+
+/**
+ * Decomposes a Python CAD script into preamble, individual part code blocks, and return tuples.
+ */
+function extractAssemblyStructure(code: string): ParsedAssemblyStructure | null {
+  if (!code || !code.includes('def build_parts')) return null;
+
+  const retMatch = /return\s*[\[\(]/.exec(code);
+  if (!retMatch) return null;
+  const retIdx = retMatch.index;
+
+  const preReturn = code.substring(0, retIdx);
+  const tuples = parseReturnTuples(code.substring(retIdx));
+  if (tuples.length === 0) return null;
+
+  const lines = preReturn.split('\n');
+  const funcLineIdx = lines.findIndex((l) => l.includes('def build_parts'));
+  if (funcLineIdx === -1) return null;
+
+  const partPositions: Array<{
+    part: ParsedReturnTuple;
+    startLine: number;
+    assignLine: number;
+  }> = [];
+
+  for (const t of tuples) {
+    const assignRegex = new RegExp(`^\\s*${t.varName}\\s*=`);
+    let foundLine = -1;
+    for (let i = funcLineIdx + 1; i < lines.length; i++) {
+      if (assignRegex.test(lines[i])) {
+        foundLine = i;
+        break;
+      }
+    }
+    if (foundLine !== -1) {
+      let startLine = foundLine;
+      while (startLine > funcLineIdx + 1 && lines[startLine - 1].trim().startsWith('#')) {
+        startLine--;
+      }
+      partPositions.push({
+        part: t,
+        startLine,
+        assignLine: foundLine,
+      });
+    }
+  }
+
+  partPositions.sort((a, b) => a.startLine - b.startLine);
+  const firstPartStart = partPositions.length > 0 ? partPositions[0].startLine : lines.length;
+  const preamble = lines.slice(0, firstPartStart).join('\n');
+
+  const blocks = new Map<string, { part: ParsedReturnTuple; codeBlock: string }>();
+  for (let i = 0; i < partPositions.length; i++) {
+    const cur = partPositions[i];
+    const nextStart = i + 1 < partPositions.length ? partPositions[i + 1].startLine : lines.length;
+    const blockLines = lines.slice(cur.startLine, nextStart);
+    while (blockLines.length > 0 && blockLines[blockLines.length - 1].trim() === '') {
+      blockLines.pop();
+    }
+    blocks.set(cur.part.partName.toLowerCase(), {
+      part: cur.part,
+      codeBlock: blockLines.join('\n'),
+    });
+  }
+
+  return { preamble, tuples, blocks };
+}
+
+/**
+ * Scoped Partial-Script Isolation:
+ * Guarantees that when targeting a specific part during copilot editing,
+ * all unselected anchor and component parts retain their exact code definitions,
+ * parameters, transforms, and return tuples, preventing LLM accidental drops or overwrites.
+ */
+export function preserveUnselectedParts(
+  originalCode: string,
+  newCode: string,
+  targetPartName: string
+): string {
+  if (!targetPartName || !originalCode || !newCode) return newCode;
+
+  const origParsed = extractAssemblyStructure(originalCode);
+  if (!origParsed || origParsed.tuples.length <= 1) return newCode;
+
+  const cleanTarget = targetPartName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  const targetInOrig = origParsed.tuples.find((t) => {
+    const cleanP = t.partName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const cleanV = t.varName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    return cleanP === cleanTarget || cleanV === cleanTarget || cleanP.includes(cleanTarget) || cleanTarget.includes(cleanP);
+  });
+  if (!targetInOrig) return newCode;
+
+  const newParsed = extractAssemblyStructure(newCode);
+
+  let result = origParsed.preamble.trimEnd() + '\n';
+  const finalTuples: ParsedReturnTuple[] = [];
+
+  for (const origTuple of origParsed.tuples) {
+    const pName = origTuple.partName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const vName = origTuple.varName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const isTarget = pName === cleanTarget || vName === cleanTarget || pName.includes(cleanTarget) || cleanTarget.includes(pName);
+
+    if (isTarget) {
+      // Targeted part: take updated code block and tuple from newCode if valid
+      let targetBlock = '';
+      let targetTuple = origTuple;
+      if (newParsed) {
+        const matchNew =
+          newParsed.tuples.find((t) => {
+            const npName = t.partName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+            const nvName = t.varName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+            return npName === cleanTarget || nvName === cleanTarget || npName.includes(cleanTarget) || cleanTarget.includes(npName);
+          }) || (newParsed.tuples.length === 1 ? newParsed.tuples[0] : null);
+
+        if (matchNew && newParsed.blocks.has(matchNew.partName.toLowerCase())) {
+          targetBlock = newParsed.blocks.get(matchNew.partName.toLowerCase())!.codeBlock;
+          targetTuple = matchNew;
+        }
+      }
+      if (!targetBlock) {
+        targetBlock = origParsed.blocks.get(origTuple.partName.toLowerCase())?.codeBlock || '';
+      }
+      result += '\n' + targetBlock + '\n';
+      finalTuples.push(targetTuple);
+    } else {
+      // Unselected part: retain exact original definition and return tuple!
+      const origBlock = origParsed.blocks.get(origTuple.partName.toLowerCase());
+      if (origBlock) {
+        result += '\n' + origBlock.codeBlock + '\n';
+      }
+      finalTuples.push(origTuple);
+    }
+  }
+
+  // Preserve any new parts added by newParsed that were not in origParsed
+  if (newParsed) {
+    for (const newTuple of newParsed.tuples) {
+      const npName = newTuple.partName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+      const nvName = newTuple.varName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+      const inOrig = origParsed.tuples.some((t) => {
+        const opName = t.partName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+        const ovName = t.varName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+        return opName === npName || ovName === nvName;
+      });
+      if (!inOrig && !finalTuples.some((t) => t.partName.toLowerCase() === newTuple.partName.toLowerCase())) {
+        const newBlock = newParsed.blocks.get(newTuple.partName.toLowerCase());
+        if (newBlock) {
+          result += '\n' + newBlock.codeBlock + '\n';
+          finalTuples.push(newTuple);
+        }
+      }
+    }
+  }
+
+  // Build the guaranteed complete return list
+  result += '\n    return [\n';
+  for (const t of finalTuples) {
+    result += `        ("${t.partName}", ${t.varName}, ${t.colorStr}, "${t.roleStr}"),\n`;
+  }
+  result += '    ]\n';
+
+  return result;
 }
 
 /**
