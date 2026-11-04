@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CadPartOutput } from '../types/cad';
+import { evaluateClientSideUsdBrep } from './cadRuntime';
 import {
   sliceMeshAtZ,
   stitchSegmentsIntoLoops,
@@ -11,6 +12,7 @@ import {
   generateSlicerLayers,
   buildSimulatedToolpath,
   validateAssemblyDfm,
+  extractMultiZFeatures,
 } from './camService';
 
 describe('CAM & CNC Toolpath Generator Service', () => {
@@ -250,6 +252,143 @@ describe('CAM & CNC Toolpath Generator Service', () => {
       expect(sim.estimatedTimeSeconds).toBeGreaterThan(0);
       expect(sim.boundsMm.minZ).toBeLessThan(0); // Cuts below Z=0
       expect(sim.boundsMm.maxZ).toBeGreaterThanOrEqual(5.0); // Retracts to safe Z
+    });
+  });
+
+  describe('Multi-Z Feature Extraction for Stepped Pockets & Counterbores (ISS-501)', () => {
+    it('slicing a part with a 5 mm deep blind pocket and a 10 mm deep outer profile generates distinct Z-depth toolpath stages', async () => {
+      // Synthesize a real 20x20x10 mm block with a 10x10x5 mm blind pocket in the top face
+      const code = `import usd_brep as sm
+def build_parts():
+    # 2.0 x 2.0 x 1.0 cm block = 20 x 20 x 10 mm
+    block = sm.create_box((-1.0, -1.0, 0.0), 2.0, 2.0, 1.0)
+    # 1.0 x 1.0 x 0.5 cm pocket starting at z = 0.5 cm = 5 mm deep blind pocket
+    pocket = sm.create_box((-0.5, -0.5, 0.5), 1.0, 1.0, 0.6)
+    part = sm.boolean_difference(block, pocket)
+    return [("stepped_pocket_block", part, (0.3, 0.6, 0.9), "anchor")]
+`;
+      const res = await evaluateClientSideUsdBrep(code, 'SteppedBlockTest');
+      expect(res.success).toBe(true);
+      const part = res.parts![0];
+      expect(part).toBeDefined();
+
+      // 1. Inside Pocketing Multi-Z Stages
+      const pocketStages = extractMultiZFeatures(part, {
+        machineDialect: 'grbl',
+        toolDiameterMm: 3.175,
+        toolType: 'flat_endmill',
+        feedRateMmMin: 1200,
+        plungeRateMmMin: 300,
+        spindleRpm: 16000,
+        stepDownMm: 2.0,
+        safeZMm: 5.0,
+        cutOperation: 'inside_pocket',
+      });
+
+      expect(pocketStages.length).toBeGreaterThanOrEqual(1);
+      const blindPocketStage = pocketStages[0];
+      expect(blindPocketStage.isInternal).toBe(true);
+      expect(blindPocketStage.targetDepthMm).toBeCloseTo(5.0, 1); // 5 mm blind pocket depth
+      expect(blindPocketStage.featureName).toContain('Blind Pocket');
+      expect(blindPocketStage.sliceZMm).toBeGreaterThanOrEqual(5.0);
+      expect(blindPocketStage.sliceZMm).toBeLessThanOrEqual(10.0);
+
+      // 2. Outside Contour Multi-Z Stages
+      const contourStages = extractMultiZFeatures(part, {
+        machineDialect: 'grbl',
+        toolDiameterMm: 3.175,
+        toolType: 'flat_endmill',
+        feedRateMmMin: 1200,
+        plungeRateMmMin: 300,
+        spindleRpm: 16000,
+        stepDownMm: 2.0,
+        safeZMm: 5.0,
+        cutOperation: 'outside_contour',
+      });
+
+      expect(contourStages.length).toBeGreaterThanOrEqual(1);
+      const outerStage = contourStages[0];
+      expect(outerStage.isInternal).toBe(false);
+      expect(outerStage.targetDepthMm).toBeCloseTo(10.0, 1); // 10 mm outer profile through-depth
+
+      // 3. Generated G-code validates distinct target depths
+      const pocketGcode = generateCncGcode(part, {
+        machineDialect: 'grbl',
+        toolDiameterMm: 3.175,
+        toolType: 'flat_endmill',
+        feedRateMmMin: 1200,
+        plungeRateMmMin: 300,
+        spindleRpm: 16000,
+        stepDownMm: 2.0,
+        safeZMm: 5.0,
+        cutOperation: 'inside_pocket',
+      });
+
+      expect(pocketGcode).toContain('Target Depth: 5.00 mm');
+      expect(pocketGcode).toContain('G01 Z-5.000');
+      // Pocket operation must never plunge deeper than the pocket floor (-5.0 mm)
+      expect(pocketGcode).not.toContain('Z-10.000');
+
+      const contourGcode = generateCncGcode(part, {
+        machineDialect: 'grbl',
+        toolDiameterMm: 3.175,
+        toolType: 'flat_endmill',
+        feedRateMmMin: 1200,
+        plungeRateMmMin: 300,
+        spindleRpm: 16000,
+        stepDownMm: 2.0,
+        safeZMm: 5.0,
+        cutOperation: 'outside_contour',
+      });
+
+      expect(contourGcode).toContain('Target Depth: 10.00 mm');
+      expect(contourGcode).toContain('G01 Z-10.000');
+    });
+
+    it('3D toolpath simulator accurately renders multi-depth stepdowns', async () => {
+      const code = `import usd_brep as sm
+def build_parts():
+    block = sm.create_box((-1.0, -1.0, 0.0), 2.0, 2.0, 1.0)
+    pocket = sm.create_box((-0.5, -0.5, 0.5), 1.0, 1.0, 0.6)
+    part = sm.boolean_difference(block, pocket)
+    return [("stepped_pocket_block", part, (0.3, 0.6, 0.9), "anchor")]
+`;
+      const res = await evaluateClientSideUsdBrep(code, 'SimSteppedBlockTest');
+      expect(res.success).toBe(true);
+      const part = res.parts![0];
+
+      // Pocket toolpath simulation stops at -5.0 mm
+      const pocketSim = buildSimulatedToolpath(part, {
+        machineDialect: 'grbl',
+        toolDiameterMm: 3.175,
+        toolType: 'flat_endmill',
+        feedRateMmMin: 1200,
+        plungeRateMmMin: 300,
+        spindleRpm: 16000,
+        stepDownMm: 2.0,
+        safeZMm: 5.0,
+        cutOperation: 'inside_pocket',
+      });
+
+      expect(pocketSim.steps.length).toBeGreaterThanOrEqual(10);
+      expect(pocketSim.boundsMm.minZ).toBeCloseTo(-5.0, 1);
+      expect(pocketSim.boundsMm.maxZ).toBeGreaterThanOrEqual(5.0); // Safe Z
+
+      // Outside contour toolpath simulation plunges full depth to -10.0 mm
+      const contourSim = buildSimulatedToolpath(part, {
+        machineDialect: 'grbl',
+        toolDiameterMm: 3.175,
+        toolType: 'flat_endmill',
+        feedRateMmMin: 1200,
+        plungeRateMmMin: 300,
+        spindleRpm: 16000,
+        stepDownMm: 2.0,
+        safeZMm: 5.0,
+        cutOperation: 'outside_contour',
+      });
+
+      expect(contourSim.boundsMm.minZ).toBeCloseTo(-10.0, 1);
+      expect(contourSim.boundsMm.maxZ).toBeGreaterThanOrEqual(5.0);
     });
   });
 
