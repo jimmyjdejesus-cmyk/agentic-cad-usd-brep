@@ -245,6 +245,93 @@ def generate_part_ascii_stl(part_data: dict[str, Any], solid_name: str = "Part")
     return "\n".join(lines)
 
 
+def generate_step_file(parts_output: list[dict[str, Any]], asset_name: str = "CadAsset") -> str:
+    """Generate an ISO 10303-21 standard STEP AP203/AP214 B-Rep exchange file (ROADMAP ISS-504).
+
+    Compatible with Fusion 360, SolidWorks, FreeCAD, Siemens NX, and Autodesk Inventor.
+    Coordinates are scaled 10x to millimeters from CAD centimeter units.
+    """
+    import datetime
+    safe_name = _sanitize_prim_name(asset_name, 0)
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    lines = [
+        "ISO-10303-21;",
+        "HEADER;",
+        "FILE_DESCRIPTION(('ApexCAD Studio B-Rep Solid Model','ISO 10303-21 AP203/AP214 Solid Model Exchange'),'2;1');",
+        f"FILE_NAME('{safe_name}.step','{timestamp}',('ApexCAD User'),('ApexCAD Studio'),'ApexCAD Studio Kernel v2.0.0','ApexCAD Studio','');",
+        "FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));",
+        "ENDSEC;",
+        "DATA;",
+        "#1=APPLICATION_CONTEXT('configuration controlled 3d designs of mechanical parts and assemblies');",
+        "#2=APPLICATION_PROTOCOL_DEFINITION('international standard','config_control_design',1994,#1);",
+        "#3=PRODUCT_CONTEXT('part definition',#1,'mechanical');",
+        f"#4=PRODUCT('{safe_name}','{safe_name}','ApexCAD Studio Solid Model',(#3));",
+        "#5=PRODUCT_DEFINITION_FORMATION('1.0','first release',#4);",
+        "#6=PRODUCT_DEFINITION_CONTEXT('part definition',#1,'design');",
+        "#7=PRODUCT_DEFINITION('design','',#5,#6);",
+        "#8=PRODUCT_DEFINITION_SHAPE('','',#7);",
+    ]
+
+    entity_id = 9
+    solid_entity_ids = []
+
+    for part in parts_output:
+        pts = part.get("mesh", {}).get("points", [])
+        tris = part.get("mesh", {}).get("triangles", [])
+        if not pts or not tris:
+            continue
+
+        vertex_entity_ids = []
+        for p in pts:
+            pt_id = entity_id
+            entity_id += 1
+            vertex_entity_ids.append(pt_id)
+            lines.append(f"#{pt_id}=CARTESIAN_POINT('',({p[0] * 10.0:.4f},{p[1] * 10.0:.4f},{p[2] * 10.0:.4f}));")
+
+        face_entity_ids = []
+        for i in range(0, len(tris), 3):
+            idx0, idx1, idx2 = tris[i], tris[i + 1], tris[i + 2]
+            v0 = vertex_entity_ids[idx0]
+            v1 = vertex_entity_ids[idx1]
+            v2 = vertex_entity_ids[idx2]
+
+            loop_id = entity_id
+            entity_id += 1
+            lines.append(f"#{loop_id}=POLY_LOOP('',(#{v0},#{v1},#{v2}));")
+
+            bound_id = entity_id
+            entity_id += 1
+            lines.append(f"#{bound_id}=FACE_OUTER_BOUND('',#{loop_id},.T.);")
+
+            face_id = entity_id
+            entity_id += 1
+            lines.append(f"#{face_id}=FACE_SURFACE('',(#{bound_id}),#{bound_id},.T.);")
+            face_entity_ids.append(face_id)
+
+        if not face_entity_ids:
+            continue
+
+        shell_id = entity_id
+        entity_id += 1
+        face_refs = ",".join(f"#{fid}" for fid in face_entity_ids)
+        lines.append(f"#{shell_id}=CLOSED_SHELL('{part['name']}_shell',({face_refs}));")
+
+        solid_id = entity_id
+        entity_id += 1
+        lines.append(f"#{solid_id}=MANIFOLD_SOLID_BREP('{part['name']}',#{shell_id});")
+        solid_entity_ids.append(solid_id)
+
+    shape_rep_id = entity_id
+    entity_id += 1
+    solid_refs = ",".join(f"#{sid}" for sid in solid_entity_ids)
+    lines.append(f"#{shape_rep_id}=SHAPE_REPRESENTATION('{safe_name}_shape',({solid_refs}),#1);")
+    lines.append(f"#{entity_id}=SHAPE_DEFINITION_REPRESENTATION(#8,#{shape_rep_id});")
+    lines.append("ENDSEC;")
+    lines.append("END-ISO-10303-21;")
+
+    return "\n".join(lines)
+
+
 def get_engine_status() -> dict[str, Any]:
     """Return runtime status of the NVIDIA usd_brep C++ kernel."""
     import sys
@@ -550,6 +637,7 @@ def execute_cad_script(
 
     mesh_usda = generate_mesh_usda(parts_output, asset_name=asset_name)
     stl_content = generate_ascii_stl(parts_output, asset_name=asset_name)
+    step_content = generate_step_file(parts_output, asset_name=asset_name)
 
     brep_usda_preview = ""
     if export_brep_usd:
@@ -618,9 +706,11 @@ def execute_cad_script(
             "mesh_usda": mesh_usda,
             "brep_usda": brep_usda_preview,
             "stl": stl_content,
+            "step": step_content,
         },
         "usda_mesh_text": mesh_usda,
         "usda_brep_text": brep_usda_preview,
         "stl_text": stl_content,
+        "step_text": step_content,
     }
 

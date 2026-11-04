@@ -159,10 +159,12 @@ export interface CadExecutionResult {
     mesh_usda: string;
     brep_usda: string;
     stl: string;
+    step?: string;
   };
   usda_mesh_text?: string;
   usda_brep_text?: string;
   stl_text?: string;
+  step_text?: string;
 }
 
 export interface CadPreset {

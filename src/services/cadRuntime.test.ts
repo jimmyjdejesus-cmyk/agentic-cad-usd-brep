@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import JSZip from 'jszip';
 import { CANONICAL_BENCHMARK_PRESET_IDS, DEFAULT_PRESETS } from '../data/presetsData';
-import { evaluateClientSideUsdBrep, executeCadScript, generatePartAsciiStl } from './cadRuntime';
+import {
+  evaluateClientSideUsdBrep,
+  executeCadScript,
+  generatePartAsciiStl,
+  generate3mfModelXml,
+  generateAssembly3mf,
+  generateStepClient,
+} from './cadRuntime';
 import { generateDxfProfile } from './camService';
 
 describe('Client-side usd_brep solid evaluator & Manifold WASM Engine', () => {
@@ -753,6 +761,83 @@ def build_parts():
         }
       }
     );
+  });
+
+  describe('Multi-Part .3MF Slicer Archive & ISO 10303-21 .STEP Export (ROADMAP ISS-504)', () => {
+    const testCode = `import usd_brep as sm
+def build_parts():
+    base = sm.create_box((-2.0, -2.0, 0.0), 4.0, 4.0, 1.0)
+    post = sm.create_cylinder((0.0, 0.0, 1.0), 0.5, 2.0)
+    return [("base_plate", base, (0.2, 0.4, 0.8), "anchor"), ("center_post", post, (0.9, 0.3, 0.2), "component")]
+`;
+
+    it('generates valid 3D/3dmodel.model XML containing <model unit="millimeter"> and per-part mesh objects', async () => {
+      const res = await evaluateClientSideUsdBrep(testCode, 'Test3mfAsset');
+      expect(res.success).toBe(true);
+      const parts = res.parts || [];
+      expect(parts.length).toBe(2);
+
+      const xml = generate3mfModelXml(parts, 'Test3mfAsset');
+
+      // Acceptance Criteria:
+      // "Exported .3mf archive contains valid 3D/3dmodel.model XML with <model unit="millimeter"> and per-part mesh objects"
+      expect(xml).toContain('<model unit="millimeter"');
+      expect(xml).toContain('xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"');
+      expect(xml).toContain('<object id="2" name="base_plate" type="model"');
+      expect(xml).toContain('<object id="3" name="center_post" type="model"');
+      expect(xml).toContain('<mesh>');
+      expect(xml).toContain('<vertices>');
+      expect(xml).toContain('<triangles>');
+      expect(xml).toContain('<item objectid="2"/>');
+      expect(xml).toContain('<item objectid="3"/>');
+    });
+
+    it('packages all assembly parts into a valid .3mf ZIP archive readable by standard slicers', async () => {
+      const res = await evaluateClientSideUsdBrep(testCode, 'Test3mfZip');
+      expect(res.success).toBe(true);
+      const parts = res.parts || [];
+
+      const blob = await generateAssembly3mf(parts, 'Test3mfZip');
+      expect(blob).toBeInstanceOf(Blob);
+      expect(blob.size).toBeGreaterThan(100);
+
+      // Verify ZIP archive structure using JSZip
+      const arrayBuffer = await blob.arrayBuffer();
+      const zip = await JSZip.loadAsync(arrayBuffer);
+
+      // Check required 3MF Open Packaging files
+      expect(zip.file('[Content_Types].xml')).not.toBeNull();
+      expect(zip.file('_rels/.rels')).not.toBeNull();
+      expect(zip.file('3D/3dmodel.model')).not.toBeNull();
+
+      const modelContent = await zip.file('3D/3dmodel.model')!.async('text');
+      expect(modelContent).toContain('<model unit="millimeter"');
+      expect(modelContent).toContain('base_plate');
+      expect(modelContent).toContain('center_post');
+    });
+
+    it('generates standard ISO 10303-21 (.step) B-Rep exchange file', async () => {
+      const res = await evaluateClientSideUsdBrep(testCode, 'TestStepAsset');
+      expect(res.success).toBe(true);
+      const parts = res.parts || [];
+
+      const step = generateStepClient(parts, 'TestStepAsset');
+
+      // Acceptance Criteria: ISO 10303-21 header, CONFIG_CONTROL_DESIGN schema, and B-Rep solids
+      expect(step).toContain('ISO-10303-21;');
+      expect(step).toContain('HEADER;');
+      expect(step).toContain("FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));");
+      expect(step).toContain('DATA;');
+      expect(step).toContain('MANIFOLD_SOLID_BREP');
+      expect(step).toContain('CLOSED_SHELL');
+      expect(step).toContain('POLY_LOOP');
+      expect(step).toContain('CARTESIAN_POINT');
+      expect(step).toContain('END-ISO-10303-21;');
+
+      // Verify execution result includes step in exports
+      expect(res.exports?.step).toBeDefined();
+      expect(res.step_text).toContain('ISO-10303-21;');
+    });
   });
 });
 
