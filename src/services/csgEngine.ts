@@ -71,7 +71,86 @@ export const PRIMITIVE_CATALOG: PrimitiveOption[] = [
     paramLabels: { radius: 'Bore Radius (cm)', height: 'Bore Depth (cm)' },
     category: 'Holes & Fasteners',
   },
+  {
+    id: 'clearance_hole',
+    name: 'Metric Clearance Hole',
+    description: 'Standard metric clearance hole (M2-M8).',
+    defaultParams: { mSize: 3.0, height: 10.0 },
+    paramLabels: { mSize: 'Metric Size (M)', height: 'Depth Z (cm)' },
+    category: 'Holes & Fasteners',
+  },
+  {
+    id: 'tap_hole',
+    name: 'Metric Tap Hole',
+    description: 'Standard metric tap hole for threading (M2-M8).',
+    defaultParams: { mSize: 3.0, height: 10.0 },
+    paramLabels: { mSize: 'Metric Size (M)', height: 'Depth Z (cm)' },
+    category: 'Holes & Fasteners',
+  },
+  {
+    id: 'iso4762_counterbore',
+    name: 'ISO 4762 Counterbore',
+    description: 'Standard socket head cap screw counterbore (M2-M8).',
+    defaultParams: { mSize: 3.0, height: 10.0 },
+    paramLabels: { mSize: 'Metric Size (M)', height: 'Total Depth Z (cm)' },
+    category: 'Holes & Fasteners',
+  },
+  {
+    id: 'countersink_90',
+    name: '90° Countersink',
+    description: '90-degree countersink hole (M2-M8).',
+    defaultParams: { mSize: 3.0, height: 10.0 },
+    paramLabels: { mSize: 'Metric Size (M)', height: 'Total Depth Z (cm)' },
+    category: 'Holes & Fasteners',
+  },
+  {
+    id: 'heat_set_insert',
+    name: 'Heat-Set Insert Hole',
+    description: 'Hole for standard brass heat-set inserts (M2-M8).',
+    defaultParams: { mSize: 3.0 },
+    paramLabels: { mSize: 'Metric Size (M)' },
+    category: 'Holes & Fasteners',
+  },
 ];
+
+// --- Parametric Hole Generators ---
+
+export function getClearanceHoleRadius(mSize: number): number {
+  const map: Record<number, number> = { 2: 2.4, 2.5: 2.9, 3: 3.4, 4: 4.5, 5: 5.5, 6: 6.6, 8: 9.0 };
+  return ((map[mSize] || mSize * 1.1) / 2) / 10;
+}
+
+export function getTapHoleRadius(mSize: number): number {
+  const map: Record<number, number> = { 2: 1.6, 2.5: 2.05, 3: 2.5, 4: 3.3, 5: 4.2, 6: 5.0, 8: 6.8 };
+  return ((map[mSize] || mSize * 0.8) / 2) / 10;
+}
+
+export function getIso4762Counterbore(mSize: number): { cbRadius: number; cbDepth: number; holeRadius: number } {
+  const headDia: Record<number, number> = { 2: 3.8, 2.5: 4.5, 3: 5.5, 4: 7.0, 5: 8.5, 6: 10.0, 8: 13.0 };
+  const headDepth: Record<number, number> = { 2: 2.0, 2.5: 2.5, 3: 3.0, 4: 4.0, 5: 5.0, 6: 6.0, 8: 8.0 };
+  return {
+    cbRadius: ((headDia[mSize] || mSize * 1.5) / 2) / 10,
+    cbDepth: (headDepth[mSize] || mSize) / 10,
+    holeRadius: getClearanceHoleRadius(mSize),
+  };
+}
+
+export function getCountersink90(mSize: number): { headRadius: number; holeRadius: number } {
+  const headDia: Record<number, number> = { 2: 4.4, 2.5: 5.5, 3: 6.3, 4: 8.3, 5: 10.4, 6: 12.4, 8: 16.5 };
+  return {
+    headRadius: ((headDia[mSize] || mSize * 2) / 2) / 10,
+    holeRadius: getClearanceHoleRadius(mSize),
+  };
+}
+
+export function getHeatSetInsert(mSize: number): { insertRadius: number; insertDepth: number } {
+  const holeDia: Record<number, number> = { 2: 3.2, 2.5: 3.8, 3: 4.0, 4: 5.6, 5: 7.1, 6: 8.5, 8: 11.0 };
+  const depth: Record<number, number> = { 2: 4.0, 2.5: 4.0, 3: 4.0, 4: 6.0, 5: 8.0, 6: 9.5, 8: 13.0 };
+  return {
+    insertRadius: ((holeDia[mSize] || mSize * 1.4) / 2) / 10,
+    insertDepth: (depth[mSize] || mSize * 1.5) / 10,
+  };
+}
 
 export interface InsertPrimitiveConfig {
   type: string;
@@ -102,6 +181,44 @@ export function generatePrimitiveCodeSnippet(config: InsertPrimitiveConfig, varN
       const r = config.params.radius ?? 4.0;
       const h = config.params.height ?? 8.0;
       return `    ${varName} = sm.create_cylinder(${pStr}, ${r}, ${h})`;
+    }
+    case 'clearance_hole': {
+      const mSize = config.params.mSize ?? 3.0;
+      const h = config.params.height ?? 10.0;
+      const r = getClearanceHoleRadius(mSize);
+      return `    ${varName} = sm.create_cylinder(${pStr}, ${r}, ${h})`;
+    }
+    case 'tap_hole': {
+      const mSize = config.params.mSize ?? 3.0;
+      const h = config.params.height ?? 10.0;
+      const r = getTapHoleRadius(mSize);
+      return `    ${varName} = sm.create_cylinder(${pStr}, ${r}, ${h})`;
+    }
+    case 'iso4762_counterbore': {
+      const mSize = config.params.mSize ?? 3.0;
+      const h = config.params.height ?? 10.0;
+      const cb = getIso4762Counterbore(mSize);
+      // Create head bore and shaft bore, then union
+      return `    ${varName}_cb = sm.create_cylinder((${px.toFixed(2)}, ${py.toFixed(2)}, ${(pz + h - cb.cbDepth).toFixed(2)}), ${cb.cbRadius}, ${cb.cbDepth})
+    ${varName}_shaft = sm.create_cylinder(${pStr}, ${cb.holeRadius}, ${h - cb.cbDepth})
+    ${varName} = sm.boolean_union(${varName}_cb, ${varName}_shaft)`;
+    }
+    case 'countersink_90': {
+      const mSize = config.params.mSize ?? 3.0;
+      const h = config.params.height ?? 10.0;
+      const cs = getCountersink90(mSize);
+      // Head depth matches headRadius - holeRadius for 90 degrees (45 deg angle)
+      const headDepth = cs.headRadius - cs.holeRadius;
+      return `    ${varName}_cs = sm.create_cone((${px.toFixed(2)}, ${py.toFixed(2)}, ${(pz + h - headDepth).toFixed(2)}), radius_base=${cs.holeRadius}, radius_top=${cs.headRadius}, height=${headDepth})
+    ${varName}_shaft = sm.create_cylinder(${pStr}, ${cs.holeRadius}, ${h - headDepth})
+    ${varName} = sm.boolean_union(${varName}_cs, ${varName}_shaft)`;
+    }
+    case 'heat_set_insert': {
+      const mSize = config.params.mSize ?? 3.0;
+      const insert = getHeatSetInsert(mSize);
+      // Z is at pz - insertDepth because we're sinking it in, or we just create it at pz going up.
+      // Usually used as a subtraction tool, so starting at pz and going down insertDepth.
+      return `    ${varName} = sm.create_cylinder((${px.toFixed(2)}, ${py.toFixed(2)}, ${(pz - insert.insertDepth).toFixed(2)}), ${insert.insertRadius}, ${insert.insertDepth})`;
     }
     case 'sphere': {
       const r = config.params.radius ?? 5.0;

@@ -10,13 +10,18 @@ import {
 
 describe('CSG & 3D Solid Modeling Engine Suite', () => {
   it('has comprehensive primitive catalog options', () => {
-    expect(PRIMITIVE_CATALOG.length).toBeGreaterThanOrEqual(6);
+    expect(PRIMITIVE_CATALOG.length).toBeGreaterThanOrEqual(11);
     const ids = PRIMITIVE_CATALOG.map((p) => p.id);
     expect(ids).toContain('box');
     expect(ids).toContain('cylinder');
     expect(ids).toContain('sphere');
     expect(ids).toContain('wedge');
     expect(ids).toContain('torus');
+    expect(ids).toContain('clearance_hole');
+    expect(ids).toContain('tap_hole');
+    expect(ids).toContain('iso4762_counterbore');
+    expect(ids).toContain('countersink_90');
+    expect(ids).toContain('heat_set_insert');
   });
 
   it('generates valid usd_brep code snippet for Box and Cylinder', () => {
@@ -41,6 +46,53 @@ describe('CSG & 3D Solid Modeling Engine Suite', () => {
     );
     expect(cylSnippet).toContain('sm.create_cylinder');
     expect(cylSnippet).toContain('(2.00, 4.00, 1.00)');
+  });
+
+  it('generates valid usd_brep code snippet for new fasteners', () => {
+    const chSnippet = generatePrimitiveCodeSnippet(
+      {
+        type: 'clearance_hole',
+        params: { mSize: 3.0, height: 5.0 },
+        position: [0, 0, 0],
+      },
+      'hole1'
+    );
+    expect(chSnippet).toContain('sm.create_cylinder');
+    expect(chSnippet).toContain('hole1 =');
+
+    const cbSnippet = generatePrimitiveCodeSnippet(
+      {
+        type: 'iso4762_counterbore',
+        params: { mSize: 4.0, height: 10.0 },
+        position: [0, 0, 0],
+      },
+      'cb1'
+    );
+    expect(cbSnippet).toContain('cb1_cb = sm.create_cylinder');
+    expect(cbSnippet).toContain('cb1_shaft = sm.create_cylinder');
+    expect(cbSnippet).toContain('cb1 = sm.boolean_union(cb1_cb, cb1_shaft)');
+
+    const csSnippet = generatePrimitiveCodeSnippet(
+      {
+        type: 'countersink_90',
+        params: { mSize: 5.0, height: 10.0 },
+        position: [1, 2, 3],
+      },
+      'cs1'
+    );
+    expect(csSnippet).toContain('cs1_cs = sm.create_cone');
+    expect(csSnippet).toContain('cs1_shaft = sm.create_cylinder');
+    expect(csSnippet).toContain('cs1 = sm.boolean_union(cs1_cs, cs1_shaft)');
+
+    const hsSnippet = generatePrimitiveCodeSnippet(
+      {
+        type: 'heat_set_insert',
+        params: { mSize: 3.0 },
+        position: [0, 0, 10],
+      },
+      'hs1'
+    );
+    expect(hsSnippet).toContain('hs1 = sm.create_cylinder');
   });
 
   it('inserts primitive into existing build_parts() script and preserves return structure', () => {
