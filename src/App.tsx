@@ -1488,7 +1488,11 @@ export const App: React.FC = () => {
                   <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
                   <div className="truncate">
                     <div className="font-semibold text-white truncate">
-                      {!execResult.success ? 'Kernel Execution Error' : 'Assembly Sanity Warnings'}
+                      {!execResult.success
+                        ? 'Kernel Execution Error'
+                        : execResult.sanity_warnings?.some((w) => w.includes('DFM_'))
+                        ? 'Assembly DFM & Sanity Warnings'
+                        : 'Assembly Sanity Warnings'}
                     </div>
                     <div className="text-[11px] text-amber-300/90 truncate">
                       {!execResult.success

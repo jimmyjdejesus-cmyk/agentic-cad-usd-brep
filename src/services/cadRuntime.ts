@@ -13,6 +13,7 @@ import {
   GuideDocSummary,
 } from '../types/cad';
 import { DEFAULT_PRESETS, EMBEDDED_GUIDES, EMBEDDED_GUIDE_SUMMARIES } from '../data/presetsData';
+import { validateAssemblyDfm } from './camService';
 
 export interface BackendHealthStatus {
   connected: boolean;
@@ -140,7 +141,8 @@ export async function executeCadScript(
   code: string,
   assetName = 'CadAsset',
   envelope?: [number, number, number],
-  linearTolerance = 0.06
+  linearTolerance = 0.06,
+  enableDfm = false
 ): Promise<CadExecutionResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12000);
@@ -153,6 +155,7 @@ export async function executeCadScript(
         asset_name: assetName,
         envelope: envelope || null,
         linear_tolerance: linearTolerance,
+        enable_dfm: enableDfm,
       }),
       signal: controller.signal,
     });
@@ -168,7 +171,7 @@ export async function executeCadScript(
   } finally {
     clearTimeout(timer);
   }
-  return await evaluateClientSideUsdBrep(code, assetName, envelope);
+  return await evaluateClientSideUsdBrep(code, assetName, envelope, enableDfm);
 }
 
 // ============================================================================
@@ -813,7 +816,8 @@ function parseScriptBlocks(code: string): ScriptStatement[] {
 export async function evaluateClientSideUsdBrep(
   code: string,
   assetName = 'CadAsset',
-  envelope?: [number, number, number]
+  envelope?: [number, number, number],
+  enableDfm = false
 ): Promise<CadExecutionResult> {
   const t0 = performance.now();
   if (!code || !code.trim()) {
@@ -2104,6 +2108,18 @@ export async function evaluateClientSideUsdBrep(
     }
   }
 
+  // Run automated 3D Print & CNC DFM checks
+  let dfmWarnings: string[] = [];
+  try {
+    const dfmRes = validateAssemblyDfm(partsOutput, code);
+    dfmWarnings = dfmRes.warnings;
+    if (enableDfm && dfmWarnings.length > 0) {
+      sanityWarnings.push(...dfmWarnings);
+    }
+  } catch {
+    // DFM analysis optional if mesh generation was partial
+  }
+
   const meshUsda = generateMeshUsdaClient(partsOutput, assetName);
   const stlText = generateAsciiStlClient(partsOutput, assetName);
   const elapsedMs = Number((performance.now() - t0).toFixed(2));
@@ -2116,6 +2132,7 @@ export async function evaluateClientSideUsdBrep(
     asset_name: assetName,
     elapsed_ms: elapsedMs,
     sanity_warnings: sanityWarnings,
+    dfm_warnings: dfmWarnings,
     summary: {
       part_count: partsOutput.length,
       all_manifold: true,

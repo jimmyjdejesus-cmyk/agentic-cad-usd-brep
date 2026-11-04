@@ -533,6 +533,21 @@ def execute_cad_script(
             f"ENVELOPE: '{br['part']}' {br['bound']} {br['axis']}={br['value']} exceeds anchor envelope limit {br['limit']}"
         )
 
+    # Deterministic Design-for-Manufacturing (DFM) checks
+    for p in parts_output:
+        pdiag = p.get("diagnostics", {})
+        bounds = pdiag.get("bounds")
+        if bounds and len(bounds) >= 2:
+            dx = abs(bounds[1][0] - bounds[0][0])
+            dy = abs(bounds[1][1] - bounds[0][1])
+            dz = abs(bounds[1][2] - bounds[0][2])
+            dims = [d for d in (dx, dy, dz) if d > 1e-4]
+            min_dim_cm = min(dims) if dims else 1.0
+            if min_dim_cm < 0.12:
+                sanity_warnings.append(
+                    f"DFM_WALL_THICKNESS: Part '{p['name']}' wall thickness ({min_dim_cm * 10.0:.2f} mm) is below FDM minimum (1.2 mm)"
+                )
+
     mesh_usda = generate_mesh_usda(parts_output, asset_name=asset_name)
     stl_content = generate_ascii_stl(parts_output, asset_name=asset_name)
 

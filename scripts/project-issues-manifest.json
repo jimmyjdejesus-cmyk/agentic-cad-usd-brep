@@ -628,7 +628,7 @@
       "epicId": "EPIC-4",
       "milestoneId": "M4",
       "title": "[v1.5.0] Automated 3D Print & CNC DFM Validator in Copilot Self-Healing Loop",
-      "status": "open",
+      "status": "completed",
       "labels": [
         "type:sub-issue",
         "area:copilot-dfm",
@@ -651,7 +651,8 @@
       "acceptanceCriteria": [
         "DFM warnings appear in the Diagnostics panel alongside Euler manifoldness and AABB penetration checks",
         "Copilot self-healing loop automatically adjusts wall thickness or adds a 45 deg support chamfer when DFM mode is enabled"
-      ]
+      ],
+      "githubIssueNumber": 33
     },
     {
       "id": "ISS-404",

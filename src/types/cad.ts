@@ -150,6 +150,7 @@ export interface CadExecutionResult {
   error_type?: string;
   traceback?: string;
   sanity_warnings?: string[];
+  dfm_warnings?: string[];
   summary?: CadAssemblySummary;
   parts?: CadPartOutput[];
   explosion_stages?: ExplosionStage[];
@@ -574,4 +575,5 @@ export interface EdaNetlist {
 export interface ActiveSelectionContext {
   selectedPartName?: string | null;
   activeAnnotation?: Partial<CadAnnotation> | null;
+  dfmMode?: boolean;
 }
