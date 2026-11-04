@@ -470,6 +470,71 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
                     </div>
                   </div>
 
+                  {/* Pocket Clearing Pattern & Stepover (ISS-502) */}
+                  {camConfig.cutOperation === 'inside_pocket' && (
+                    <div className="space-y-2 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                      <div className="space-y-1" role="group" aria-labelledby="pocket-pattern-label">
+                        <span id="pocket-pattern-label" className="text-[10px] font-semibold text-slate-400 block">
+                          Pocket Clearing Pattern:
+                        </span>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {[
+                            { id: 'concentric', label: 'Concentric Spiral' },
+                            { id: 'raster', label: 'Zig-Zag Raster' },
+                          ].map((pat) => (
+                            <button
+                              key={pat.id}
+                              onClick={() => setCamConfig({ ...camConfig, pocketPattern: pat.id as any })}
+                              aria-pressed={(camConfig.pocketPattern || 'concentric') === pat.id}
+                              className={`p-1.5 rounded-lg text-[10px] font-medium border text-center transition ${
+                                (camConfig.pocketPattern || 'concentric') === pat.id
+                                  ? 'bg-amber-950 text-amber-300 border-amber-600'
+                                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                              }`}
+                            >
+                              {pat.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <label htmlFor="cam-step-over" className="text-[10px] font-semibold text-slate-400">
+                            Radial Stepover:
+                          </label>
+                          <span className="text-[10px] text-amber-400 font-mono font-medium">
+                            {camConfig.stepOverPercent || 45}% (
+                            {(
+                              ((camConfig.stepOverPercent || 45) / 100) *
+                              camConfig.toolDiameterMm
+                            ).toFixed(2)}{' '}
+                            mm)
+                          </span>
+                        </div>
+                        <input
+                          id="cam-step-over"
+                          type="range"
+                          min="10"
+                          max="80"
+                          step="5"
+                          value={camConfig.stepOverPercent || 45}
+                          onChange={(e) =>
+                            setCamConfig({
+                              ...camConfig,
+                              stepOverPercent: parseInt(e.target.value, 10) || 45,
+                            })
+                          }
+                          aria-describedby="cam-step-over-desc"
+                          className="w-full accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                        />
+                        <span id="cam-step-over-desc" className="text-[9px] text-slate-500 block">
+                          Tool diameter stepover for interior clearing (10% to 80%)
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Holding Tabs Toggle */}
                   <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
                     <div>

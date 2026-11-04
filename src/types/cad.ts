@@ -366,6 +366,8 @@ export interface CncCamConfig {
   stepDownMm: number;            // Depth per pass (mm)
   safeZMm: number;               // Retract height above workpiece (mm)
   cutOperation: 'outside_contour' | 'inside_pocket' | 'engrave' | 'facing';
+  stepOverPercent?: number;      // Stepover percentage for pocket clearing (10% - 80% of toolDiameterMm, default: 45)
+  pocketPattern?: 'concentric' | 'raster'; // Pocket clearing strategy: concentric inward spiral or zig-zag raster
   addHoldingTabs?: boolean;      // Whether to insert holding tabs on final pass
   tabWidthMm?: number;           // Holding tab width (mm)
   tabHeightMm?: number;          // Holding tab height (mm)

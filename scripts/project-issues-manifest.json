@@ -721,7 +721,7 @@
       "epicId": "EPIC-5",
       "milestoneId": "M5",
       "title": "[v2.0.0] True Concentric & Raster Interior Pocket Clearing Toolpaths",
-      "status": "open",
+      "status": "completed",
       "labels": [
         "type:sub-issue",
         "area:cnc-cam",
@@ -740,7 +740,8 @@
       "acceptanceCriteria": [
         "Selecting `inside_pocket` generates concentric inward offset loops from the pocket center out to the final finish wall pass",
         "Configurable stepover percentage in `CamCncModal.tsx` updates toolpath density and machining time estimate"
-      ]
+      ],
+      "githubIssueNumber": 36
     },
     {
       "id": "ISS-503",

@@ -164,4 +164,14 @@ describe('CamCncModal Accessibility Suite', () => {
     expect(html).toContain('3. 3D Print Preparation (STL)');
     expect(html).toContain('tab-3d_printing');
   });
+
+  it('renders toolpath strategy selector with Outside Contour, Inside Pocket, and Centerline Trace options', () => {
+    const html = renderToStaticMarkup(
+      <CamCncModal {...defaultProps} isOpen={true} />
+    );
+    expect(html).toContain('id="toolpath-strategy-label"');
+    expect(html).toContain('Outside Contour');
+    expect(html).toContain('Inside Pocket');
+    expect(html).toContain('Centerline Trace');
+  });
 });
