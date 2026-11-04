@@ -257,3 +257,296 @@ export function applyCsgBooleanToScript(
 
   return { updatedCode, resultPartName };
 }
+
+export type PrimitiveType = 'box' | 'cylinder' | 'sphere' | 'cone' | 'torus' | 'wedge';
+
+export interface PartParametricProperties {
+  partName: string;
+  varName: string;
+  primitiveType: PrimitiveType;
+  position: [number, number, number]; // [X, Y, Z] in cm
+  dimensions: {
+    width?: number;        // Box width (X) / Wedge dx
+    depth?: number;        // Box depth (Y) / Wedge dy
+    height?: number;       // Box/Cylinder/Cone/Wedge height (Z)
+    radius?: number;       // Cylinder / Sphere radius
+    radiusBase?: number;   // Cone base radius
+    radiusTop?: number;    // Cone top radius
+    majorRadius?: number;  // Torus major radius
+    minorRadius?: number;  // Torus minor radius
+  };
+  rawCall?: string;
+}
+
+/**
+ * Parses Python usd_brep script to extract parametric dimensions and origin transform
+ * of a specific part defined in build_parts().
+ */
+export function parsePartParametricProperties(
+  code: string,
+  partName: string
+): PartParametricProperties | null {
+  if (!code || !partName) return null;
+
+  // 1. Find variable name bound to partName in return [...]
+  const returnRegex = /return\s*\[(.*?)\]/s;
+  const returnMatch = code.match(returnRegex);
+  let targetVar: string = partName;
+
+  if (returnMatch) {
+    const returnBody = returnMatch[1];
+    const tupleRegex = /\(\s*["']([^"']+)["']\s*,\s*([A-Za-z0-9_]+)\s*,/g;
+    let tm;
+    while ((tm = tupleRegex.exec(returnBody)) !== null) {
+      if (tm[1] === partName) {
+        targetVar = tm[2];
+        break;
+      }
+    }
+  }
+
+  // 2. Locate the definition statement: targetVar = sm.create_*(...)
+  // Match the line: targetVar = sm.create_<type>(...); allow nested parens on the line
+  const defRegex = new RegExp(
+    `^\\s*${targetVar}\\s*=\\s*sm\\.create_(box|cylinder|sphere|cone|torus|wedge)\\s*\\((.*)\\)\\s*$`,
+    'm'
+  );
+  const defMatch = code.match(defRegex);
+  if (!defMatch) {
+    return null;
+  }
+
+  const primType = defMatch[1] as PrimitiveType;
+  const rawArgs = defMatch[2].trim();
+
+  // Helper to parse coordinate tuple (x, y, z)
+  const coordMatch = rawArgs.match(/^\s*\(\s*(-?[0-9.]+)\s*,\s*(-?[0-9.]+)\s*,\s*(-?[0-9.]+)\s*\)/);
+  if (!coordMatch) {
+    return null;
+  }
+
+  const px = parseFloat(coordMatch[1]);
+  const py = parseFloat(coordMatch[2]);
+  const pz = parseFloat(coordMatch[3]);
+  const position: [number, number, number] = [px, py, pz];
+
+  const remainingArgsStr = rawArgs.slice(coordMatch[0].length).replace(/^[\s,]+/, '');
+
+  switch (primType) {
+    case 'box': {
+      // sm.create_box((ox, oy, oz), width, depth, height)
+      const numMatches = remainingArgsStr.match(/-?[0-9.]+/g);
+      if (numMatches && numMatches.length >= 3) {
+        return {
+          partName,
+          varName: targetVar,
+          primitiveType: 'box',
+          position,
+          dimensions: {
+            width: parseFloat(numMatches[0]),
+            depth: parseFloat(numMatches[1]),
+            height: parseFloat(numMatches[2]),
+          },
+          rawCall: defMatch[0].trim(),
+        };
+      }
+      break;
+    }
+    case 'cylinder': {
+      // sm.create_cylinder((cx, cy, z0), radius, height)
+      const numMatches = remainingArgsStr.match(/-?[0-9.]+/g);
+      if (numMatches && numMatches.length >= 2) {
+        return {
+          partName,
+          varName: targetVar,
+          primitiveType: 'cylinder',
+          position,
+          dimensions: {
+            radius: parseFloat(numMatches[0]),
+            height: parseFloat(numMatches[1]),
+          },
+          rawCall: defMatch[0].trim(),
+        };
+      }
+      break;
+    }
+    case 'sphere': {
+      // sm.create_sphere((cx, cy, cz), radius)
+      const numMatches = remainingArgsStr.match(/-?[0-9.]+/g);
+      if (numMatches && numMatches.length >= 1) {
+        return {
+          partName,
+          varName: targetVar,
+          primitiveType: 'sphere',
+          position,
+          dimensions: {
+            radius: parseFloat(numMatches[0]),
+          },
+          rawCall: defMatch[0].trim(),
+        };
+      }
+      break;
+    }
+    case 'cone': {
+      // sm.create_cone((cx, cy, z0), radius_base=..., radius_top=..., height=...) or positional
+      const rBaseMatch = remainingArgsStr.match(/radius_base\s*=\s*(-?[0-9.]+)/);
+      const rTopMatch = remainingArgsStr.match(/radius_top\s*=\s*(-?[0-9.]+)/);
+      const hMatch = remainingArgsStr.match(/height\s*=\s*(-?[0-9.]+)/);
+
+      if (rBaseMatch && rTopMatch && hMatch) {
+        return {
+          partName,
+          varName: targetVar,
+          primitiveType: 'cone',
+          position,
+          dimensions: {
+            radiusBase: parseFloat(rBaseMatch[1]),
+            radiusTop: parseFloat(rTopMatch[1]),
+            height: parseFloat(hMatch[1]),
+          },
+          rawCall: defMatch[0].trim(),
+        };
+      } else {
+        const numMatches = remainingArgsStr.match(/-?[0-9.]+/g);
+        if (numMatches && numMatches.length >= 3) {
+          return {
+            partName,
+            varName: targetVar,
+            primitiveType: 'cone',
+            position,
+            dimensions: {
+              radiusBase: parseFloat(numMatches[0]),
+              radiusTop: parseFloat(numMatches[1]),
+              height: parseFloat(numMatches[2]),
+            },
+            rawCall: defMatch[0].trim(),
+          };
+        }
+      }
+      break;
+    }
+    case 'torus': {
+      // sm.create_torus((cx, cy, cz), r_maj, r_min)
+      const numMatches = remainingArgsStr.match(/-?[0-9.]+/g);
+      if (numMatches && numMatches.length >= 2) {
+        return {
+          partName,
+          varName: targetVar,
+          primitiveType: 'torus',
+          position,
+          dimensions: {
+            majorRadius: parseFloat(numMatches[0]),
+            minorRadius: parseFloat(numMatches[1]),
+          },
+          rawCall: defMatch[0].trim(),
+        };
+      }
+      break;
+    }
+    case 'wedge': {
+      // sm.create_wedge((ox, oy, oz), width, depth, height)
+      const numMatches = remainingArgsStr.match(/-?[0-9.]+/g);
+      if (numMatches && numMatches.length >= 3) {
+        return {
+          partName,
+          varName: targetVar,
+          primitiveType: 'wedge',
+          position,
+          dimensions: {
+            width: parseFloat(numMatches[0]),
+            depth: parseFloat(numMatches[1]),
+            height: parseFloat(numMatches[2]),
+          },
+          rawCall: defMatch[0].trim(),
+        };
+      }
+      break;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Updates parametric dimensions and/or [X, Y, Z] position of a specific part in Python code.
+ * Preserves surrounding formatting, comments, and other part definitions.
+ */
+export function updatePartParametricProperties(
+  code: string,
+  partName: string,
+  updates: {
+    position?: [number, number, number];
+    dimensions?: Partial<PartParametricProperties['dimensions']>;
+  }
+): { updatedCode: string; success: boolean } {
+  const current = parsePartParametricProperties(code, partName);
+  if (!current) {
+    return { updatedCode: code, success: false };
+  }
+
+  const targetVar = current.varName;
+  const newPos = updates.position ?? current.position;
+  const newDims = { ...current.dimensions, ...updates.dimensions };
+
+  const [px, py, pz] = newPos;
+  const pStr = `(${px.toFixed(2)}, ${py.toFixed(2)}, ${pz.toFixed(2)})`;
+
+  let newCall = '';
+  switch (current.primitiveType) {
+    case 'box': {
+      const w = (newDims.width ?? 10.0).toFixed(2);
+      const d = (newDims.depth ?? 10.0).toFixed(2);
+      const h = (newDims.height ?? 5.0).toFixed(2);
+      newCall = `${targetVar} = sm.create_box(${pStr}, ${w}, ${d}, ${h})`;
+      break;
+    }
+    case 'cylinder': {
+      const r = (newDims.radius ?? 4.0).toFixed(2);
+      const h = (newDims.height ?? 8.0).toFixed(2);
+      newCall = `${targetVar} = sm.create_cylinder(${pStr}, ${r}, ${h})`;
+      break;
+    }
+    case 'sphere': {
+      const r = (newDims.radius ?? 5.0).toFixed(2);
+      newCall = `${targetVar} = sm.create_sphere(${pStr}, ${r})`;
+      break;
+    }
+    case 'cone': {
+      const rb = (newDims.radiusBase ?? 5.0).toFixed(2);
+      const rt = (newDims.radiusTop ?? 0.0).toFixed(2);
+      const h = (newDims.height ?? 10.0).toFixed(2);
+      newCall = `${targetVar} = sm.create_cone(${pStr}, radius_base=${rb}, radius_top=${rt}, height=${h})`;
+      break;
+    }
+    case 'torus': {
+      const rMaj = (newDims.majorRadius ?? 6.0).toFixed(2);
+      const rMin = (newDims.minorRadius ?? 1.5).toFixed(2);
+      newCall = `${targetVar} = sm.create_torus(${pStr}, ${rMaj}, ${rMin})`;
+      break;
+    }
+    case 'wedge': {
+      const w = (newDims.width ?? 6.0).toFixed(2);
+      const d = (newDims.depth ?? 6.0).toFixed(2);
+      const h = (newDims.height ?? 4.0).toFixed(2);
+      newCall = `${targetVar} = sm.create_wedge(${pStr}, ${w}, ${d}, ${h})`;
+      break;
+    }
+    default:
+      return { updatedCode: code, success: false };
+  }
+
+  // Regex to replace only the specific assignment statement for targetVar
+  const lineRegex = new RegExp(
+    `^(\\s*)${targetVar}\\s*=\\s*sm\\.create_${current.primitiveType}\\s*\\(.*\\)\\s*$`,
+    'm'
+  );
+
+  const match = code.match(lineRegex);
+  if (!match) {
+    return { updatedCode: code, success: false };
+  }
+
+  const indent = match[1];
+  const updatedCode = code.replace(lineRegex, `${indent}${newCall}`);
+  return { updatedCode, success: true };
+}
