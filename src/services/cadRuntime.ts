@@ -1428,6 +1428,61 @@ export async function evaluateClientSideUsdBrep(
         }
         return;
       }
+
+      // 13. sm.fillet_edges(brep, edges, radius=...) and sm.chamfer_edges(brep, edges, distance=...)
+      if (funcName === 'fillet_edges' || funcName === 'chamfer_edges') {
+        const targetVar = positional[0] || kwargs['brep'] || kwargs['target'];
+        const radiusStr = kwargs['radius'] || kwargs['distance'] || kwargs['d'] || positional[2] || '0';
+        const radius = evalNum(radiusStr);
+
+        if (targetVar && shapes[targetVar] && radius > 0) {
+          const target = shapes[targetVar];
+          if (target.manifold && wasm?.CrossSection) {
+            try {
+              const bounds = target.manifold.boundingBox();
+              const extX = bounds.max[0] - bounds.min[0];
+              const extY = bounds.max[1] - bounds.min[1];
+              const extZ = bounds.max[2] - bounds.min[2];
+              const expand = 2.0; // Margin to ensure clean cuts
+
+              const joinType = funcName === 'fillet_edges' ? 'Round' : 'Square';
+              const segments = funcName === 'fillet_edges' ? 16 : 0;
+
+              // Z-axis cut
+              const projZ = target.manifold.project();
+              const cutZ = projZ
+                .offset(-radius, 'Miter')
+                .offset(radius, joinType, 0, segments)
+                .extrude(extZ + expand)
+                .translate([0, 0, bounds.min[2] - expand / 2]);
+
+              // X-axis cut (Rotate around Y by 90 to project onto XY plane: Z->X, X->-Z)
+              const projX = target.manifold.rotate([0, 90, 0]).project();
+              const cutX = projX
+                .offset(-radius, 'Miter')
+                .offset(radius, joinType, 0, segments)
+                .extrude(extX + expand)
+                .translate([0, 0, -bounds.max[0] - expand / 2])
+                .rotate([0, -90, 0]);
+
+              // Y-axis cut (Rotate around X by -90 to project onto XY plane: Y->Z, Z->-Y)
+              const projY = target.manifold.rotate([-90, 0, 0]).project();
+              const cutY = projY
+                .offset(-radius, 'Miter')
+                .offset(radius, joinType, 0, segments)
+                .extrude(extY + expand)
+                .translate([0, 0, -bounds.max[1] - expand / 2])
+                .rotate([90, 0, 0]);
+
+              target.manifold = target.manifold.intersect(cutZ).intersect(cutX).intersect(cutY);
+            } catch (err) {
+              console.warn('Manifold CSG cutter failed for ' + funcName, err);
+            }
+          }
+        }
+        return;
+      }
+
     }
   }
 

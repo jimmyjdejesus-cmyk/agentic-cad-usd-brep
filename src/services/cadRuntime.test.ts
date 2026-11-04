@@ -468,6 +468,41 @@ def build_parts():
     expect(res.error).toContain('SM_ERR_INVALID_INPUT');
   });
 
+  
+  it('correctly executes sm.fillet_edges modifying volume of target', async () => {
+    const code = `import usd_brep as sm
+def build_parts():
+    box = sm.create_box((0.0, 0.0, 0.0), 10.0, 10.0, 10.0)
+    sm.fillet_edges(box, box.edges(), radius=2.0)
+    return [("filleted_box", box, (0.3, 0.6, 0.9), "anchor")]
+`;
+    const res = await evaluateClientSideUsdBrep(code, 'FilletTest');
+    expect(res.success).toBe(true);
+    expect(res.parts?.length).toBe(1);
+    const part = res.parts![0];
+    expect(part.diagnostics.manifold).toBe(true);
+    // Original volume 1000. Fillet takes off edge volume.
+    expect(part.diagnostics.volume).toBeLessThan(1000);
+    expect(part.diagnostics.volume).toBeGreaterThan(800);
+  });
+
+  it('correctly executes sm.chamfer_edges modifying volume of target', async () => {
+    const code = `import usd_brep as sm
+def build_parts():
+    box = sm.create_box((0.0, 0.0, 0.0), 10.0, 10.0, 10.0)
+    sm.chamfer_edges(box, box.edges(), distance=2.0)
+    return [("chamfered_box", box, (0.3, 0.6, 0.9), "anchor")]
+`;
+    const res = await evaluateClientSideUsdBrep(code, 'ChamferTest');
+    expect(res.success).toBe(true);
+    expect(res.parts?.length).toBe(1);
+    const part = res.parts![0];
+    expect(part.diagnostics.manifold).toBe(true);
+    // Original volume 1000. Chamfer takes off edge volume.
+    expect(part.diagnostics.volume).toBeLessThan(1000);
+    expect(part.diagnostics.volume).toBeGreaterThan(700);
+  });
+
   describe('ISS-301: Structured Multi-Line Python Expression & Block Evaluator', () => {
     it('evaluates multi-line formatted sm.create_box, sm.create_cylinder, and sm.boolean_difference identically to single-line calls', async () => {
       const multiLineCode = `import usd_brep as sm
