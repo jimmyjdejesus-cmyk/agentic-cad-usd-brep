@@ -541,7 +541,7 @@
       "epicId": "EPIC-3",
       "milestoneId": "M3",
       "title": "[v1.4.0] Real 2D Profile Extrusion & Path Sweep in Browser Kernel",
-      "status": "open",
+      "status": "completed",
       "labels": [
         "type:sub-issue",
         "area:cad-kernel",

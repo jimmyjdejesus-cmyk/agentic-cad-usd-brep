@@ -634,5 +634,65 @@ def build_parts():
       expect(res.parts?.length).toBe(1);
       expect(res.parts![0].diagnostics.manifold).toBe(true);
     });
+
+    it('extrudes closed 2D polygon profile into watertight 2-manifold solid via sm.linear_sweep', async () => {
+      const extrusionCode = `import usd_brep as sm
+def build_parts():
+    # L-bracket 2D profile (6x8 overall, 2cm thick)
+    profile = [(0.0, 0.0), (6.0, 0.0), (6.0, 2.0), (2.0, 2.0), (2.0, 8.0), (0.0, 8.0)]
+    bracket = sm.linear_sweep(profile, direction=(0.0, 0.0, 1.0), distance=5.0)
+    return [("l_bracket", bracket, (0.2, 0.6, 0.8), "anchor")]
+`;
+      const res = await evaluateClientSideUsdBrep(extrusionCode, 'LBracketTest');
+      expect(res.success).toBe(true);
+      expect(res.summary?.all_manifold).toBe(true);
+      const part = res.parts![0];
+      expect(part.diagnostics.manifold).toBe(true);
+      // Profile area = 6*2 + 2*6 = 24 cm^2; volume for height 5 = 120 cm^3
+      expect(part.diagnostics.volume).toBeGreaterThan(115);
+      expect(part.diagnostics.volume).toBeLessThan(125);
+      expect(part.diagnostics.bounds[0][0]).toBeCloseTo(0.0, 1);
+      expect(part.diagnostics.bounds[1][0]).toBeCloseTo(6.0, 1);
+      expect(part.diagnostics.bounds[1][1]).toBeCloseTo(8.0, 1);
+      expect(part.diagnostics.bounds[1][2]).toBeCloseTo(5.0, 1);
+    });
+
+    it('follows actual path vertices in sm.sweep_along_planar_path and computes accurate bounds', async () => {
+      const sweepCode = `import usd_brep as sm
+def build_parts():
+    path = [(0.0, 0.0, 0.0), (20.0, 0.0, 0.0), (20.0, 15.0, 0.0)]
+    pipe = sm.sweep_along_planar_path(radius=1.5, path=path)
+    return [("planar_pipe", pipe, (0.9, 0.4, 0.1), "component")]
+`;
+      const res = await evaluateClientSideUsdBrep(sweepCode, 'PlanarSweepTest');
+      expect(res.success).toBe(true);
+      expect(res.summary?.all_manifold).toBe(true);
+      const part = res.parts![0];
+      expect(part.diagnostics.manifold).toBe(true);
+      // Extent along X reaches ~20 (with radius 1.5, bounds max X >= 21.0)
+      expect(part.diagnostics.bounds[1][0]).toBeGreaterThanOrEqual(21.0);
+      // Extent along Y reaches path endpoint 15.0
+      expect(part.diagnostics.bounds[1][1]).toBeGreaterThanOrEqual(15.0);
+      // Total path length = 20 + 15 = 35. Volume = pi * 1.5^2 * 35 ~= 247.4
+      expect(part.diagnostics.volume).toBeGreaterThan(200);
+    });
+
+    it('sweeps closed 2D polygon profile along planar path segments into solid manifold', async () => {
+      const sweptProfileCode = `import usd_brep as sm
+def build_parts():
+    profile = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+    path = [(0.0, 0.0, 0.0), (12.0, 0.0, 0.0), (12.0, 8.0, 0.0)]
+    duct = sm.sweep_along_planar_path(profile=profile, path=path)
+    return [("square_duct", duct, (0.4, 0.7, 0.4), "anchor")]
+`;
+      const res = await evaluateClientSideUsdBrep(sweptProfileCode, 'SquareDuctTest');
+      expect(res.success).toBe(true);
+      expect(res.summary?.all_manifold).toBe(true);
+      const part = res.parts![0];
+      expect(part.diagnostics.manifold).toBe(true);
+      expect(part.diagnostics.volume).toBeGreaterThan(50);
+      expect(part.diagnostics.bounds[1][0]).toBeGreaterThanOrEqual(12.0);
+      expect(part.diagnostics.bounds[1][1]).toBeGreaterThanOrEqual(8.0);
+    });
   });
 });

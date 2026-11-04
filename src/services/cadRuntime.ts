@@ -844,6 +844,72 @@ export async function evaluateClientSideUsdBrep(
     'math.pi': Math.PI,
     'math.e': Math.E,
   };
+  const listVariables: Record<string, Array<[number, number] | [number, number, number]>> = {};
+  const circleProfiles: Record<string, { radius: number; center: [number, number, number] }> = {};
+
+  const computePolygonArea = (poly: Array<[number, number] | [number, number, number]>): number => {
+    let area = 0;
+    const n = poly.length;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      area += poly[i][0] * poly[j][1];
+      area -= poly[j][0] * poly[i][1];
+    }
+    return Math.abs(area) / 2;
+  };
+
+  const computePolygonPerimeter = (poly: Array<[number, number] | [number, number, number]>): number => {
+    let perim = 0;
+    const n = poly.length;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      perim += Math.hypot(poly[j][0] - poly[i][0], poly[j][1] - poly[i][1]);
+    }
+    return perim;
+  };
+
+  const parsePointsList = (expr: string): Array<[number, number] | [number, number, number]> => {
+    const trimmed = expr.trim();
+    if (trimmed in listVariables) {
+      return listVariables[trimmed];
+    }
+
+    const points: Array<[number, number] | [number, number, number]> = [];
+
+    // Extract create_line_segment calls if present
+    const segmentRegex = /sm\.create_line_segment\s*\(\s*\(([^)]+)\)\s*,\s*\(([^)]+)\)\s*\)/g;
+    let segMatch;
+    let foundSegments = false;
+    while ((segMatch = segmentRegex.exec(trimmed)) !== null) {
+      foundSegments = true;
+      const p1 = parseVec3(`(${segMatch[1]})`);
+      const p2 = parseVec3(`(${segMatch[2]})`);
+      if (points.length === 0) {
+        points.push(p1);
+      }
+      points.push(p2);
+    }
+
+    if (foundSegments && points.length > 0) {
+      return points;
+    }
+
+    // Match point tuples/arrays: (x, y, z) or (x, y) or [x, y, z] or [x, y]
+    const tupleRegex = /(?:\(|\b|^\[)\s*([^,()\[\]]+)\s*,\s*([^,()\[\]]+)(?:\s*,\s*([^,()\[\]]+))?\s*(?:\)|\b|\]$)/g;
+    let match;
+    while ((match = tupleRegex.exec(trimmed)) !== null) {
+      const x = evalNum(match[1]);
+      const y = evalNum(match[2]);
+      if (match[3] !== undefined && match[3].trim().length > 0) {
+        const z = evalNum(match[3]);
+        points.push([x, y, z]);
+      } else {
+        points.push([x, y]);
+      }
+    }
+
+    return points;
+  };
 
   const evalNum = (expr: string): number => {
     const trimmed = expr.trim().replace(/^[A-Za-z_]+\s*=\s*/, '');
@@ -971,6 +1037,15 @@ export async function evaluateClientSideUsdBrep(
       const varName = scalarMatch[1].trim();
       const val = evalNum(scalarMatch[2]);
       scalars[varName] = val;
+      return;
+    }
+
+    // List/array variable assignment: e.g. path = [(0,0,0), ...] or profile = [(0,0), ...]
+    const listMatch = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\[[\s\S]*\])$/);
+    if (listMatch && !line.includes('sm.')) {
+      const varName = listMatch[1].trim();
+      const listContent = listMatch[2].trim();
+      listVariables[varName] = parsePointsList(listContent);
       return;
     }
 
@@ -1237,31 +1312,260 @@ export async function evaluateClientSideUsdBrep(
         return;
       }
 
-      // 7. sm.sweep_along_planar_path
-      if (funcName === 'sweep_along_planar_path' && varName) {
-        const side = scalars.side || 12.0;
-        const radius = scalars.radius || 1.4;
-        const geom = new THREE.TorusGeometry(side / 2, radius, 20, 40);
-        geom.translate(side / 2, side / 2, 0);
+      // 7. 2D Curve primitives (sm.create_circle, sm.create_line_segment, sm.create_polygon)
+      if (funcName === 'create_circle' && varName) {
+        const centerStr = kwargs['center'] || kwargs['orig'] || positional[0] || '(0,0,0)';
+        const rStr = kwargs['radius'] || kwargs['r'] || positional[1] || '1.0';
+        const [cx, cy, cz] = parseVec3(centerStr);
+        const r = evalNum(rStr);
+        circleProfiles[varName] = { radius: r, center: [cx, cy, cz] };
+        return;
+      }
 
+      if (funcName === 'create_line_segment' && varName) {
+        const p1 = parseVec3(positional[0] || kwargs['start'] || '(0,0,0)');
+        const p2 = parseVec3(positional[1] || kwargs['end'] || '(0,0,0)');
+        listVariables[varName] = [p1, p2];
+        return;
+      }
+
+      if ((funcName === 'create_polygon' || funcName === 'create_polyline') && varName) {
+        const ptsArg = positional[0] || kwargs['points'] || '[]';
+        listVariables[varName] = parsePointsList(ptsArg);
+        return;
+      }
+
+      // 8. sm.linear_sweep / sm.extrude_polygon / sm.extrude / sm.create_prism
+      if ((funcName === 'linear_sweep' || funcName === 'extrude_polygon' || funcName === 'extrude' || funcName === 'create_prism') && varName) {
+        const profArg = kwargs['curves'] || kwargs['profile'] || kwargs['points'] || kwargs['polygon'] || positional[0] || '';
+        const distArg = kwargs['distance'] || kwargs['height'] || kwargs['depth'] || positional[2] || positional[1] || '10.0';
+        const dirArg = kwargs['direction'] || (positional.length >= 3 ? positional[1] : '(0,0,1)');
+
+        const height = Math.abs(evalNum(distArg)) || 10.0;
+        const [dx, dy, dz] = parseVec3(dirArg);
+        let polyPts = parsePointsList(profArg);
+
+        if (polyPts.length < 3) {
+          polyPts = [[0, 0], [5, 0], [5, 5], [0, 5]];
+        }
+
+        const poly2d: Array<[number, number]> = polyPts.map((p) => [p[0], p[1]]);
         let manifoldSolid: any = null;
         if (wasm?.CrossSection) {
-          manifoldSolid = wasm.CrossSection.circle(radius, 24)
-            .translate([side / 2, 0])
-            .revolve(36)
-            .translate([side / 2, side / 2, 0]);
+          try {
+            const cs = wasm.CrossSection.ofPolygons([poly2d]);
+            manifoldSolid = cs.extrude(height);
+            if (dx !== 0 || dy !== 0 || dz !== 1) {
+              const from = new THREE.Vector3(0, 0, 1);
+              const to = new THREE.Vector3(dx, dy, dz).normalize();
+              if (to.lengthSq() > 0.001) {
+                const q = new THREE.Quaternion().setFromUnitVectors(from, to);
+                const rotMat = new THREE.Matrix4().makeRotationFromQuaternion(q);
+                manifoldSolid = manifoldSolid.transform(Array.from(rotMat.elements));
+              }
+            }
+          } catch (err) {
+            console.warn('Linear sweep CrossSection extrusion failed:', err);
+          }
         }
+
+        const shape = new THREE.Shape();
+        shape.moveTo(poly2d[0][0], poly2d[0][1]);
+        for (let k = 1; k < poly2d.length; k++) {
+          shape.lineTo(poly2d[k][0], poly2d[k][1]);
+        }
+        shape.closePath();
+
+        const geom = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
+        if (dx !== 0 || dy !== 0 || dz !== 1) {
+          const from = new THREE.Vector3(0, 0, 1);
+          const to = new THREE.Vector3(dx, dy, dz).normalize();
+          if (to.lengthSq() > 0.001) {
+            const q = new THREE.Quaternion().setFromUnitVectors(from, to);
+            const rotMat = new THREE.Matrix4().makeRotationFromQuaternion(q);
+            geom.applyMatrix4(rotMat);
+          }
+        }
+        geom.computeVertexNormals();
+
+        const polyArea = computePolygonArea(poly2d);
+        const polyPerim = computePolygonPerimeter(poly2d);
 
         shapes[varName] = {
           geometries: [geom],
           manifold: manifoldSolid,
-          nurbsFaces: 8,
-          nurbsEdges: 16,
-          nurbsVertices: 8,
-          volumeEstimate: 2 * Math.PI * Math.PI * (side / 2) * radius * radius,
-          areaEstimate: 4 * Math.PI * Math.PI * (side / 2) * radius,
+          nurbsFaces: poly2d.length + 2,
+          nurbsEdges: poly2d.length * 3,
+          nurbsVertices: poly2d.length * 2,
+          volumeEstimate: polyArea * height,
+          areaEstimate: polyPerim * height + 2 * polyArea,
         };
         return;
+      }
+
+      // 9. sm.sweep_along_planar_path or sm.pipe_sweep
+      if ((funcName === 'sweep_along_planar_path' || funcName === 'pipe_sweep') && varName) {
+        const profArg = kwargs['profile_curves'] || kwargs['profile'] || positional[0] || '';
+        const pathArg = kwargs['path_curves'] || kwargs['path'] || positional[1] || positional[0] || '';
+
+        // Check if profile is a circle profile or has radius specified
+        let circleRadius: number | null = null;
+        if (funcName === 'pipe_sweep' || kwargs['radius'] || kwargs['r'] || scalars.radius) {
+          circleRadius = evalNum(kwargs['radius'] || kwargs['r'] || String(scalars.radius || 1.4));
+        } else if (profArg in circleProfiles) {
+          circleRadius = circleProfiles[profArg].radius;
+        } else {
+          const circleMatch = profArg.match(/create_circle\s*\([^,]+,\s*([^)]+)\)/);
+          if (circleMatch) {
+            circleRadius = evalNum(circleMatch[1]);
+          }
+        }
+
+        // Check if profile is a polygon
+        let polyPts = circleRadius === null ? parsePointsList(profArg) : [];
+        let pathPts = parsePointsList(pathArg);
+
+        if (pathPts.length < 2) {
+          // Fallback default path using side if provided
+          const side = scalars.side || 12.0;
+          pathPts = [
+            [0.0, 0.0, 0.0],
+            [side, 0.0, 0.0],
+            [side, side, 0.0],
+          ];
+        }
+
+        if (circleRadius === null && polyPts.length < 3) {
+          // Default circular profile if no polygon points detected
+          circleRadius = scalars.radius || 1.4;
+        }
+
+        const geometries: THREE.BufferGeometry[] = [];
+        let combinedManifold: any = null;
+
+        if (circleRadius !== null && circleRadius > 0) {
+          // Pipe sweep along path segments with spherical elbows at corners
+          const r = circleRadius;
+
+          for (let i = 0; i < pathPts.length - 1; i++) {
+            const p1 = pathPts[i];
+            const p2 = pathPts[i + 1];
+            const dx = p2[0] - p1[0];
+            const dy = p2[1] - p1[1];
+            const dz = (p2[2] || 0) - (p1[2] || 0);
+            const len = Math.hypot(dx, dy, dz);
+            if (len < 1e-5) continue;
+
+            if (wasm?.Manifold) {
+              try {
+                let segSolid = wasm.Manifold.cylinder(len, r, r, 24, false);
+                const from = new THREE.Vector3(0, 0, 1);
+                const to = new THREE.Vector3(dx, dy, dz).normalize();
+                const q = new THREE.Quaternion().setFromUnitVectors(from, to);
+                const rotMat = new THREE.Matrix4().makeRotationFromQuaternion(q);
+                segSolid = segSolid.transform(Array.from(rotMat.elements)).translate([p1[0], p1[1], p1[2] || 0]);
+                combinedManifold = combinedManifold ? combinedManifold.add(segSolid) : segSolid;
+
+                // Corner spherical elbow if there is a next segment
+                if (i < pathPts.length - 2) {
+                  const elbow = wasm.Manifold.sphere(r, 24).translate([p2[0], p2[1], p2[2] || 0]);
+                  combinedManifold = combinedManifold.add(elbow);
+                }
+              } catch (err) {
+                console.warn('Manifold pipe segment failed:', err);
+              }
+            }
+          }
+
+          // Three.js TubeGeometry for continuous visual display
+          const curvePath = new THREE.CurvePath<THREE.Vector3>();
+          for (let i = 0; i < pathPts.length - 1; i++) {
+            curvePath.add(new THREE.LineCurve3(
+              new THREE.Vector3(pathPts[i][0], pathPts[i][1], pathPts[i][2] || 0),
+              new THREE.Vector3(pathPts[i + 1][0], pathPts[i + 1][1], pathPts[i + 1][2] || 0)
+            ));
+          }
+          const tubeGeom = new THREE.TubeGeometry(curvePath, Math.max(24, pathPts.length * 12), r, 24, false);
+          tubeGeom.computeVertexNormals();
+          geometries.push(tubeGeom);
+
+          // Calculate total path length
+          let totalLen = 0;
+          for (let i = 0; i < pathPts.length - 1; i++) {
+            totalLen += Math.hypot(
+              pathPts[i + 1][0] - pathPts[i][0],
+              pathPts[i + 1][1] - pathPts[i][1],
+              (pathPts[i + 1][2] || 0) - (pathPts[i][2] || 0)
+            );
+          }
+
+          shapes[varName] = {
+            geometries,
+            manifold: combinedManifold,
+            nurbsFaces: pathPts.length * 2,
+            nurbsEdges: pathPts.length * 4,
+            nurbsVertices: pathPts.length * 2,
+            volumeEstimate: Math.PI * r * r * totalLen,
+            areaEstimate: 2 * Math.PI * r * totalLen + 2 * Math.PI * r * r,
+          };
+          return;
+        } else if (polyPts.length >= 3) {
+          // CrossSection 2D polygon profile swept along path
+          const poly2d: Array<[number, number]> = polyPts.map((p) => [p[0], p[1]]);
+          const polyArea = computePolygonArea(poly2d);
+          const polyPerim = computePolygonPerimeter(poly2d);
+          let totalLen = 0;
+
+          for (let i = 0; i < pathPts.length - 1; i++) {
+            const p1 = pathPts[i];
+            const p2 = pathPts[i + 1];
+            const dx = p2[0] - p1[0];
+            const dy = p2[1] - p1[1];
+            const dz = (p2[2] || 0) - (p1[2] || 0);
+            const len = Math.hypot(dx, dy, dz);
+            if (len < 1e-5) continue;
+            totalLen += len;
+
+            const from = new THREE.Vector3(0, 0, 1);
+            const to = new THREE.Vector3(dx, dy, dz).normalize();
+            const q = new THREE.Quaternion().setFromUnitVectors(from, to);
+            const rotMat = new THREE.Matrix4().makeRotationFromQuaternion(q);
+
+            if (wasm?.CrossSection) {
+              try {
+                const cs = wasm.CrossSection.ofPolygons([poly2d]);
+                let segSolid = cs.extrude(len);
+                segSolid = segSolid.transform(Array.from(rotMat.elements)).translate([p1[0], p1[1], p1[2] || 0]);
+                combinedManifold = combinedManifold ? combinedManifold.add(segSolid) : segSolid;
+              } catch (err) {
+                console.warn('Manifold CrossSection sweep segment failed:', err);
+              }
+            }
+
+            const shape = new THREE.Shape();
+            shape.moveTo(poly2d[0][0], poly2d[0][1]);
+            for (let k = 1; k < poly2d.length; k++) {
+              shape.lineTo(poly2d[k][0], poly2d[k][1]);
+            }
+            shape.closePath();
+            const segGeom = new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false });
+            segGeom.applyMatrix4(rotMat);
+            segGeom.translate(p1[0], p1[1], p1[2] || 0);
+            segGeom.computeVertexNormals();
+            geometries.push(segGeom);
+          }
+
+          shapes[varName] = {
+            geometries,
+            manifold: combinedManifold,
+            nurbsFaces: pathPts.length * poly2d.length + 2,
+            nurbsEdges: pathPts.length * poly2d.length * 2,
+            nurbsVertices: pathPts.length * poly2d.length,
+            volumeEstimate: polyArea * totalLen,
+            areaEstimate: polyPerim * totalLen + 2 * polyArea,
+          };
+          return;
+        }
       }
 
       // 8. sm.translate(target, (dx, dy, dz))
