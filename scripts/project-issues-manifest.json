@@ -3,16 +3,56 @@
   "repository": "jimmyjdejesus-cmyk/agentic-cad-usd-brep",
   "targetUx": "3D modeling parts for 3D printers and CNC machines with clean direct editing and an agentic copilot workflow",
   "labels": [
-    { "name": "type:epic", "color": "5319E7", "description": "Milestone parent epic tracking multiple sub-issues and release exit gates" },
-    { "name": "type:sub-issue", "color": "1D76DB", "description": "Granular engineering sub-issue linked to a parent epic" },
-    { "name": "area:3d-printing", "color": "0E8A16", "description": "STL/3MF export, millimeter scaling, slicer preview, and overhang preflight" },
-    { "name": "area:cnc-cam", "color": "D93F0B", "description": "2.5D CNC toolpaths, G-code post-processor, DXF flat patterns, and dogbone relief" },
-    { "name": "area:cad-kernel", "color": "0052CC", "description": "NVIDIA usd-brep Python backend and in-browser manifold-3d WebAssembly CSG engine" },
-    { "name": "area:viewport-ux", "color": "FBCA04", "description": "Three.js 3D viewport, transform gizmos, parametric inspector, and direct editing" },
-    { "name": "area:copilot-dfm", "color": "B60205", "description": "Agentic copilot, AST code mutation, selection context, and DFM auto-repair" },
-    { "name": "priority:p0-blocker", "color": "E11D48", "description": "Release-blocking requirement for the current milestone" },
-    { "name": "priority:p1-high", "color": "F59E0B", "description": "High-impact maker workflow improvement" },
-    { "name": "good first issue", "color": "7057FF", "description": "Well-scoped sub-issue ideal for new contributors and forkers" }
+    {
+      "name": "type:epic",
+      "color": "5319E7",
+      "description": "Milestone parent epic tracking multiple sub-issues and release exit gates"
+    },
+    {
+      "name": "type:sub-issue",
+      "color": "1D76DB",
+      "description": "Granular engineering sub-issue linked to a parent epic"
+    },
+    {
+      "name": "area:3d-printing",
+      "color": "0E8A16",
+      "description": "STL/3MF export, millimeter scaling, slicer preview, and overhang preflight"
+    },
+    {
+      "name": "area:cnc-cam",
+      "color": "D93F0B",
+      "description": "2.5D CNC toolpaths, G-code post-processor, DXF flat patterns, and dogbone relief"
+    },
+    {
+      "name": "area:cad-kernel",
+      "color": "0052CC",
+      "description": "NVIDIA usd-brep Python backend and in-browser manifold-3d WebAssembly CSG engine"
+    },
+    {
+      "name": "area:viewport-ux",
+      "color": "FBCA04",
+      "description": "Three.js 3D viewport, transform gizmos, parametric inspector, and direct editing"
+    },
+    {
+      "name": "area:copilot-dfm",
+      "color": "B60205",
+      "description": "Agentic copilot, AST code mutation, selection context, and DFM auto-repair"
+    },
+    {
+      "name": "priority:p0-blocker",
+      "color": "E11D48",
+      "description": "Release-blocking requirement for the current milestone"
+    },
+    {
+      "name": "priority:p1-high",
+      "color": "F59E0B",
+      "description": "High-impact maker workflow improvement"
+    },
+    {
+      "name": "good first issue",
+      "color": "7057FF",
+      "description": "Well-scoped sub-issue ideal for new contributors and forkers"
+    }
   ],
   "milestones": [
     {
@@ -92,41 +132,86 @@
       "id": "EPIC-1",
       "milestoneId": "M1",
       "title": "[EPIC v1.2.0] True-Scale Maker Baseline, Model-Agnostic AI Harness & UI Focus",
-      "labels": ["type:epic", "area:3d-printing", "priority:p0-blocker"],
+      "labels": [
+        "type:epic",
+        "area:3d-printing",
+        "priority:p0-blocker"
+      ],
       "summary": "Establish a rock-solid baseline for 3D printing and laser/CNC makers by shipping 10x millimeter STL scaling, model-agnostic local/cloud AI harness standardization, clean preset switching, and an opt-in toggle for experimental non-maker modules.",
-      "subIssueIds": ["ISS-101", "ISS-102", "ISS-103", "ISS-104"]
+      "subIssueIds": [
+        "ISS-101",
+        "ISS-102",
+        "ISS-103",
+        "ISS-104"
+      ]
     },
     {
       "id": "EPIC-2",
       "milestoneId": "M2",
       "title": "[EPIC v1.3.0] Precision Direct Viewport Editing, 3D Gizmos & Parametric Inspector",
-      "labels": ["type:epic", "area:viewport-ux", "priority:p0-blocker"],
+      "labels": [
+        "type:epic",
+        "area:viewport-ux",
+        "priority:p0-blocker"
+      ],
       "summary": "Enable clean direct manipulation in the 3D viewport and sidebar inspector so makers can position, resize, and boolean-combine parts visually with bi-directional Python code synchronization.",
-      "subIssueIds": ["ISS-201", "ISS-202", "ISS-203", "ISS-204"]
+      "subIssueIds": [
+        "ISS-201",
+        "ISS-202",
+        "ISS-203",
+        "ISS-204"
+      ]
     },
     {
       "id": "EPIC-3",
       "milestoneId": "M3",
       "title": "[EPIC v1.4.0] Structured Browser CAD Parser, Fillets/Chamfers & Metric Fastener Catalog",
-      "labels": ["type:epic", "area:cad-kernel", "priority:p0-blocker"],
+      "labels": [
+        "type:epic",
+        "area:cad-kernel",
+        "priority:p0-blocker"
+      ],
       "summary": "Eliminate single-line regex limitations in the browser CAD evaluator and add real chamfer/fillet approximations, path sweeps, and a standard M2-M8 metric hardware and heat-set insert library.",
-      "subIssueIds": ["ISS-301", "ISS-302", "ISS-303", "ISS-304"]
+      "subIssueIds": [
+        "ISS-301",
+        "ISS-302",
+        "ISS-303",
+        "ISS-304"
+      ]
     },
     {
       "id": "EPIC-4",
       "milestoneId": "M4",
       "title": "[EPIC v1.5.0] Context-Aware Copilot (Selection Pinning, @Part Targeting & DFM Loop)",
-      "labels": ["type:epic", "area:copilot-dfm", "priority:p1-high"],
+      "labels": [
+        "type:epic",
+        "area:copilot-dfm",
+        "priority:p1-high"
+      ],
       "summary": "Connect 3D viewport selection and surface/vertex annotation pins directly to the AI copilot and enforce automated Design-for-Manufacturing (DFM) rules for 3D printers and CNC mills.",
-      "subIssueIds": ["ISS-401", "ISS-402", "ISS-403", "ISS-404"]
+      "subIssueIds": [
+        "ISS-401",
+        "ISS-402",
+        "ISS-403",
+        "ISS-404"
+      ]
     },
     {
       "id": "EPIC-5",
       "milestoneId": "M5",
       "title": "[EPIC v2.0.0] 2.5D Multi-Depth CNC CAM, Pocket Clearing & 3MF / STEP Interop",
-      "labels": ["type:epic", "area:cnc-cam", "priority:p1-high"],
+      "labels": [
+        "type:epic",
+        "area:cnc-cam",
+        "priority:p1-high"
+      ],
       "summary": "Upgrade the CAM studio from single-slice perimeter offsetting to full 2.5D multi-depth CNC machining (pocket clearing, peck drilling, dogbone relief) plus native .3mf and .step export.",
-      "subIssueIds": ["ISS-501", "ISS-502", "ISS-503", "ISS-504"]
+      "subIssueIds": [
+        "ISS-501",
+        "ISS-502",
+        "ISS-503",
+        "ISS-504"
+      ]
     }
   ],
   "subIssues": [
@@ -136,9 +221,16 @@
       "milestoneId": "M1",
       "title": "[v1.2.0] 10x Millimeter Slicer STL Scaling & Export Unit Toggle",
       "status": "completed",
-      "labels": ["type:sub-issue", "area:3d-printing", "priority:p0-blocker"],
+      "labels": [
+        "type:sub-issue",
+        "area:3d-printing",
+        "priority:p0-blocker"
+      ],
       "dependsOn": [],
-      "blocks": ["ISS-102", "ISS-504"],
+      "blocks": [
+        "ISS-102",
+        "ISS-504"
+      ],
       "targetFiles": [
         "src/services/cadRuntime.ts",
         "src/services/cadRuntime.test.ts",
@@ -159,9 +251,19 @@
       "milestoneId": "M1",
       "title": "[v1.2.0] Viewport Dimension Readout & Grid Unit Toggle (mm vs. cm)",
       "status": "completed",
-      "labels": ["type:sub-issue", "area:viewport-ux", "area:3d-printing", "good first issue"],
-      "dependsOn": ["ISS-101"],
-      "blocks": ["ISS-201", "ISS-202"],
+      "labels": [
+        "type:sub-issue",
+        "area:viewport-ux",
+        "area:3d-printing",
+        "good first issue"
+      ],
+      "dependsOn": [
+        "ISS-101"
+      ],
+      "blocks": [
+        "ISS-201",
+        "ISS-202"
+      ],
       "targetFiles": [
         "src/components/Viewport3D.tsx",
         "src/components/MassPropertiesPanel.tsx",
@@ -180,9 +282,16 @@
       "milestoneId": "M1",
       "title": "[v1.2.0] Model-Agnostic & Harness-Agnostic AI Router (Local Sockets & Cloud Gateways)",
       "status": "completed",
-      "labels": ["type:sub-issue", "area:copilot-dfm", "priority:p0-blocker", "good first issue"],
+      "labels": [
+        "type:sub-issue",
+        "area:copilot-dfm",
+        "priority:p0-blocker",
+        "good first issue"
+      ],
       "dependsOn": [],
-      "blocks": ["ISS-401"],
+      "blocks": [
+        "ISS-401"
+      ],
       "targetFiles": [
         "server.ts",
         "src/services/geminiAgent.ts",
@@ -203,9 +312,15 @@
       "milestoneId": "M1",
       "title": "[v1.2.0] Isolate Experimental AMD EDA Silicon Studio Behind Opt-In Mode",
       "status": "completed",
-      "labels": ["type:sub-issue", "area:viewport-ux", "good first issue"],
+      "labels": [
+        "type:sub-issue",
+        "area:viewport-ux",
+        "good first issue"
+      ],
       "dependsOn": [],
-      "blocks": ["ISS-204"],
+      "blocks": [
+        "ISS-204"
+      ],
       "targetFiles": [
         "src/App.tsx",
         "src/components/AmdEdaSiliconStudio.tsx"
@@ -222,9 +337,21 @@
       "milestoneId": "M2",
       "title": "[v1.3.0] Target-Scoped AST Dimension Mutation & Multi-Line CSG Boolean Parser",
       "status": "completed",
-      "labels": ["type:sub-issue", "area:cad-kernel", "area:copilot-dfm", "priority:p0-blocker", "good first issue"],
-      "dependsOn": ["ISS-102"],
-      "blocks": ["ISS-202", "ISS-203", "ISS-401"],
+      "labels": [
+        "type:sub-issue",
+        "area:cad-kernel",
+        "area:copilot-dfm",
+        "priority:p0-blocker",
+        "good first issue"
+      ],
+      "dependsOn": [
+        "ISS-102"
+      ],
+      "blocks": [
+        "ISS-202",
+        "ISS-203",
+        "ISS-401"
+      ],
       "targetFiles": [
         "src/services/parametricIntelligence.ts",
         "src/services/parametricIntelligence.test.ts",
@@ -244,9 +371,17 @@
       "milestoneId": "M2",
       "title": "[v1.3.0] Live Parametric Properties Inspector for Selected Part",
       "status": "completed",
-      "labels": ["type:sub-issue", "area:viewport-ux", "priority:p0-blocker"],
-      "dependsOn": ["ISS-201"],
-      "blocks": ["ISS-203"],
+      "labels": [
+        "type:sub-issue",
+        "area:viewport-ux",
+        "priority:p0-blocker"
+      ],
+      "dependsOn": [
+        "ISS-201"
+      ],
+      "blocks": [
+        "ISS-203"
+      ],
       "targetFiles": [
         "src/components/Viewport3D.tsx",
         "src/App.tsx",
@@ -265,9 +400,18 @@
       "milestoneId": "M2",
       "title": "[v1.3.0] Interactive 3D Viewport Transform Gizmos (Translate / Rotate / Scale + Snap)",
       "status": "open",
-      "labels": ["type:sub-issue", "area:viewport-ux", "priority:p1-high"],
-      "dependsOn": ["ISS-201", "ISS-202"],
-      "blocks": ["ISS-402"],
+      "labels": [
+        "type:sub-issue",
+        "area:viewport-ux",
+        "priority:p1-high"
+      ],
+      "dependsOn": [
+        "ISS-201",
+        "ISS-202"
+      ],
+      "blocks": [
+        "ISS-402"
+      ],
       "targetFiles": [
         "src/components/Viewport3D.tsx",
         "src/services/cadRuntime.ts"
@@ -285,8 +429,14 @@
       "milestoneId": "M2",
       "title": "[v1.3.0] Decompose Monolithic src/App.tsx into Focused Workspace Modules",
       "status": "open",
-      "labels": ["type:sub-issue", "area:viewport-ux", "good first issue"],
-      "dependsOn": ["ISS-104"],
+      "labels": [
+        "type:sub-issue",
+        "area:viewport-ux",
+        "good first issue"
+      ],
+      "dependsOn": [
+        "ISS-104"
+      ],
       "blocks": [],
       "targetFiles": [
         "src/App.tsx",
@@ -304,9 +454,19 @@
       "milestoneId": "M3",
       "title": "[v1.4.0] Structured Multi-Line Python Expression & Block Evaluator in cadRuntime.ts",
       "status": "completed",
-      "labels": ["type:sub-issue", "area:cad-kernel", "priority:p0-blocker"],
-      "dependsOn": ["ISS-201"],
-      "blocks": ["ISS-302", "ISS-303", "ISS-304"],
+      "labels": [
+        "type:sub-issue",
+        "area:cad-kernel",
+        "priority:p0-blocker"
+      ],
+      "dependsOn": [
+        "ISS-201"
+      ],
+      "blocks": [
+        "ISS-302",
+        "ISS-303",
+        "ISS-304"
+      ],
       "targetFiles": [
         "src/services/cadRuntime.ts",
         "src/services/cadRuntime.test.ts"
@@ -324,9 +484,17 @@
       "milestoneId": "M3",
       "title": "[v1.4.0] In-Browser Chamfers (`sm.chamfer_edges`) & Fillets (`sm.fillet_edges`) via Manifold-3D",
       "status": "open",
-      "labels": ["type:sub-issue", "area:cad-kernel", "priority:p1-high"],
-      "dependsOn": ["ISS-301"],
-      "blocks": ["ISS-404"],
+      "labels": [
+        "type:sub-issue",
+        "area:cad-kernel",
+        "priority:p1-high"
+      ],
+      "dependsOn": [
+        "ISS-301"
+      ],
+      "blocks": [
+        "ISS-404"
+      ],
       "targetFiles": [
         "src/services/cadRuntime.ts",
         "src/services/cadRuntime.test.ts",
@@ -343,10 +511,20 @@
       "epicId": "EPIC-3",
       "milestoneId": "M3",
       "title": "[v1.4.0] Metric Fastener, Counterbore, Heat-Set Insert & Extrusion Catalog",
-      "status": "open",
-      "labels": ["type:sub-issue", "area:3d-printing", "area:cnc-cam", "priority:p0-blocker", "good first issue"],
-      "dependsOn": ["ISS-301"],
-      "blocks": ["ISS-404"],
+      "status": "completed",
+      "labels": [
+        "type:sub-issue",
+        "area:3d-printing",
+        "area:cnc-cam",
+        "priority:p0-blocker",
+        "good first issue"
+      ],
+      "dependsOn": [
+        "ISS-301"
+      ],
+      "blocks": [
+        "ISS-404"
+      ],
       "targetFiles": [
         "src/services/csgEngine.ts",
         "src/services/csgEngine.test.ts",
@@ -364,8 +542,14 @@
       "milestoneId": "M3",
       "title": "[v1.4.0] Real 2D Profile Extrusion & Path Sweep in Browser Kernel",
       "status": "open",
-      "labels": ["type:sub-issue", "area:cad-kernel", "priority:p1-high"],
-      "dependsOn": ["ISS-301"],
+      "labels": [
+        "type:sub-issue",
+        "area:cad-kernel",
+        "priority:p1-high"
+      ],
+      "dependsOn": [
+        "ISS-301"
+      ],
       "blocks": [],
       "targetFiles": [
         "src/services/cadRuntime.ts",
@@ -383,9 +567,20 @@
       "milestoneId": "M4",
       "title": "[v1.5.0] Pass 3D Viewport Selection & Surface Pin Context into Copilot Turn API",
       "status": "open",
-      "labels": ["type:sub-issue", "area:copilot-dfm", "area:viewport-ux", "priority:p0-blocker"],
-      "dependsOn": ["ISS-103", "ISS-201"],
-      "blocks": ["ISS-402", "ISS-403"],
+      "labels": [
+        "type:sub-issue",
+        "area:copilot-dfm",
+        "area:viewport-ux",
+        "priority:p0-blocker"
+      ],
+      "dependsOn": [
+        "ISS-103",
+        "ISS-201"
+      ],
+      "blocks": [
+        "ISS-402",
+        "ISS-403"
+      ],
       "targetFiles": [
         "src/services/geminiAgent.ts",
         "server.ts",
@@ -403,9 +598,18 @@
       "milestoneId": "M4",
       "title": "[v1.5.0] Scoped Partial-Script Copilot Editing & Diff Preview",
       "status": "open",
-      "labels": ["type:sub-issue", "area:copilot-dfm", "priority:p1-high"],
-      "dependsOn": ["ISS-203", "ISS-401"],
-      "blocks": ["ISS-404"],
+      "labels": [
+        "type:sub-issue",
+        "area:copilot-dfm",
+        "priority:p1-high"
+      ],
+      "dependsOn": [
+        "ISS-203",
+        "ISS-401"
+      ],
+      "blocks": [
+        "ISS-404"
+      ],
       "targetFiles": [
         "src/services/geminiAgent.ts",
         "src/services/parametricIntelligence.ts",
@@ -423,9 +627,19 @@
       "milestoneId": "M4",
       "title": "[v1.5.0] Automated 3D Print & CNC DFM Validator in Copilot Self-Healing Loop",
       "status": "open",
-      "labels": ["type:sub-issue", "area:copilot-dfm", "area:3d-printing", "area:cnc-cam", "priority:p1-high"],
-      "dependsOn": ["ISS-401"],
-      "blocks": ["ISS-404"],
+      "labels": [
+        "type:sub-issue",
+        "area:copilot-dfm",
+        "area:3d-printing",
+        "area:cnc-cam",
+        "priority:p1-high"
+      ],
+      "dependsOn": [
+        "ISS-401"
+      ],
+      "blocks": [
+        "ISS-404"
+      ],
       "targetFiles": [
         "src/services/camService.ts",
         "src/services/geminiAgent.ts",
@@ -443,9 +657,22 @@
       "milestoneId": "M4",
       "title": "[v1.5.0] Canonical Maker Benchmark Fixture Suite (5 End-to-End Parts)",
       "status": "open",
-      "labels": ["type:sub-issue", "area:cad-kernel", "area:3d-printing", "area:cnc-cam", "priority:p0-blocker"],
-      "dependsOn": ["ISS-302", "ISS-303", "ISS-402", "ISS-403"],
-      "blocks": ["ISS-501"],
+      "labels": [
+        "type:sub-issue",
+        "area:cad-kernel",
+        "area:3d-printing",
+        "area:cnc-cam",
+        "priority:p0-blocker"
+      ],
+      "dependsOn": [
+        "ISS-302",
+        "ISS-303",
+        "ISS-402",
+        "ISS-403"
+      ],
+      "blocks": [
+        "ISS-501"
+      ],
       "targetFiles": [
         "src/data/presetsData.ts",
         "backend/presets.py",
@@ -462,9 +689,18 @@
       "milestoneId": "M5",
       "title": "[v2.0.0] Multi-Z Feature Extraction for Stepped Pockets, Counterbores & Bosses",
       "status": "open",
-      "labels": ["type:sub-issue", "area:cnc-cam", "priority:p0-blocker"],
-      "dependsOn": ["ISS-404"],
-      "blocks": ["ISS-502", "ISS-503"],
+      "labels": [
+        "type:sub-issue",
+        "area:cnc-cam",
+        "priority:p0-blocker"
+      ],
+      "dependsOn": [
+        "ISS-404"
+      ],
+      "blocks": [
+        "ISS-502",
+        "ISS-503"
+      ],
       "targetFiles": [
         "src/services/camService.ts",
         "src/services/camService.test.ts"
@@ -481,8 +717,14 @@
       "milestoneId": "M5",
       "title": "[v2.0.0] True Concentric & Raster Interior Pocket Clearing Toolpaths",
       "status": "open",
-      "labels": ["type:sub-issue", "area:cnc-cam", "priority:p0-blocker"],
-      "dependsOn": ["ISS-501"],
+      "labels": [
+        "type:sub-issue",
+        "area:cnc-cam",
+        "priority:p0-blocker"
+      ],
+      "dependsOn": [
+        "ISS-501"
+      ],
       "blocks": [],
       "targetFiles": [
         "src/services/camService.ts",
@@ -501,8 +743,15 @@
       "milestoneId": "M5",
       "title": "[v2.0.0] CNC Dogbone Corner Relief & G81/G83 Peck Drilling Cycles",
       "status": "open",
-      "labels": ["type:sub-issue", "area:cnc-cam", "priority:p1-high", "good first issue"],
-      "dependsOn": ["ISS-501"],
+      "labels": [
+        "type:sub-issue",
+        "area:cnc-cam",
+        "priority:p1-high",
+        "good first issue"
+      ],
+      "dependsOn": [
+        "ISS-501"
+      ],
       "blocks": [],
       "targetFiles": [
         "src/services/camService.ts",
@@ -521,8 +770,15 @@
       "milestoneId": "M5",
       "title": "[v2.0.0] Multi-Part .3MF Slicer Archive & Backend ISO 10303-21 .STEP Export",
       "status": "open",
-      "labels": ["type:sub-issue", "area:3d-printing", "area:cad-kernel", "priority:p1-high"],
-      "dependsOn": ["ISS-101"],
+      "labels": [
+        "type:sub-issue",
+        "area:3d-printing",
+        "area:cad-kernel",
+        "priority:p1-high"
+      ],
+      "dependsOn": [
+        "ISS-101"
+      ],
       "blocks": [],
       "targetFiles": [
         "src/services/cadRuntime.ts",
