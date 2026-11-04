@@ -1,7 +1,7 @@
 import React from 'react';
 import { Download, ChevronDown, Wrench } from 'lucide-react';
 import { CadExecutionResult, CadPartOutput } from '../../types/cad';
-import { generateAsciiStlClient } from '../../services/cadRuntime';
+import { generateAsciiStlClient, generateAssembly3mf } from '../../services/cadRuntime';
 
 export interface UnifiedExportHubProps {
   isExportMenuOpen: boolean;
@@ -28,6 +28,17 @@ export const UnifiedExportHub: React.FC<UnifiedExportHubProps> = ({
 }) => {
   const downloadFile = (content: string, filename: string) => {
     const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -129,6 +140,38 @@ export const UnifiedExportHub: React.FC<UnifiedExportHubProps> = ({
           >
             <span className="font-medium">3D Mesh (Centimeters 1×)</span>
             <span className="text-[10px] text-zinc-400 font-mono">.stl</span>
+          </button>
+
+          <button
+            disabled={!execResult?.parts || execResult.parts.length === 0}
+            onClick={async () => {
+              if (execResult?.parts && execResult.parts.length > 0) {
+                const blob = await generateAssembly3mf(execResult.parts, selectedPresetId);
+                downloadBlob(blob, `${selectedPresetId}.3mf`);
+                setIsExportMenuOpen(false);
+              }
+            }}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-zinc-200 hover:bg-[#14161b] disabled:opacity-40 transition"
+            title="Export full multi-part assembly with colors and millimeter scale in 3MF format for Bambu Studio, PrusaSlicer, and OrcaSlicer (ISS-504)"
+          >
+            <span className="font-medium">Multi-Part 3MF Slicer Archive</span>
+            <span className="text-[10px] text-fuchsia-400 font-mono">.3mf</span>
+          </button>
+
+          <button
+            disabled={!execResult?.parts || execResult.parts.length === 0}
+            onClick={() => {
+              const step = execResult?.step_text || execResult?.exports?.step;
+              if (step) {
+                downloadFile(step, `${selectedPresetId}.step`);
+                setIsExportMenuOpen(false);
+              }
+            }}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between text-zinc-200 hover:bg-[#14161b] disabled:opacity-40 transition"
+            title="Export standard ISO 10303-21 STEP B-Rep file for Fusion 360, FreeCAD, and SolidWorks (ISS-504)"
+          >
+            <span className="font-medium">ISO 10303-21 B-Rep Exchange</span>
+            <span className="text-[10px] text-blue-400 font-mono">.step</span>
           </button>
 
           {parts.length > 0 && (

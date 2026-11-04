@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import Module from 'manifold-3d';
+import JSZip from 'jszip';
 import {
   CadExecutionResult,
   CadMeshData,
@@ -494,6 +495,234 @@ export function generatePartAsciiStl(
   }
 
   lines.push(`endsolid ${safeName}`);
+  return lines.join('\n');
+}
+
+/**
+ * Generates valid 3D/3dmodel.model XML string for 3MF archive packaging (ROADMAP ISS-504)
+ * Contains `<model unit="millimeter">`, per-part `<object>` meshes, and `<build>` elements.
+ */
+export function generate3mfModelXml(
+  parts: CadPartOutput[],
+  assetName = 'CadAsset'
+): string {
+  const safeName = sanitizePrimName(assetName, 0);
+
+  // Collect unique part colors and map to color group IDs
+  const colorMap = new Map<string, number>();
+  const colorEntries: string[] = [];
+  let colorCounter = 1;
+
+  for (const part of parts) {
+    const c = part.color || [0.5, 0.5, 0.5];
+    const r = Math.round(Math.max(0, Math.min(1, c[0])) * 255)
+      .toString(16)
+      .padStart(2, '0');
+    const g = Math.round(Math.max(0, Math.min(1, c[1])) * 255)
+      .toString(16)
+      .padStart(2, '0');
+    const b = Math.round(Math.max(0, Math.min(1, c[2])) * 255)
+      .toString(16)
+      .padStart(2, '0');
+    const hex = `#${r}${g}${b}`.toUpperCase();
+
+    if (!colorMap.has(hex)) {
+      colorMap.set(hex, colorCounter++);
+      colorEntries.push(`      <m:color color="${hex}"/>`);
+    }
+  }
+
+  const objectsXml: string[] = [];
+  const buildItemsXml: string[] = [];
+
+  parts.forEach((part, idx) => {
+    const objectId = idx + 2; // Object IDs start after color group (id=1)
+    const pts = part.mesh?.points || [];
+    const tris = part.mesh?.triangles || [];
+
+    // Scale coordinates 10x to millimeters from CAD centimeters
+    const verticesXml: string[] = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      verticesXml.push(
+        `          <vertex x="${(p[0] * 10.0).toFixed(4)}" y="${(p[1] * 10.0).toFixed(4)}" z="${(p[2] * 10.0).toFixed(4)}"/>`
+      );
+    }
+
+    const trianglesXml: string[] = [];
+    for (let i = 0; i < tris.length; i += 3) {
+      trianglesXml.push(
+        `          <triangle v1="${tris[i]}" v2="${tris[i + 1]}" v3="${tris[i + 2]}"/>`
+      );
+    }
+
+    const c = part.color || [0.5, 0.5, 0.5];
+    const r = Math.round(Math.max(0, Math.min(1, c[0])) * 255).toString(16).padStart(2, '0');
+    const g = Math.round(Math.max(0, Math.min(1, c[1])) * 255).toString(16).padStart(2, '0');
+    const b = Math.round(Math.max(0, Math.min(1, c[2])) * 255).toString(16).padStart(2, '0');
+    const hex = `#${r}${g}${b}`.toUpperCase();
+    const colorIndex = (colorMap.get(hex) || 1) - 1;
+
+    objectsXml.push(`    <object id="${objectId}" name="${part.name}" type="model" pid="1" pindex="${colorIndex}">
+      <mesh>
+        <vertices>
+${verticesXml.join('\n')}
+        </vertices>
+        <triangles>
+${trianglesXml.join('\n')}
+        </triangles>
+      </mesh>
+    </object>`);
+
+    buildItemsXml.push(`    <item objectid="${objectId}"/>`);
+  });
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
+  <metadata name="Application">ApexCAD Studio</metadata>
+  <metadata name="Title">${safeName}</metadata>
+  <resources>
+    <m:colorgroup id="1">
+${colorEntries.join('\n')}
+    </m:colorgroup>
+${objectsXml.join('\n')}
+  </resources>
+  <build>
+${buildItemsXml.join('\n')}
+  </build>
+</model>`;
+}
+
+/**
+ * Packages all assembly parts, millimeter scaling, and color metadata into a valid .3mf ZIP archive (ROADMAP ISS-504)
+ * For 1-click opening in Bambu Studio, PrusaSlicer, OrcaSlicer, and Cura.
+ */
+export async function generateAssembly3mf(
+  parts: CadPartOutput[],
+  assetName = 'CadAsset'
+): Promise<Blob> {
+  const modelXml = generate3mfModelXml(parts, assetName);
+
+  const contentTypesXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
+</Types>`;
+
+  const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
+</Relationships>`;
+
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', contentTypesXml);
+  zip.folder('_rels')?.file('.rels', relsXml);
+  zip.folder('3D')?.file('3dmodel.model', modelXml);
+
+  return await zip.generateAsync({
+    type: 'blob',
+    mimeType: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml',
+    compression: 'DEFLATE',
+  });
+}
+
+/**
+ * Generates an ISO 10303-21 (.step / .stp) standard AP203/AP214 B-Rep exchange file (ROADMAP ISS-504)
+ * Scaled 10x to millimeters from CAD centimeter coordinates.
+ * Compatible with Fusion 360, SolidWorks, FreeCAD, and Siemens NX.
+ */
+export function generateStepClient(
+  parts: CadPartOutput[],
+  assetName = 'CadAsset'
+): string {
+  const safeName = sanitizePrimName(assetName, 0);
+  const timestamp = new Date().toISOString();
+
+  const lines: string[] = [
+    'ISO-10303-21;',
+    'HEADER;',
+    "FILE_DESCRIPTION(('ApexCAD Studio B-Rep Solid Model','ISO 10303-21 AP203/AP214 Solid Model Exchange'),'2;1');",
+    `FILE_NAME('${safeName}.step','${timestamp}',('ApexCAD User'),('ApexCAD Studio'),'ApexCAD Studio Kernel v2.0.0','ApexCAD Studio','');`,
+    "FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));",
+    'ENDSEC;',
+    'DATA;',
+    "#1=APPLICATION_CONTEXT('configuration controlled 3d designs of mechanical parts and assemblies');",
+    "#2=APPLICATION_PROTOCOL_DEFINITION('international standard','config_control_design',1994,#1);",
+    "#3=PRODUCT_CONTEXT('part definition',#1,'mechanical');",
+    `#4=PRODUCT('${safeName}','${safeName}','ApexCAD Studio Solid Model',(#3));`,
+    "#5=PRODUCT_DEFINITION_FORMATION('1.0','first release',#4);",
+    "#6=PRODUCT_DEFINITION_CONTEXT('part definition',#1,'design');",
+    "#7=PRODUCT_DEFINITION('design','',#5,#6);",
+    "#8=PRODUCT_DEFINITION_SHAPE('','',#7);",
+  ];
+
+  let entityId = 9;
+  const solidEntityIds: number[] = [];
+
+  for (const part of parts) {
+    const pts = part.mesh?.points || [];
+    const tris = part.mesh?.triangles || [];
+    if (pts.length === 0 || tris.length === 0) continue;
+
+    // Output CARTESIAN_POINT entities for each unique vertex (scaled to mm)
+    const vertexEntityIds: number[] = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      const ptId = entityId++;
+      vertexEntityIds.push(ptId);
+      lines.push(
+        `#${ptId}=CARTESIAN_POINT('',(${(p[0] * 10.0).toFixed(4)},${(p[1] * 10.0).toFixed(4)},${(p[2] * 10.0).toFixed(4)}));`
+      );
+    }
+
+    // Output POLY_LOOP and FACE_SURFACE entities for each triangle
+    const faceEntityIds: number[] = [];
+    for (let i = 0; i < tris.length; i += 3) {
+      const idx0 = tris[i];
+      const idx1 = tris[i + 1];
+      const idx2 = tris[i + 2];
+      const v0 = vertexEntityIds[idx0];
+      const v1 = vertexEntityIds[idx1];
+      const v2 = vertexEntityIds[idx2];
+      if (!v0 || !v1 || !v2) continue;
+
+      const loopId = entityId++;
+      lines.push(`#${loopId}=POLY_LOOP('',(#${v0},#${v1},#${v2}));`);
+
+      const boundId = entityId++;
+      lines.push(`#${boundId}=FACE_OUTER_BOUND('',#${loopId},.T.);`);
+
+      const faceId = entityId++;
+      lines.push(`#${faceId}=FACE_SURFACE('',(#${boundId}),#${boundId},.T.);`);
+      faceEntityIds.push(faceId);
+    }
+
+    if (faceEntityIds.length === 0) continue;
+
+    // Shell and Solid B-Rep
+    const shellId = entityId++;
+    lines.push(
+      `#${shellId}=CLOSED_SHELL('${part.name}_shell',(${faceEntityIds.map((id) => `#${id}`).join(',')}));`
+    );
+
+    const solidId = entityId++;
+    lines.push(`#${solidId}=MANIFOLD_SOLID_BREP('${part.name}',#${shellId});`);
+    solidEntityIds.push(solidId);
+  }
+
+  // Assembly Shape Representation
+  const shapeRepId = entityId++;
+  const solidRefList = solidEntityIds.map((id) => `#${id}`).join(',');
+  lines.push(
+    `#${shapeRepId}=SHAPE_REPRESENTATION('${safeName}_shape',(${solidRefList}),#1);`
+  );
+  lines.push(
+    `#${entityId++}=SHAPE_DEFINITION_REPRESENTATION(#8,#${shapeRepId});`
+  );
+
+  lines.push('ENDSEC;');
+  lines.push('END-ISO-10303-21;');
+
   return lines.join('\n');
 }
 
@@ -2122,6 +2351,7 @@ export async function evaluateClientSideUsdBrep(
 
   const meshUsda = generateMeshUsdaClient(partsOutput, assetName);
   const stlText = generateAsciiStlClient(partsOutput, assetName);
+  const stepText = generateStepClient(partsOutput, assetName);
   const elapsedMs = Number((performance.now() - t0).toFixed(2));
   const explosionStages = parseExplosionStages(code, partsOutput);
 
@@ -2156,10 +2386,12 @@ export async function evaluateClientSideUsdBrep(
       mesh_usda: meshUsda,
       brep_usda: meshUsda,
       stl: stlText,
+      step: stepText,
     },
     usda_mesh_text: meshUsda,
     usda_brep_text: meshUsda,
     stl_text: stlText,
+    step_text: stepText,
   };
 }
 

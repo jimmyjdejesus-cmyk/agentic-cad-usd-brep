@@ -87,6 +87,23 @@ def execute_cad(req: ExecuteRequest) -> Dict[str, Any]:
     )
 
 
+class StepExportRequest(BaseModel):
+    code: str = Field(..., description="Python script defining build_parts() using usd_brep as sm")
+    asset_name: str = Field(default="CadAsset", description="Root asset name for ISO 10303-21 STEP export")
+
+
+@app.post("/api/export/step")
+def export_step(req: StepExportRequest) -> Dict[str, Any]:
+    """Execute CAD script and return ISO 10303-21 STEP text for CAD/CAM exchange (ROADMAP ISS-504)."""
+    res = execute_cad_script(code=req.code, asset_name=req.asset_name)
+    step_content = res.get("step_text") or res.get("exports", {}).get("step", "")
+    return {
+        "ok": True,
+        "filename": f"{req.asset_name}.step",
+        "step_text": step_content,
+    }
+
+
 @app.get("/api/guides", response_model=List[GuideDocSummary])
 def list_guides() -> List[GuideDocSummary]:
     """List all official NVIDIA usd-brep documentation files downloaded locally."""

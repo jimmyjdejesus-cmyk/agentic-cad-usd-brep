@@ -9,6 +9,7 @@ import { DEFAULT_PRESETS } from './src/data/presetsData';
 import { intelligentParametricSynthesize, attemptAutoRepair } from './src/services/parametricIntelligence';
 import { executeInAppTool } from './src/services/appToolsAndSkills';
 import { ActiveSelectionContext } from './src/types/cad';
+import { evaluateClientSideUsdBrep } from './src/services/cadRuntime';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -424,6 +425,47 @@ export async function createExpressApp(options?: { withVite?: boolean }): Promis
       fallback: true,
       error: 'Python usd-brep backend not connected on http://127.0.0.1:8000. Reverting to client-side geometric engine.',
     });
+  });
+
+  // POST /api/export/step (ROADMAP ISS-504)
+  app.post('/api/export/step', async (req: Request, res: Response) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    const { code, asset_name = 'CadAsset' } = req.body || {};
+
+    if (!code) {
+      clearTimeout(timer);
+      return res.status(400).json({ ok: false, error: 'Missing code parameter' });
+    }
+
+    try {
+      const pyRes = await fetch(`${PYTHON_BACKEND_URL}/api/export/step`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, asset_name }),
+        signal: controller.signal,
+      });
+      if (pyRes.ok) {
+        const data = await pyRes.json();
+        return res.json(data);
+      }
+    } catch {
+      // Python backend not running or timed out
+    } finally {
+      clearTimeout(timer);
+    }
+
+    // Evaluate client-side and return ISO 10303-21 STEP representation
+    try {
+      const clientRes = await evaluateClientSideUsdBrep(code, asset_name);
+      return res.json({
+        ok: true,
+        filename: `${asset_name}.step`,
+        step_text: clientRes.step_text || clientRes.exports?.step || '',
+      });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
   });
 
   // GET /api/guides
