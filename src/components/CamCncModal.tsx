@@ -54,6 +54,17 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('cnc_gcode');
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   const handleTabKeyDown = (e: React.KeyboardEvent) => {
     const currentIndex = TAB_KEYS.indexOf(activeTab);
     if (currentIndex === -1) return;
@@ -213,6 +224,7 @@ export const CamCncModal: React.FC<CamCncModalProps> = ({
             onClick={onClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/80 transition"
             title="Close CAM Modal"
+            aria-label="Close CAM Modal"
           >
             <X className="w-5 h-5" />
           </button>

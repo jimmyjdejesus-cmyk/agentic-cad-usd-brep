@@ -168,6 +168,17 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   // Live Query Search Effect (debounced 350ms)
   useEffect(() => {
     if (!isOpen) return;
@@ -387,7 +398,7 @@ export const AiHarnessModal: React.FC<AiHarnessModalProps> = ({
               onClick={onClose}
               className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
               title="Close Configurator"
-              aria-label="Close"
+              aria-label="Close AI Harness Modal"
             >
               <X className="w-5 h-5" />
             </button>

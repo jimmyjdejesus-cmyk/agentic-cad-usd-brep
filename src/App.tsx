@@ -2352,7 +2352,7 @@ export const App: React.FC = () => {
           />
 
           {/* Zero-State Blank Launchpad */}
-          {(!execResult || userFiles.length === 0 || !selectedPresetId) && (
+          {(!execResult || execResult.parts.length === 0) && (
             <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
               <div className="pointer-events-auto max-w-md w-full bg-[#131722]/95 backdrop-blur-md border border-[#272a34] rounded-2xl p-6 shadow-2xl text-center space-y-5">
                 <div className="flex flex-col items-center gap-2">
