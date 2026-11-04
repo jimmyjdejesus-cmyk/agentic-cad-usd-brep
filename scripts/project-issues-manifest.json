@@ -58,7 +58,7 @@
     {
       "id": "M1",
       "version": "v1.2.0",
-      "title": "v1.2.0 \u2014 True-Scale Maker Baseline & Honesty Pass",
+      "title": "v1.2.0 — True-Scale Maker Baseline & Honesty Pass",
       "state": "open",
       "dueOn": "2026-11-15T23:59:59Z",
       "targetEndState": "Zero-surprise 1:1 millimeter STL and R12 DXF exports for 3D printing slicers and laser/CNC cutters, backed by accurate model IDs and transparent feature maturity documentation.",
@@ -73,7 +73,7 @@
     {
       "id": "M2",
       "version": "v1.3.0",
-      "title": "v1.3.0 \u2014 Precision Direct Editing, 3D Gizmos & Parametric Inspector",
+      "title": "v1.3.0 — Precision Direct Editing, 3D Gizmos & Parametric Inspector",
       "state": "open",
       "dueOn": "2026-12-06T23:59:59Z",
       "targetEndState": "Users can click any part in the 3D viewport to drag/rotate/scale it with millimeter grid snapping or edit its dimensions in a live sidebar inspector without manually editing Python code.",
@@ -87,7 +87,7 @@
     {
       "id": "M3",
       "version": "v1.4.0",
-      "title": "v1.4.0 \u2014 Structured Browser CAD Parser, Fillets/Chamfers & Fastener Library",
+      "title": "v1.4.0 — Structured Browser CAD Parser, Fillets/Chamfers & Fastener Library",
       "state": "open",
       "dueOn": "2026-12-27T23:59:59Z",
       "targetEndState": "Browser-only and macOS users can model functional mechanical parts with chamfers, fillets, and standard metric hardware cutouts (M2-M8 counterbores, countersinks, heat-set inserts, nut traps).",
@@ -101,7 +101,7 @@
     {
       "id": "M4",
       "version": "v1.5.0",
-      "title": "v1.5.0 \u2014 Context-Aware Copilot (Click-to-Edit & DFM Auto-Repair)",
+      "title": "v1.5.0 — Context-Aware Copilot (Click-to-Edit & DFM Auto-Repair)",
       "state": "open",
       "dueOn": "2027-01-17T23:59:59Z",
       "targetEndState": "The AI copilot understands which part, face, or vertex is selected in the 3D viewport and automatically enforces 3D printing and CNC Design-for-Manufacturing (DFM) constraints.",
@@ -115,7 +115,7 @@
     {
       "id": "M5",
       "version": "v2.0.0",
-      "title": "v2.0.0 \u2014 2.5D Multi-Depth CNC CAM, Pocket Clearing & STEP / 3MF Interop",
+      "title": "v2.0.0 — 2.5D Multi-Depth CNC CAM, Pocket Clearing & STEP / 3MF Interop",
       "state": "open",
       "dueOn": "2027-02-14T23:59:59Z",
       "targetEndState": "Machinists and makers can generate shop-ready 2.5D CNC G-code (multi-Z roughing, concentric/raster pocket clearing, peck drilling, dogbone corner relief) and export multi-part .3mf and .step files.",
@@ -416,7 +416,7 @@
         "src/components/Viewport3D.tsx",
         "src/services/cadRuntime.ts"
       ],
-      "description": "Integrate `TransformControls` from `three/examples/jsm/controls/TransformControls.js` into `Viewport3D.tsx` so clicking a part attaches a 3D gizmo with Translate (`G`), Rotate (`R`), and Scale (`S`) modes, configurable grid snapping (`1 mm`, `5 mm`, `10 mm`, `15\u00b0`), and automatic write-back to `sm.translate()` / `sm.rotate()` or primitive origin coordinates in code.",
+      "description": "Integrate `TransformControls` from `three/examples/jsm/controls/TransformControls.js` into `Viewport3D.tsx` so clicking a part attaches a 3D gizmo with Translate (`G`), Rotate (`R`), and Scale (`S`) modes, configurable grid snapping (`1 mm`, `5 mm`, `10 mm`, `15°`), and automatic write-back to `sm.translate()` / `sm.rotate()` or primitive origin coordinates in code.",
       "acceptanceCriteria": [
         "Dragging the X/Y/Z translation handles moves the selected part smoothly while pausing orbit camera drag",
         "Releasing the gizmo commits the new `[x, y, z]` coordinates or `sm.translate` / `sm.rotate` call into `build_parts()` and re-runs manifold/penetration checks",
@@ -530,7 +530,7 @@
         "src/services/csgEngine.test.ts",
         "src/components/CsgBooleanToolbar.tsx"
       ],
-      "description": "Expand `PRIMITIVE_CATALOG` in `src/services/csgEngine.ts` with parametric generator helpers for standard 3D printing and CNC hardware: `M2`\u2013`M8` clearance/tap holes, ISO 4762 SHCS counterbores, 90 deg flat-head countersinks, Voron/CNC Kitchen brass heat-set insert bosses, captive hex nut traps, and 2020 V-slot mounting profiles.",
+      "description": "Expand `PRIMITIVE_CATALOG` in `src/services/csgEngine.ts` with parametric generator helpers for standard 3D printing and CNC hardware: `M2`–`M8` clearance/tap holes, ISO 4762 SHCS counterbores, 90 deg flat-head countersinks, Voron/CNC Kitchen brass heat-set insert bosses, captive hex nut traps, and 2020 V-slot mounting profiles.",
       "acceptanceCriteria": [
         "Users can select `M2`, `M2.5`, `M3`, `M4`, `M5`, `M6`, or `M8` presets in the Add Primitive modal and insert positive bosses or negative subtraction cutters",
         "Generated dimensions match standard metric clearance and counterbore tables within `+/-0.05 mm`"
@@ -598,7 +598,7 @@
       "epicId": "EPIC-4",
       "milestoneId": "M4",
       "title": "[v1.5.0] Scoped Partial-Script Copilot Editing & Diff Preview",
-      "status": "open",
+      "status": "completed",
       "labels": [
         "type:sub-issue",
         "area:copilot-dfm",
@@ -620,7 +620,8 @@
       "acceptanceCriteria": [
         "Unselected anchor and component parts retain their exact code definitions during targeted copilot edits",
         "Code editor includes an Undo/Redo stack (`Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`) across both manual and copilot edits"
-      ]
+      ],
+      "githubIssueNumber": 32
     },
     {
       "id": "ISS-403",
@@ -732,7 +733,7 @@
         "src/services/camService.test.ts",
         "src/components/CamCncModal.tsx"
       ],
-      "description": "Implement iterative inward stepover offsetting (`stepOverPercent`: 10%\u201380% of `toolDiameterMm`) and zig-zag raster hatching inside closed pocket contours so `inside_pocket` removes all interior stock material rather than only cutting a single inner perimeter ring.",
+      "description": "Implement iterative inward stepover offsetting (`stepOverPercent`: 10%–80% of `toolDiameterMm`) and zig-zag raster hatching inside closed pocket contours so `inside_pocket` removes all interior stock material rather than only cutting a single inner perimeter ring.",
       "acceptanceCriteria": [
         "Selecting `inside_pocket` generates concentric inward offset loops from the pocket center out to the final finish wall pass",
         "Configurable stepover percentage in `CamCncModal.tsx` updates toolpath density and machining time estimate"

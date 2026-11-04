@@ -4,6 +4,7 @@ import {
   applyParametricEdit,
   intelligentParametricSynthesize,
   attemptAutoRepair,
+  preserveUnselectedParts,
 } from './parametricIntelligence';
 
 describe('parametricIntelligence', () => {
@@ -242,6 +243,115 @@ def build_parts():
       expect(repair?.code).toContain('(-5.0, -5.0, 0.0)');
       // Negative/zero dimensions must be clamped to 1.0
       expect(repair?.code).toContain('1.0');
+    });
+  });
+
+  describe('preserveUnselectedParts (Scoped Partial-Script Copilot Editing)', () => {
+    it('retains exact code definitions and return tuples of unselected parts when a targeted part is edited', () => {
+      const editedShaftCode = `import usd_brep as sm
+
+def build_parts():
+    base = sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, 4.0)
+    shaft = sm.create_cylinder((0.0, 0.0, 4.0), 3.5, 20.0)
+    cap = sm.create_sphere((0.0, 0.0, 16.0), 3.0)
+    return [
+        ("base_plate", base, (0.3, 0.3, 0.4), "anchor"),
+        ("center_shaft", shaft, (0.8, 0.5, 0.2), "component"),
+        ("retaining_cap", cap, (0.9, 0.2, 0.2), "component"),
+    ]
+`;
+      const result = preserveUnselectedParts(multiPartCode, editedShaftCode, 'center_shaft');
+      // Shaft updated to 3.5, 20.0
+      expect(result).toContain('sm.create_cylinder((0.0, 0.0, 4.0), 3.5, 20.0)');
+      // Base plate strictly preserved
+      expect(result).toContain('base = sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, 4.0)');
+      expect(result).toContain('("base_plate", base, (0.3, 0.3, 0.4), "anchor")');
+      // Retaining cap strictly preserved
+      expect(result).toContain('cap = sm.create_sphere((0.0, 0.0, 16.0), 3.0)');
+      expect(result).toContain('("retaining_cap", cap, (0.9, 0.2, 0.2), "component")');
+    });
+
+    it('restores dropped unselected parts when LLM/copilot turn returns only the targeted part', () => {
+      const partialOnlyShaftCode = `import usd_brep as sm
+
+def build_parts():
+    shaft = sm.create_cylinder((0.0, 0.0, 4.0), 4.0, 18.0)
+    return [
+        ("center_shaft", shaft, (0.8, 0.5, 0.2), "component"),
+    ]
+`;
+      const result = preserveUnselectedParts(multiPartCode, partialOnlyShaftCode, 'center_shaft');
+      // Shaft should have the new dimensions from partial script
+      expect(result).toContain('sm.create_cylinder((0.0, 0.0, 4.0), 4.0, 18.0)');
+      // The unselected parts (base_plate, retaining_cap) must be restored!
+      expect(result).toContain('base = sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, 4.0)');
+      expect(result).toContain('cap = sm.create_sphere((0.0, 0.0, 16.0), 3.0)');
+      expect(result).toContain('("base_plate", base, (0.3, 0.3, 0.4), "anchor")');
+      expect(result).toContain('("center_shaft", shaft, (0.8, 0.5, 0.2), "component")');
+      expect(result).toContain('("retaining_cap", cap, (0.9, 0.2, 0.2), "component")');
+    });
+
+    it('discards accidental mutations to unselected parts while applying targeted edits', () => {
+      const accidentallyCorruptedCode = `import usd_brep as sm
+
+def build_parts():
+    # Accidental mutation to base plate (should be rejected/reverted)
+    base = sm.create_box((-20.0, -20.0, 0.0), 40.0, 40.0, 10.0)
+    # Legitimate targeted modification to shaft
+    shaft = sm.create_cylinder((0.0, 0.0, 4.0), 5.0, 25.0)
+    # Accidental mutation to cap (should be rejected/reverted)
+    cap = sm.create_sphere((0.0, 0.0, 100.0), 15.0)
+    return [
+        ("base_plate", base, (1.0, 0.0, 0.0), "anchor"),
+        ("center_shaft", shaft, (0.8, 0.5, 0.2), "component"),
+        ("retaining_cap", cap, (0.0, 1.0, 0.0), "component"),
+    ]
+`;
+      const result = preserveUnselectedParts(multiPartCode, accidentallyCorruptedCode, 'center_shaft');
+      // Shaft accepted
+      expect(result).toContain('sm.create_cylinder((0.0, 0.0, 4.0), 5.0, 25.0)');
+      // Accidental mutations to base reverted to original definition
+      expect(result).toContain('base = sm.create_box((-5.0, -5.0, 0.0), 10.0, 10.0, 4.0)');
+      expect(result).not.toContain('sm.create_box((-20.0, -20.0, 0.0)');
+      expect(result).toContain('("base_plate", base, (0.3, 0.3, 0.4), "anchor")');
+      // Accidental mutations to cap reverted to original definition
+      expect(result).toContain('cap = sm.create_sphere((0.0, 0.0, 16.0), 3.0)');
+      expect(result).not.toContain('sm.create_sphere((0.0, 0.0, 100.0)');
+    });
+
+    it('retains brand-new parts appended alongside targeted edits', () => {
+      const codeWithNewPart = `import usd_brep as sm
+
+def build_parts():
+    shaft = sm.create_cylinder((0.0, 0.0, 4.0), 3.0, 15.0)
+    collar = sm.create_torus((0.0, 0.0, 10.0), 4.0, 0.8)
+    return [
+        ("center_shaft", shaft, (0.8, 0.5, 0.2), "component"),
+        ("bearing_collar", collar, (0.9, 0.9, 0.1), "component"),
+    ]
+`;
+      const result = preserveUnselectedParts(multiPartCode, codeWithNewPart, 'center_shaft');
+      // Unselected parts preserved
+      expect(result).toContain('base = sm.create_box');
+      expect(result).toContain('cap = sm.create_sphere');
+      // Targeted part updated
+      expect(result).toContain('sm.create_cylinder((0.0, 0.0, 4.0), 3.0, 15.0)');
+      // Brand-new part appended
+      expect(result).toContain('collar = sm.create_torus');
+      expect(result).toContain('("bearing_collar", collar, (0.9, 0.9, 0.1), "component")');
+    });
+
+    it('returns new code untouched when targetPartName is not in original assembly', () => {
+      const newCode = `import usd_brep as sm\ndef build_parts():\n    return []`;
+      const result = preserveUnselectedParts(multiPartCode, newCode, 'non_existent_part');
+      expect(result).toBe(newCode);
+    });
+
+    it('returns new code untouched for single-part assemblies', () => {
+      const singlePartOrig = `import usd_brep as sm\ndef build_parts():\n    b = sm.create_box((0,0,0), 1, 1, 1)\n    return [("box", b, (1,1,1), "anchor")]`;
+      const singlePartNew = `import usd_brep as sm\ndef build_parts():\n    b = sm.create_box((0,0,0), 2, 2, 2)\n    return [("box", b, (1,1,1), "anchor")]`;
+      const result = preserveUnselectedParts(singlePartOrig, singlePartNew, 'box');
+      expect(result).toBe(singlePartNew);
     });
   });
 });
