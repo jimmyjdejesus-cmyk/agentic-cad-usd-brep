@@ -58,8 +58,9 @@ describe('Project Milestones, Epics & Sub-Issues Manifest Suite', () => {
       ['ISS-204', 24],
     ]);
     const epic2Md = formatEpicMarkdown(epic2, ms2, manifest.subIssues, subMap2);
+    // All sub-issues in EPIC-2 are now completed and render with checked boxes
     expect(epic2Md).toContain('- [x] #22 — **`ISS-202`**');
     expect(epic2Md).toContain('- [x] #23 — **`ISS-203`**');
-    expect(epic2Md).toContain('- [ ] #24 — **`ISS-204`**');
+    expect(epic2Md).toContain('- [x] #24 — **`ISS-204`**');
   });
 });
