@@ -59,7 +59,7 @@
       "id": "M1",
       "version": "v1.2.0",
       "title": "v1.2.0 — True-Scale Maker Baseline & Honesty Pass",
-      "state": "open",
+      "state": "closed",
       "dueOn": "2026-11-15T23:59:59Z",
       "targetEndState": "Zero-surprise 1:1 millimeter STL and R12 DXF exports for 3D printing slicers and laser/CNC cutters, backed by accurate model IDs and transparent feature maturity documentation.",
       "exitCriteria": [
@@ -74,7 +74,7 @@
       "id": "M2",
       "version": "v1.3.0",
       "title": "v1.3.0 — Precision Direct Editing, 3D Gizmos & Parametric Inspector",
-      "state": "open",
+      "state": "closed",
       "dueOn": "2026-12-06T23:59:59Z",
       "targetEndState": "Users can click any part in the 3D viewport to drag/rotate/scale it with millimeter grid snapping or edit its dimensions in a live sidebar inspector without manually editing Python code.",
       "exitCriteria": [
@@ -88,7 +88,7 @@
       "id": "M3",
       "version": "v1.4.0",
       "title": "v1.4.0 — Structured Browser CAD Parser, Fillets/Chamfers & Fastener Library",
-      "state": "open",
+      "state": "closed",
       "dueOn": "2026-12-27T23:59:59Z",
       "targetEndState": "Browser-only and macOS users can model functional mechanical parts with chamfers, fillets, and standard metric hardware cutouts (M2-M8 counterbores, countersinks, heat-set inserts, nut traps).",
       "exitCriteria": [
@@ -102,7 +102,7 @@
       "id": "M4",
       "version": "v1.5.0",
       "title": "v1.5.0 — Context-Aware Copilot (Click-to-Edit & DFM Auto-Repair)",
-      "state": "open",
+      "state": "closed",
       "dueOn": "2027-01-17T23:59:59Z",
       "targetEndState": "The AI copilot understands which part, face, or vertex is selected in the 3D viewport and automatically enforces 3D printing and CNC Design-for-Manufacturing (DFM) constraints.",
       "exitCriteria": [
