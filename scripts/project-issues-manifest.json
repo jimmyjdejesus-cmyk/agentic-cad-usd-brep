@@ -428,7 +428,7 @@
       "epicId": "EPIC-2",
       "milestoneId": "M2",
       "title": "[v1.3.0] Decompose Monolithic src/App.tsx into Focused Workspace Modules",
-      "status": "open",
+      "status": "completed",
       "labels": [
         "type:sub-issue",
         "area:viewport-ux",
