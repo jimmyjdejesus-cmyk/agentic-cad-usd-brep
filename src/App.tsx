@@ -60,9 +60,11 @@ import { CadShapeThumbnail } from './components/CadShapeThumbnail';
 import { CsgBooleanToolbar } from './components/CsgBooleanToolbar';
 import {
   CsgBooleanOperation,
+  GizmoTransformDelta,
   InsertPrimitiveConfig,
   insertPrimitiveIntoScript,
   applyCsgBooleanToScript,
+  applyGizmoTransformToScript,
 } from './services/csgEngine';
 import { BASIC_SHAPE_INSERT_OPTIONS, CAD_TEMPLATES, BasicShapeInsertOption } from './data/cadTemplates';
 import {
@@ -667,6 +669,17 @@ export const App: React.FC = () => {
     setCode(updatedCode);
     await handleExecuteCode(updatedCode, 'csg_assembly', envelope);
     setSelectedPartName(resultPartName);
+  };
+
+  const handleTransformCommit = async (
+    partName: string,
+    transform: GizmoTransformDelta
+  ) => {
+    const { updatedCode, success } = applyGizmoTransformToScript(code, partName, transform);
+    if (!success || updatedCode === code) return;
+
+    setCode(updatedCode);
+    await handleExecuteCode(updatedCode, selectedPresetId || 'CadAsset', envelope);
   };
 
   const handleSelectDesign = async (designId: string) => {
@@ -2324,6 +2337,7 @@ export const App: React.FC = () => {
             customDensity={customDensity}
             pbrFinishMode={pbrFinishMode}
             showOverhangWarnings={showOverhangWarnings}
+            onTransformCommit={handleTransformCommit}
             annotations={annotations}
             selectedAnnotationId={selectedAnnotationId}
             onSelectAnnotation={setSelectedAnnotationId}

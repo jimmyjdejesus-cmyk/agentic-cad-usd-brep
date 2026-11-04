@@ -1,20 +1,27 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import {
   Check,
   CheckCircle2,
   Crosshair,
   Edit2,
   Layers,
+  Magnet,
   MapPin,
+  Move,
+  RotateCw,
+  Maximize2,
   Ruler,
   ShieldAlert,
   Sparkles,
   Tag,
   Trash2,
+  X,
 } from 'lucide-react';
 import { CadAnnotation, CadPartOutput, MaterialPreset } from '../types/cad';
+import { GizmoTransformDelta } from '../services/csgEngine';
 import {
   computeTriplanarUvs,
   createCadPbrMaterial,
@@ -26,6 +33,9 @@ import {
   formatCoords,
   getGridSpacingText,
 } from '../services/unitConverter';
+
+export type GizmoMode = 'translate' | 'rotate' | 'scale';
+export type GridSnapIncrement = 'none' | '1mm' | '5mm' | '10mm';
 
 interface Viewport3DProps {
   displayUnit?: DisplayUnit;
@@ -45,6 +55,8 @@ interface Viewport3DProps {
   customDensity?: number | null;
   pbrFinishMode?: PbrFinishMode;
   showOverhangWarnings?: boolean;
+  // 3D Transform Gizmo Write-Back
+  onTransformCommit?: (partName: string, transform: GizmoTransformDelta) => void;
   // 3D Annotations
   annotations?: CadAnnotation[];
   selectedAnnotationId?: string | null;
@@ -93,6 +105,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   customDensity,
   pbrFinishMode = 'auto',
   showOverhangWarnings = false,
+  onTransformCommit,
   annotations = [],
   selectedAnnotationId = null,
   onSelectAnnotation,
@@ -109,12 +122,24 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const transformControlsRef = useRef<TransformControls | null>(null);
+  const isTransformDraggingRef = useRef<boolean>(false);
   const [webGlError, setWebGlError] = useState<string | null>(null);
   const partGroupRef = useRef<THREE.Group | null>(null);
   const comGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.Group | null>(null);
   const annotationGroupRef = useRef<THREE.Group | null>(null);
   const reticleGroupRef = useRef<THREE.Group | null>(null);
+
+  // Transform Gizmo Settings State
+  const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
+  const [gridSnap, setGridSnap] = useState<GridSnapIncrement>('1mm');
+  const [snapAngleDeg, setSnapAngleDeg] = useState<number>(15);
+
+  const onTransformCommitRef = useRef(onTransformCommit);
+  useEffect(() => {
+    onTransformCommitRef.current = onTransformCommit;
+  }, [onTransformCommit]);
 
   const partEntriesRef = useRef<
     Array<{
@@ -124,6 +149,9 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       boxHelper?: THREE.Box3Helper;
       defaultOffset: THREE.Vector3;
       bounds: [[number, number, number], [number, number, number]];
+      initialPosition?: THREE.Vector3;
+      initialRotation?: THREE.Euler;
+      initialScale?: THREE.Vector3;
     }>
   >([]);
 
@@ -334,6 +362,22 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     scene.add(reticleGroup);
     reticleGroupRef.current = reticleGroup;
 
+    // TransformControls 3D Gizmo Setup
+    const transformControls = new TransformControls(camera, renderer.domElement);
+    transformControls.size = 0.85;
+    transformControls.space = 'world';
+    scene.add(transformControls.getHelper());
+    transformControlsRef.current = transformControls;
+
+    // Pause orbit navigation when dragging gizmo handle
+    transformControls.addEventListener('dragging-changed', (event) => {
+      isTransformDraggingRef.current = Boolean(event.value);
+      if (event.value) {
+        orbitState.current.isDragging = false;
+        orbitState.current.isPanning = false;
+      }
+    });
+
     // Mouse / Pointer interaction for Orbit + Pan + Zoom + Raycasting
     const dom = renderer.domElement;
     let pointerDownPos = { x: 0, y: 0 };
@@ -342,6 +386,8 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       pointerDownPos = { x: e.clientX, y: e.clientY };
       orbitState.current.lastX = e.clientX;
       orbitState.current.lastY = e.clientY;
+      if (isTransformDraggingRef.current) return;
+
       if (e.button === 2 || e.shiftKey) {
         orbitState.current.isPanning = true;
       } else if (e.button === 0) {
@@ -353,6 +399,8 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       const rect = dom.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
+
+      if (isTransformDraggingRef.current) return;
 
       if (orbitState.current.isDragging || orbitState.current.isPanning) {
         const dx = e.clientX - orbitState.current.lastX;
@@ -503,6 +551,10 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       const moveDist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
       orbitState.current.isDragging = false;
       orbitState.current.isPanning = false;
+
+      if (isTransformDraggingRef.current) {
+        return;
+      }
 
       if (moveDist < 4 && e.button === 0) {
         const isAnnotatingMode = dom.getAttribute('data-is-annotating') === 'true';
@@ -676,6 +728,9 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       window.removeEventListener('pointerup', onPointerUp);
       dom.removeEventListener('wheel', onWheel);
       dom.removeEventListener('contextmenu', onContextMenu);
+      if (transformControlsRef.current) {
+        transformControlsRef.current.dispose();
+      }
       renderer.dispose();
     };
   }, [onSelectPart, onRequestPlaceAnnotation, updateCameraPosition]);
@@ -703,6 +758,132 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     (window as unknown as { __CURRENT_ANNOTATIONS__?: CadAnnotation[] }).__CURRENT_ANNOTATIONS__ =
       annotations;
   }, [annotations]);
+
+  // Update TransformControls Mode & Snapping
+  useEffect(() => {
+    const tc = transformControlsRef.current;
+    if (!tc) return;
+
+    tc.setMode(gizmoMode);
+
+    // Grid snapping: 1mm = 0.1cm, 5mm = 0.5cm, 10mm = 1.0cm
+    let translationSnap: number | null = null;
+    if (gridSnap === '1mm') translationSnap = 0.1;
+    else if (gridSnap === '5mm') translationSnap = 0.5;
+    else if (gridSnap === '10mm') translationSnap = 1.0;
+
+    tc.setTranslationSnap(translationSnap);
+    tc.setRotationSnap(snapAngleDeg > 0 ? THREE.MathUtils.degToRad(snapAngleDeg) : null);
+    tc.setScaleSnap(gridSnap !== 'none' ? 0.1 : null);
+  }, [gizmoMode, gridSnap, snapAngleDeg]);
+
+  // Attach TransformControls to selected part mesh
+  useEffect(() => {
+    const tc = transformControlsRef.current;
+    if (!tc) return;
+
+    if (!selectedPartName || isAnnotating) {
+      tc.detach();
+      return;
+    }
+
+    const entry = partEntriesRef.current.find((e) => e.partName === selectedPartName);
+    if (entry && entry.mesh && entry.mesh.visible) {
+      // Record initial transform for delta calculations
+      entry.initialPosition = entry.mesh.position.clone();
+      entry.initialRotation = entry.mesh.rotation.clone();
+      entry.initialScale = entry.mesh.scale.clone();
+      tc.attach(entry.mesh);
+    } else {
+      tc.detach();
+    }
+  }, [selectedPartName, isAnnotating, parts]);
+
+  // Listen for mouseUp on TransformControls to commit transform write-back
+  useEffect(() => {
+    const tc = transformControlsRef.current;
+    if (!tc) return;
+
+    const handleMouseUp = () => {
+      if (!selectedPartName) return;
+      const entry = partEntriesRef.current.find((e) => e.partName === selectedPartName);
+      if (!entry || !entry.mesh) return;
+
+      const mesh = entry.mesh;
+      const initPos = entry.initialPosition || mesh.position.clone();
+      const initRot = entry.initialRotation || mesh.rotation.clone();
+      const initScale = entry.initialScale || new THREE.Vector3(1, 1, 1);
+
+      const deltaTrans: [number, number, number] = [
+        mesh.position.x - initPos.x,
+        mesh.position.y - initPos.y,
+        mesh.position.z - initPos.z,
+      ];
+
+      const deltaRot: [number, number, number] = [
+        THREE.MathUtils.radToDeg(mesh.rotation.x - initRot.x),
+        THREE.MathUtils.radToDeg(mesh.rotation.y - initRot.y),
+        THREE.MathUtils.radToDeg(mesh.rotation.z - initRot.z),
+      ];
+
+      const scaleFactor: [number, number, number] = [
+        mesh.scale.x / (initScale.x || 1.0),
+        mesh.scale.y / (initScale.y || 1.0),
+        mesh.scale.z / (initScale.z || 1.0),
+      ];
+
+      const hasMoved = Math.hypot(deltaTrans[0], deltaTrans[1], deltaTrans[2]) > 1e-4;
+      const hasRotated = Math.hypot(deltaRot[0], deltaRot[1], deltaRot[2]) > 1e-4;
+      const hasScaled = Math.hypot(scaleFactor[0] - 1, scaleFactor[1] - 1, scaleFactor[2] - 1) > 1e-4;
+
+      if (hasMoved || hasRotated || hasScaled) {
+        if (onTransformCommitRef.current) {
+          onTransformCommitRef.current(selectedPartName, {
+            translation: hasMoved ? deltaTrans : undefined,
+            rotation: hasRotated ? deltaRot : undefined,
+            scale: hasScaled ? scaleFactor : undefined,
+          });
+        }
+      }
+    };
+
+    tc.addEventListener('mouseUp', handleMouseUp);
+    return () => {
+      tc.removeEventListener('mouseUp', handleMouseUp);
+    };
+  }, [selectedPartName]);
+
+  // Keyboard shortcuts: G/T (Translate), R (Rotate), S (Scale), Esc (Deselect / Cancel)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept when user is typing in an input or textarea
+      const activeEl = document.activeElement;
+      if (
+        activeEl &&
+        (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.key === 'g' || e.key === 'G' || e.key === 't' || e.key === 'T') {
+        e.preventDefault();
+        setGizmoMode('translate');
+      } else if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        setGizmoMode('rotate');
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        setGizmoMode('scale');
+      } else if (e.key === 'Escape') {
+        if (selectedPartName) {
+          onSelectPart(null);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedPartName, onSelectPart]);
 
   // Toggle grid visibility
   useEffect(() => {
@@ -1175,6 +1356,103 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     >
       <div ref={mountRef} className="w-full h-full" />
 
+      {/* 3D TRANSFORM GIZMO TOOLBAR (Translate / Rotate / Scale + Snapping) */}
+      {selectedPartName && !isAnnotating && (
+        <div
+          role="toolbar"
+          aria-label="3D Transform Gizmo Controls"
+          className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 p-1 rounded-xl bg-[#14161b]/95 backdrop-blur-md border border-[#272a34] shadow-2xl animate-in fade-in slide-in-from-top-2 duration-150 select-none"
+        >
+          {/* Part context badge */}
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#181a20] border border-[#272a34] text-xs font-mono text-zinc-200">
+            <span className="w-2 h-2 rounded-full bg-sky-400" />
+            <span className="max-w-[120px] truncate">/{selectedPartName}</span>
+          </div>
+
+          <div className="h-4 w-px bg-[#272a34] mx-0.5" />
+
+          {/* Mode Switcher: Translate (G), Rotate (R), Scale (S) */}
+          <div className="flex items-center bg-[#181a20] p-0.5 rounded-lg border border-[#272a34]">
+            <button
+              type="button"
+              onClick={() => setGizmoMode('translate')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition cursor-pointer ${
+                gizmoMode === 'translate'
+                  ? 'bg-sky-600 text-white shadow-sm font-semibold'
+                  : 'text-zinc-400 hover:text-white hover:bg-[#20232c]'
+              }`}
+              title="Translate mode (G or T)"
+            >
+              <Move className="w-3.5 h-3.5" />
+              <span>Translate (G)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setGizmoMode('rotate')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition cursor-pointer ${
+                gizmoMode === 'rotate'
+                  ? 'bg-sky-600 text-white shadow-sm font-semibold'
+                  : 'text-zinc-400 hover:text-white hover:bg-[#20232c]'
+              }`}
+              title="Rotate mode (R)"
+            >
+              <RotateCw className="w-3.5 h-3.5" />
+              <span>Rotate (R)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setGizmoMode('scale')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition cursor-pointer ${
+                gizmoMode === 'scale'
+                  ? 'bg-sky-600 text-white shadow-sm font-semibold'
+                  : 'text-zinc-400 hover:text-white hover:bg-[#20232c]'
+              }`}
+              title="Scale mode (S)"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>Scale (S)</span>
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-[#272a34] mx-0.5" />
+
+          {/* Grid Snap Increment Controls */}
+          <div className="flex items-center gap-1 bg-[#181a20] px-2 py-1 rounded-lg border border-[#272a34] text-xs">
+            <Magnet className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="text-zinc-400 text-[11px] hidden sm:inline">Snap:</span>
+            <select
+              aria-label="Grid Snap Increment"
+              value={gridSnap}
+              onChange={(e) => setGridSnap(e.target.value as GridSnapIncrement)}
+              className="bg-transparent font-medium text-amber-300 focus:outline-none cursor-pointer text-xs"
+            >
+              <option value="none" className="bg-[#181a20] text-zinc-300">Free (None)</option>
+              <option value="1mm" className="bg-[#181a20] text-amber-300">1 mm</option>
+              <option value="5mm" className="bg-[#181a20] text-amber-300">5 mm</option>
+              <option value="10mm" className="bg-[#181a20] text-amber-300">10 mm</option>
+            </select>
+
+            {gizmoMode === 'rotate' && (
+              <span className="text-[10px] text-zinc-500 font-mono pl-1 border-l border-[#272a34]">
+                15°
+              </span>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onSelectPart(null)}
+            className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-[#20232c] transition cursor-pointer"
+            title="Deselect part / Detach gizmo (Esc)"
+            aria-label="Deselect part"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* PBR Surface Realism Status Indicator */}
       <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#181a20]/85 backdrop-blur-md border border-[#272a34] text-[11px] shadow-lg pointer-events-none select-none">
         <span
@@ -1467,8 +1745,12 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
           <span className="text-emerald-400 font-semibold animate-pulse">
             ✦ Annotate Mode Active: Click part or vertex
           </span>
+        ) : selectedPartName ? (
+          <span className="text-sky-300 font-medium">
+            Gizmo: [G] Translate • [R] Rotate • [S] Scale • [Esc] Done
+          </span>
         ) : (
-          <span>Click Part: Inspect B-Rep</span>
+          <span>Click Part: Inspect B-Rep &amp; Attach 3D Gizmo</span>
         )}
       </div>
 
