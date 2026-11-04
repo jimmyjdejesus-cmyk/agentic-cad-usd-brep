@@ -373,6 +373,20 @@ export interface CncCamConfig {
   stockThicknessMm?: number;     // Optional stock thickness (mm)
 }
 
+// Multi-Z Feature & Depth Extraction for Stepped CNC Machining
+export interface MultiZToolpathStage {
+  stageIndex: number;
+  featureName: string;
+  sliceZMm: number;
+  startDepthMm: number;
+  targetDepthMm: number;
+  depthSpanMm: number;
+  stepDownCount: number;
+  loops: Array<Array<{ x: number; y: number }>>;
+  rawLoops: Array<Array<{ x: number; y: number }>>;
+  isInternal: boolean;
+}
+
 // Interactive 3D Toolpath Motion & Cutter Simulation Types
 export interface ToolpathMotionStep {
   x: number;

@@ -8,7 +8,7 @@
  * 3. 3D Printing Preflight Diagnostics (Euler verification, bed adhesion contact, filament weight, print time).
  */
 
-import { CadPartOutput, CncCamConfig, PrintPreflightInfo } from '../types/cad';
+import { CadPartOutput, CncCamConfig, MultiZToolpathStage, PrintPreflightInfo } from '../types/cad';
 
 // 1 cm in ApexCAD / OpenUSD = 10 mm in CAM & 3D Printing standards
 const CM_TO_MM = 10.0;
@@ -419,6 +419,217 @@ export function generateAssemblyDxf(parts: CadPartOutput[], sliceZMm?: number): 
 // ============================================================================
 
 /**
+ * Multi-Z Feature & Depth Extraction for 2.5D Subtractive Machining
+ *
+ * Scans part mesh for horizontal face transitions (flat pocket floors, stepped shoulders,
+ * counterbores, through-cut bottoms) and slices at each level to generate accurate
+ * per-feature toolpath stages with discrete cut depths.
+ */
+export function extractMultiZFeatures(
+  part: CadPartOutput,
+  config: CncCamConfig = DEFAULT_CAM_CONFIG
+): MultiZToolpathStage[] {
+  const bbox = part.diagnostics.bounds;
+  const minZMm = bbox ? bbox[0][2] * CM_TO_MM : 0.0;
+  const maxZMm = bbox ? bbox[1][2] * CM_TO_MM : 10.0;
+  const totalHeightMm = Math.max(0.1, maxZMm - minZMm);
+  const stockThicknessMm = config.stockThicknessMm || totalHeightMm;
+
+  const pts = part.mesh?.points || [];
+  const tris = part.mesh?.triangles || [];
+  const horizontalZArea = new Map<number, number>();
+
+  if (pts.length > 0 && tris.length > 0) {
+    for (let i = 0; i < tris.length; i += 3) {
+      const p0 = pts[tris[i]];
+      const p1 = pts[tris[i + 1]];
+      const p2 = pts[tris[i + 2]];
+      if (!p0 || !p1 || !p2) continue;
+
+      const z0 = p0[2] * CM_TO_MM;
+      const z1 = p1[2] * CM_TO_MM;
+      const z2 = p2[2] * CM_TO_MM;
+
+      // Check if triangle is horizontal (all 3 vertices within 0.05 mm Z)
+      if (Math.abs(z0 - z1) < 0.05 && Math.abs(z1 - z2) < 0.05) {
+        const zMean = (z0 + z1 + z2) / 3;
+        // Bucket by rounding to 0.1 mm
+        const zKey = Math.round(zMean * 10) / 10;
+        // Compute 2D triangle area in XY (mm^2)
+        const areaMm2 =
+          0.5 *
+          Math.abs(
+            (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1])
+          ) *
+          100;
+        horizontalZArea.set(zKey, (horizontalZArea.get(zKey) || 0) + areaMm2);
+      }
+    }
+  }
+
+  // Collect candidate Z levels (with minZ and maxZ always present)
+  const candidateZ: number[] = [minZMm, maxZMm];
+  horizontalZArea.forEach((area, z) => {
+    // Keep levels with >= 0.2 mm^2 horizontal area within part bounds
+    if (area >= 0.2 && z >= minZMm - 0.05 && z <= maxZMm + 0.05) {
+      candidateZ.push(z);
+    }
+  });
+
+  candidateZ.sort((a, b) => a - b);
+
+  // Cluster nearby Z levels within 0.3 mm
+  const distinctZ: number[] = [];
+  for (const z of candidateZ) {
+    if (distinctZ.length === 0 || Math.abs(z - distinctZ[distinctZ.length - 1]) >= 0.3) {
+      distinctZ.push(z);
+    }
+  }
+
+  if (distinctZ.length < 2) {
+    distinctZ.length = 0;
+    distinctZ.push(minZMm, maxZMm);
+  }
+
+  const toolRadius = config.toolDiameterMm * 0.5;
+  const stages: MultiZToolpathStage[] = [];
+  let stageCounter = 1;
+
+  // Analyze slicing intervals between adjacent horizontal transitions
+  for (let k = distinctZ.length - 2; k >= 0; k--) {
+    const zFloor = distinctZ[k];
+    const zCeiling = distinctZ[k + 1];
+    const span = zCeiling - zFloor;
+    if (span < 0.1) continue;
+
+    const midZ = (zFloor + zCeiling) / 2;
+    const segments = sliceMeshAtZ(part, midZ);
+    let loops = stitchSegmentsIntoLoops(segments);
+    if (loops.length === 0) {
+      loops = [extractBoundaryFootprintPoints(part)];
+    }
+
+    // Sort loops by area (largest is outer perimeter, smaller are inside cutouts/pockets)
+    const loopInfos = loops.map((loop) => {
+      let area = 0;
+      for (let i = 0; i < loop.length; i++) {
+        const next = loop[(i + 1) % loop.length];
+        area += loop[i].x * next.y - next.x * loop[i].y;
+      }
+      return { loop, area: Math.abs(area) * 0.5 };
+    });
+    loopInfos.sort((a, b) => b.area - a.area);
+
+    const outerLoop = loopInfos[0]?.loop;
+    const innerLoops = loopInfos.slice(1).map((info) => info.loop);
+
+    if (config.cutOperation === 'inside_pocket') {
+      if (innerLoops.length > 0) {
+        // Target depth is measured from top of part (maxZMm) down to the pocket floor (zFloor)
+        const targetDepth = Math.max(0.1, maxZMm - zFloor);
+        const startDepth = Math.max(0.0, maxZMm - zCeiling);
+        const offsetLoops = innerLoops.map((l) => offsetPolyline(l, -toolRadius));
+
+        stages.push({
+          stageIndex: stageCounter++,
+          featureName:
+            targetDepth < totalHeightMm - 0.5
+              ? `Blind Pocket / Counterbore (Depth: ${targetDepth.toFixed(2)} mm)`
+              : `Through Pocket / Hole (Depth: ${targetDepth.toFixed(2)} mm)`,
+          sliceZMm: Number(midZ.toFixed(2)),
+          startDepthMm: Number(startDepth.toFixed(2)),
+          targetDepthMm: Number(targetDepth.toFixed(2)),
+          depthSpanMm: Number((targetDepth - startDepth).toFixed(2)),
+          stepDownCount: Math.max(1, Math.ceil(targetDepth / config.stepDownMm)),
+          loops: offsetLoops,
+          rawLoops: innerLoops,
+          isInternal: true,
+        });
+      }
+    } else {
+      if (outerLoop) {
+        const targetDepth = Math.max(0.1, maxZMm - zFloor);
+        const startDepth = Math.max(0.0, maxZMm - zCeiling);
+        const offsetDist = config.cutOperation === 'outside_contour' ? toolRadius : 0.0;
+        const offsetLoop = offsetPolyline(outerLoop, offsetDist);
+
+        stages.push({
+          stageIndex: stageCounter++,
+          featureName:
+            targetDepth < totalHeightMm - 0.5
+              ? `Stepped Shoulder / Profile (Depth: ${targetDepth.toFixed(2)} mm)`
+              : `Full-Depth Outer Contour (Depth: ${targetDepth.toFixed(2)} mm)`,
+          sliceZMm: Number(midZ.toFixed(2)),
+          startDepthMm: Number(startDepth.toFixed(2)),
+          targetDepthMm: Number(targetDepth.toFixed(2)),
+          depthSpanMm: Number((targetDepth - startDepth).toFixed(2)),
+          stepDownCount: Math.max(1, Math.ceil(targetDepth / config.stepDownMm)),
+          loops: [offsetLoop],
+          rawLoops: [outerLoop],
+          isInternal: false,
+        });
+      }
+    }
+  }
+
+  // Deduplicate stages for outside contour if profile is identical
+  if (config.cutOperation === 'outside_contour' && stages.length > 1) {
+    const firstStage = stages[0];
+    const lastStage = stages[stages.length - 1];
+    const firstLen = firstStage.loops[0]?.length || 0;
+    const lastLen = lastStage.loops[0]?.length || 0;
+    if (firstLen === lastLen && Math.abs(firstStage.sliceZMm - lastStage.sliceZMm) > 0.5) {
+      const fullDepth = Math.max(stockThicknessMm, totalHeightMm);
+      return [
+        {
+          stageIndex: 1,
+          featureName: `Full-Depth Outer Contour (Depth: ${fullDepth.toFixed(2)} mm)`,
+          sliceZMm: firstStage.sliceZMm,
+          startDepthMm: 0.0,
+          targetDepthMm: Number(fullDepth.toFixed(2)),
+          depthSpanMm: Number(fullDepth.toFixed(2)),
+          stepDownCount: Math.max(1, Math.ceil(fullDepth / config.stepDownMm)),
+          loops: firstStage.loops,
+          rawLoops: firstStage.rawLoops,
+          isInternal: false,
+        },
+      ];
+    }
+  }
+
+  // Fallback: If no stages generated, return nominal full-depth stage
+  if (stages.length === 0) {
+    const rawSegments = sliceMeshAtZ(part, minZMm + 1.0);
+    let loops = stitchSegmentsIntoLoops(rawSegments);
+    if (loops.length === 0) {
+      loops = [extractBoundaryFootprintPoints(part)];
+    }
+    const offsetDistance =
+      config.cutOperation === 'outside_contour'
+        ? toolRadius
+        : config.cutOperation === 'inside_pocket'
+        ? -toolRadius
+        : 0.0;
+    const toolpathLoops = loops.map((l) => offsetPolyline(l, offsetDistance));
+
+    stages.push({
+      stageIndex: 1,
+      featureName: `Nominal Contour (Depth: ${stockThicknessMm.toFixed(2)} mm)`,
+      sliceZMm: Number((minZMm + 1.0).toFixed(2)),
+      startDepthMm: 0.0,
+      targetDepthMm: Number(stockThicknessMm.toFixed(2)),
+      depthSpanMm: Number(stockThicknessMm.toFixed(2)),
+      stepDownCount: Math.max(1, Math.ceil(stockThicknessMm / config.stepDownMm)),
+      loops: toolpathLoops,
+      rawLoops: loops,
+      isInternal: config.cutOperation === 'inside_pocket',
+    });
+  }
+
+  return stages;
+}
+
+/**
  * Generates production-ready CNC G-Code toolpaths for subtractive milling/routing
  */
 export function generateCncGcode(part: CadPartOutput, config: CncCamConfig = DEFAULT_CAM_CONFIG): string {
@@ -426,31 +637,17 @@ export function generateCncGcode(part: CadPartOutput, config: CncCamConfig = DEF
   const zHeightMm = bbox ? Math.abs((bbox[1][2] - bbox[0][2]) * CM_TO_MM) : 10.0;
   const targetDepthMm = config.stockThicknessMm || zHeightMm;
 
-  // Extract nominal 2D contour profile
-  const rawSegments = sliceMeshAtZ(part, 1.0);
-  let loops = stitchSegmentsIntoLoops(rawSegments);
-  if (loops.length === 0) {
-    loops = [extractBoundaryFootprintPoints(part)];
-  }
-
-  const toolRadius = config.toolDiameterMm * 0.5;
-  const offsetDistance =
-    config.cutOperation === 'outside_contour'
-      ? toolRadius
-      : config.cutOperation === 'inside_pocket'
-      ? -toolRadius
-      : 0.0;
-
-  // Compute toolpath with tool radius compensation
-  const toolpathLoops = loops.map((loop) => offsetPolyline(loop, offsetDistance));
+  // Extract multi-Z toolpath stages
+  const stages = extractMultiZFeatures(part, config);
 
   const gcode: string[] = [
     `; ============================================================================`,
-    `; ApexCAD Studio CNC Toolpath Generator`,
+    `; ApexCAD Studio CNC Toolpath Generator (Multi-Z Stage Engine)`,
     `; Part: ${part.name} (Kind: ${part.kind})`,
     `; Tool: ${config.toolType} (Diameter: ${config.toolDiameterMm} mm)`,
     `; Cut Operation: ${config.cutOperation}`,
     `; Target Depth: ${targetDepthMm.toFixed(2)} mm (Step-down: ${config.stepDownMm} mm)`,
+    `; Multi-Z Stages: ${stages.length} discrete depth zone(s)`,
     `; Feed: ${config.feedRateMmMin} mm/min | Plunge: ${config.plungeRateMmMin} mm/min | RPM: ${config.spindleRpm}`,
     `; Machine Dialect: ${config.machineDialect.toUpperCase()}`,
     `; Timestamp: ${new Date().toISOString()}`,
@@ -476,50 +673,62 @@ export function generateCncGcode(part: CadPartOutput, config: CncCamConfig = DEF
   gcode.push('G04 P1.5 ; Dwell 1.5s for spindle to achieve target RPM');
   gcode.push('');
 
-  // 2. Multi-Pass Cutting Loop
-  const numPasses = Math.max(1, Math.ceil(targetDepthMm / config.stepDownMm));
+  // 2. Multi-Pass Multi-Z Cutting Stages
+  stages.forEach((stage) => {
+    gcode.push(`; ============================================================================`);
+    gcode.push(`; --- Stage ${stage.stageIndex}: ${stage.featureName} ---`);
+    gcode.push(`; Sliced at Z=${stage.sliceZMm.toFixed(2)} mm | Target Depth: ${stage.targetDepthMm.toFixed(2)} mm`);
+    gcode.push(`; ============================================================================`);
 
-  toolpathLoops.forEach((loop, loopIdx) => {
-    if (loop.length < 2) return;
+    const numPasses = Math.max(1, Math.ceil(stage.targetDepthMm / config.stepDownMm));
 
-    gcode.push(`; --- Perimeter Loop ${loopIdx + 1} of ${toolpathLoops.length} ---`);
-    const startPoint = loop[0];
+    stage.loops.forEach((loop, loopIdx) => {
+      if (loop.length < 2) return;
 
-    // Rapid to start position above workpiece
-    gcode.push(`G00 X${startPoint.x.toFixed(3)} Y${startPoint.y.toFixed(3)}`);
+      gcode.push(`; --- Perimeter Loop ${loopIdx + 1} of ${stage.loops.length} ---`);
+      const startPoint = loop[0];
 
-    for (let pass = 1; pass <= numPasses; pass++) {
-      const currentZ = -Math.min(targetDepthMm, pass * config.stepDownMm);
-      const isFinalPass = pass === numPasses;
+      // Rapid to start position above workpiece
+      gcode.push(`G00 X${startPoint.x.toFixed(3)} Y${startPoint.y.toFixed(3)}`);
 
-      gcode.push(`; Pass ${pass}/${numPasses} -> Target Z: ${currentZ.toFixed(3)} mm`);
+      for (let pass = 1; pass <= numPasses; pass++) {
+        const currentZ = -Math.min(stage.targetDepthMm, pass * config.stepDownMm);
+        const isFinalPass = pass === numPasses;
 
-      // Controlled plunge into stock
-      gcode.push(`G01 Z${currentZ.toFixed(3)} F${config.plungeRateMmMin}`);
+        gcode.push(`; Pass ${pass}/${numPasses} -> Target Z: ${currentZ.toFixed(3)} mm`);
 
-      // Mill perimeter contour points
-      for (let ptIdx = 1; ptIdx < loop.length; ptIdx++) {
-        const pt = loop[ptIdx];
+        // Controlled plunge into stock
+        gcode.push(`G01 Z${currentZ.toFixed(3)} F${config.plungeRateMmMin}`);
 
-        // Insert optional holding tabs on final pass
-        if (isFinalPass && config.addHoldingTabs && config.tabCount && ptIdx % Math.max(1, Math.floor(loop.length / config.tabCount)) === 0) {
-          const tabZ = currentZ + (config.tabHeightMm || 1.5);
-          gcode.push(`; [Holding Tab]`);
-          gcode.push(`G01 Z${tabZ.toFixed(3)} F${config.plungeRateMmMin}`);
-          gcode.push(`G01 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${config.feedRateMmMin}`);
-          gcode.push(`G01 Z${currentZ.toFixed(3)} F${config.plungeRateMmMin}`);
-        } else {
-          gcode.push(`G01 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${config.feedRateMmMin}`);
+        // Mill perimeter contour points
+        for (let ptIdx = 1; ptIdx < loop.length; ptIdx++) {
+          const pt = loop[ptIdx];
+
+          // Insert optional holding tabs on final pass
+          if (
+            isFinalPass &&
+            config.addHoldingTabs &&
+            config.tabCount &&
+            ptIdx % Math.max(1, Math.floor(loop.length / config.tabCount)) === 0
+          ) {
+            const tabZ = currentZ + (config.tabHeightMm || 1.5);
+            gcode.push(`; [Holding Tab]`);
+            gcode.push(`G01 Z${tabZ.toFixed(3)} F${config.plungeRateMmMin}`);
+            gcode.push(`G01 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${config.feedRateMmMin}`);
+            gcode.push(`G01 Z${currentZ.toFixed(3)} F${config.plungeRateMmMin}`);
+          } else {
+            gcode.push(`G01 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${config.feedRateMmMin}`);
+          }
         }
+
+        // Close the loop back to start point
+        gcode.push(`G01 X${startPoint.x.toFixed(3)} Y${startPoint.y.toFixed(3)} F${config.feedRateMmMin}`);
       }
 
-      // Close the loop back to start point
-      gcode.push(`G01 X${startPoint.x.toFixed(3)} Y${startPoint.y.toFixed(3)} F${config.feedRateMmMin}`);
-    }
-
-    // Retract above stock before next loop
-    gcode.push(`G00 Z${config.safeZMm.toFixed(3)}`);
-    gcode.push('');
+      // Retract above stock before next loop
+      gcode.push(`G00 Z${config.safeZMm.toFixed(3)}`);
+      gcode.push('');
+    });
   });
 
   // 3. Program Teardown Footer
@@ -866,26 +1075,8 @@ export function buildSimulatedToolpath(
   part: CadPartOutput,
   config: CncCamConfig = DEFAULT_CAM_CONFIG
 ): SimulatedToolpath {
-  const bbox = part.diagnostics.bounds;
-  const zHeightMm = bbox ? Math.abs((bbox[1][2] - bbox[0][2]) * CM_TO_MM) : 10.0;
-  const targetDepthMm = config.stockThicknessMm || zHeightMm;
-
-  // Extract nominal 2D contour profile
-  const rawSegments = sliceMeshAtZ(part, 1.0);
-  let loops = stitchSegmentsIntoLoops(rawSegments);
-  if (loops.length === 0) {
-    loops = [extractBoundaryFootprintPoints(part)];
-  }
-
-  const toolRadius = config.toolDiameterMm * 0.5;
-  const offsetDistance =
-    config.cutOperation === 'outside_contour'
-      ? toolRadius
-      : config.cutOperation === 'inside_pocket'
-      ? -toolRadius
-      : 0.0;
-
-  const toolpathLoops = loops.map((loop) => offsetPolyline(loop, offsetDistance));
+  // Extract multi-Z toolpath stages
+  const stages = extractMultiZFeatures(part, config);
   const steps: ToolpathMotionStep[] = [];
 
   let currentX = 0;
@@ -906,123 +1097,125 @@ export function buildSimulatedToolpath(
     passNumber: 0,
   });
 
-  const numPasses = Math.max(1, Math.ceil(targetDepthMm / config.stepDownMm));
+  stages.forEach((stage) => {
+    const numPasses = Math.max(1, Math.ceil(stage.targetDepthMm / config.stepDownMm));
 
-  toolpathLoops.forEach((loop, loopIdx) => {
-    if (loop.length < 2) return;
-    const start = loop[0];
+    stage.loops.forEach((loop) => {
+      if (loop.length < 2) return;
+      const start = loop[0];
 
-    // Rapid to loop start above stock
-    steps.push({
-      x: start.x,
-      y: start.y,
-      z: config.safeZMm,
-      isRapid: true,
-      isCutting: false,
-      feedRate: 3000,
-      command: `G00 X${start.x.toFixed(2)} Y${start.y.toFixed(2)}`,
-      lineIndex: lineIdx++,
-      passNumber: 0,
-    });
-    currentX = start.x;
-    currentY = start.y;
-
-    for (let pass = 1; pass <= numPasses; pass++) {
-      const currentPassZ = -Math.min(targetDepthMm, pass * config.stepDownMm);
-      const isFinalPass = pass === numPasses;
-
-      // Controlled Plunge
-      steps.push({
-        x: currentX,
-        y: currentY,
-        z: currentPassZ,
-        isRapid: false,
-        isCutting: true,
-        feedRate: config.plungeRateMmMin,
-        command: `G01 Z${currentPassZ.toFixed(2)} F${config.plungeRateMmMin}`,
-        lineIndex: lineIdx++,
-        passNumber: pass,
-      });
-      currentZ = currentPassZ;
-
-      // Mill perimeter points
-      for (let ptIdx = 1; ptIdx < loop.length; ptIdx++) {
-        const pt = loop[ptIdx];
-        if (
-          isFinalPass &&
-          config.addHoldingTabs &&
-          config.tabCount &&
-          ptIdx % Math.max(1, Math.floor(loop.length / config.tabCount)) === 0
-        ) {
-          const tabZ = currentPassZ + (config.tabHeightMm || 1.5);
-          steps.push({
-            x: pt.x,
-            y: pt.y,
-            z: tabZ,
-            isRapid: false,
-            isCutting: true,
-            feedRate: config.feedRateMmMin,
-            command: `G01 X${pt.x.toFixed(2)} Y${pt.y.toFixed(2)} Z${tabZ.toFixed(2)} [Tab]`,
-            lineIndex: lineIdx++,
-            passNumber: pass,
-          });
-          steps.push({
-            x: pt.x,
-            y: pt.y,
-            z: currentPassZ,
-            isRapid: false,
-            isCutting: true,
-            feedRate: config.plungeRateMmMin,
-            command: `G01 Z${currentPassZ.toFixed(2)}`,
-            lineIndex: lineIdx++,
-            passNumber: pass,
-          });
-        } else {
-          steps.push({
-            x: pt.x,
-            y: pt.y,
-            z: currentPassZ,
-            isRapid: false,
-            isCutting: true,
-            feedRate: config.feedRateMmMin,
-            command: `G01 X${pt.x.toFixed(2)} Y${pt.y.toFixed(2)}`,
-            lineIndex: lineIdx++,
-            passNumber: pass,
-          });
-        }
-        currentX = pt.x;
-        currentY = pt.y;
-      }
-
-      // Close loop back to start
+      // Rapid to loop start above stock
       steps.push({
         x: start.x,
         y: start.y,
-        z: currentPassZ,
-        isRapid: false,
-        isCutting: true,
-        feedRate: config.feedRateMmMin,
-        command: `G01 X${start.x.toFixed(2)} Y${start.y.toFixed(2)}`,
+        z: config.safeZMm,
+        isRapid: true,
+        isCutting: false,
+        feedRate: 3000,
+        command: `G00 X${start.x.toFixed(2)} Y${start.y.toFixed(2)}`,
         lineIndex: lineIdx++,
-        passNumber: pass,
+        passNumber: 0,
       });
       currentX = start.x;
       currentY = start.y;
-    }
 
-    // Retract after loop
-    steps.push({
-      x: currentX,
-      y: currentY,
-      z: config.safeZMm,
-      isRapid: true,
-      isCutting: false,
-      feedRate: 3000,
-      command: `G00 Z${config.safeZMm.toFixed(2)}`,
-      lineIndex: lineIdx++,
-      passNumber: 0,
+      for (let pass = 1; pass <= numPasses; pass++) {
+        const currentPassZ = -Math.min(stage.targetDepthMm, pass * config.stepDownMm);
+        const isFinalPass = pass === numPasses;
+
+        // Controlled Plunge
+        steps.push({
+          x: currentX,
+          y: currentY,
+          z: currentPassZ,
+          isRapid: false,
+          isCutting: true,
+          feedRate: config.plungeRateMmMin,
+          command: `G01 Z${currentPassZ.toFixed(2)} F${config.plungeRateMmMin}`,
+          lineIndex: lineIdx++,
+          passNumber: pass,
+        });
+        currentZ = currentPassZ;
+
+        // Mill perimeter points
+        for (let ptIdx = 1; ptIdx < loop.length; ptIdx++) {
+          const pt = loop[ptIdx];
+          if (
+            isFinalPass &&
+            config.addHoldingTabs &&
+            config.tabCount &&
+            ptIdx % Math.max(1, Math.floor(loop.length / config.tabCount)) === 0
+          ) {
+            const tabZ = currentPassZ + (config.tabHeightMm || 1.5);
+            steps.push({
+              x: pt.x,
+              y: pt.y,
+              z: tabZ,
+              isRapid: false,
+              isCutting: true,
+              feedRate: config.feedRateMmMin,
+              command: `G01 X${pt.x.toFixed(2)} Y${pt.y.toFixed(2)} Z${tabZ.toFixed(2)} [Tab]`,
+              lineIndex: lineIdx++,
+              passNumber: pass,
+            });
+            steps.push({
+              x: pt.x,
+              y: pt.y,
+              z: currentPassZ,
+              isRapid: false,
+              isCutting: true,
+              feedRate: config.plungeRateMmMin,
+              command: `G01 Z${currentPassZ.toFixed(2)}`,
+              lineIndex: lineIdx++,
+              passNumber: pass,
+            });
+          } else {
+            steps.push({
+              x: pt.x,
+              y: pt.y,
+              z: currentPassZ,
+              isRapid: false,
+              isCutting: true,
+              feedRate: config.feedRateMmMin,
+              command: `G01 X${pt.x.toFixed(2)} Y${pt.y.toFixed(2)}`,
+              lineIndex: lineIdx++,
+              passNumber: pass,
+            });
+          }
+          currentX = pt.x;
+          currentY = pt.y;
+        }
+
+        // Close loop back to start
+        steps.push({
+          x: start.x,
+          y: start.y,
+          z: currentPassZ,
+          isRapid: false,
+          isCutting: true,
+          feedRate: config.feedRateMmMin,
+          command: `G01 X${start.x.toFixed(2)} Y${start.y.toFixed(2)}`,
+          lineIndex: lineIdx++,
+          passNumber: pass,
+        });
+        currentX = start.x;
+        currentY = start.y;
+      }
+
+      // Retract after loop
+      steps.push({
+        x: currentX,
+        y: currentY,
+        z: config.safeZMm,
+        isRapid: true,
+        isCutting: false,
+        feedRate: 3000,
+        command: `G00 Z${config.safeZMm.toFixed(2)}`,
+        lineIndex: lineIdx++,
+        passNumber: 0,
+      });
+      currentZ = config.safeZMm;
     });
-    currentZ = config.safeZMm;
   });
 
   // Final Home Return

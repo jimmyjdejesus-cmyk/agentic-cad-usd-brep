@@ -692,7 +692,7 @@
       "epicId": "EPIC-5",
       "milestoneId": "M5",
       "title": "[v2.0.0] Multi-Z Feature Extraction for Stepped Pockets, Counterbores & Bosses",
-      "status": "open",
+      "status": "completed",
       "labels": [
         "type:sub-issue",
         "area:cnc-cam",
@@ -713,7 +713,8 @@
       "acceptanceCriteria": [
         "Slicing a part with a 5 mm deep blind pocket and a 10 mm deep outer profile generates distinct Z-depth toolpath stages",
         "3D toolpath simulator accurately renders multi-depth stepdowns"
-      ]
+      ],
+      "githubIssueNumber": 35
     },
     {
       "id": "ISS-502",
