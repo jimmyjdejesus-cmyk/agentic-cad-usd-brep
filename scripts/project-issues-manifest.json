@@ -116,7 +116,7 @@
       "id": "M5",
       "version": "v2.0.0",
       "title": "v2.0.0 — 2.5D Multi-Depth CNC CAM, Pocket Clearing & STEP / 3MF Interop",
-      "state": "open",
+      "state": "closed",
       "dueOn": "2027-02-14T23:59:59Z",
       "targetEndState": "Machinists and makers can generate shop-ready 2.5D CNC G-code (multi-Z roughing, concentric/raster pocket clearing, peck drilling, dogbone corner relief) and export multi-part .3mf and .step files.",
       "exitCriteria": [
